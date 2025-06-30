@@ -1,1 +1,1 @@
-# mvp-backend
+# Medical Exam Platform API
