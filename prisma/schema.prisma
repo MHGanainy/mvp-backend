@@ -49,6 +49,9 @@ model Student {
   // Relationships
   user               User                @relation(fields: [userId], references: [id])
   simulationAttempts SimulationAttempt[] // One student has many attempts
+  subscriptions      Subscription[]      // One student has many subscriptions
+  payments           Payment[]           // One student has many payments
+  creditTransactions CreditTransaction[] // One student has many credit transactions
   
   @@map("students")
 }
@@ -64,8 +67,11 @@ model Exam {
   updatedAt    DateTime @updatedAt @map("updated_at")
   
   // Relationships
-  instructor Instructor @relation(fields: [instructorId], references: [id])
-  courses    Course[]   // One exam can have many courses
+  instructor        Instructor        @relation(fields: [instructorId], references: [id])
+  courses           Course[]          // One exam can have many courses
+  examSpecialties   ExamSpecialty[]   // Many-to-many with Specialty
+  examCurriculums   ExamCurriculum[]  // Many-to-many with Curriculum
+  examMarkingDomains ExamMarkingDomain[] // Many-to-many with MarkingDomain
   
   @@map("exams")
 }
@@ -88,9 +94,10 @@ model Course {
   updatedAt       DateTime    @updatedAt @map("updated_at")
   
   // Relationships
-  exam        Exam         @relation(fields: [examId], references: [id])
-  instructor  Instructor   @relation(fields: [instructorId], references: [id])
-  courseCases CourseCase[] // One course has many cases
+  exam          Exam           @relation(fields: [examId], references: [id])
+  instructor    Instructor     @relation(fields: [instructorId], references: [id])
+  courseCases   CourseCase[]   // One course has many cases
+  subscriptions Subscription[] // One course has many subscriptions
   
   @@map("courses")
 }
@@ -110,10 +117,30 @@ model CourseCase {
   updatedAt    DateTime      @updatedAt @map("updated_at")
   
   // Relationships
-  course     Course      @relation(fields: [courseId], references: [id])
-  simulation Simulation? // One CourseCase has one optional Simulation
+  course          Course          @relation(fields: [courseId], references: [id])
+  simulation      Simulation?     // One CourseCase has one optional Simulation
+  caseTabs        CaseTab[]       // One CourseCase has many case tabs
+  caseSpecialties CaseSpecialty[] // Many-to-many with Specialty
+  caseCurriculums CaseCurriculum[] // Many-to-many with Curriculum
   
   @@map("course_cases")
+}
+
+// NEW: CaseTab Model for the 4 content tabs
+model CaseTab {
+  id           String      @id @default(uuid())
+  courseCaseId String      @map("course_case_id")
+  tabType      CaseTabType @map("tab_type")
+  content      String      @db.Text
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  
+  // Relationships
+  courseCase CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
+  
+  // Ensure each case has only one tab of each type
+  @@unique([courseCaseId, tabType])
+  @@map("case_tabs")
 }
 
 model Simulation {
@@ -155,6 +182,169 @@ model SimulationAttempt {
   @@map("simulation_attempts")
 }
 
+// NEW: Payment Model for Stripe integration
+model Payment {
+  id                   String        @id @default(uuid())
+  studentId            String        @map("student_id")
+  stripePaymentId      String        @unique @map("stripe_payment_id")
+  amount               Decimal       @db.Decimal(10,2)
+  currency             String        @default("USD")
+  paymentType          PaymentType   @map("payment_type")
+  paymentStatus        PaymentStatus @map("payment_status")
+  courseId             String?       @map("course_id") // For subscription payments
+  subscriptionDuration Int?          @map("subscription_duration") // 3, 6, or 12 months
+  creditsAmount        Int?          @map("credits_amount") // For credit purchases
+  createdAt            DateTime      @default(now()) @map("created_at")
+  
+  // Relationships
+  student      Student       @relation(fields: [studentId], references: [id])
+  subscription Subscription? // One payment can create one subscription
+  
+  @@map("payments")
+}
+
+// NEW: Subscription Model for course access
+model Subscription {
+  id             String   @id @default(uuid())
+  studentId      String   @map("student_id")
+  courseId       String   @map("course_id")
+  paymentId      String   @unique @map("payment_id")
+  durationMonths Int      @map("duration_months") // 3, 6, or 12
+  startDate      DateTime @map("start_date") @db.Date
+  endDate        DateTime @map("end_date") @db.Date
+  isActive       Boolean  @map("is_active") // Computed from dates
+  createdAt      DateTime @default(now()) @map("created_at")
+  
+  // Relationships
+  student   Student   @relation(fields: [studentId], references: [id])
+  course    Course    @relation(fields: [courseId], references: [id])
+  payment   Payment   @relation(fields: [paymentId], references: [id])
+  
+  @@map("subscriptions")
+}
+
+// NEW: CreditTransaction Model for tracking credit usage
+model CreditTransaction {
+  id              String                    @id @default(uuid())
+  studentId       String                    @map("student_id")
+  transactionType CreditTransactionType     @map("transaction_type")
+  amount          Int                       // Credits added/deducted
+  balanceAfter    Int                       @map("balance_after")
+  sourceType      CreditTransactionSource   @map("source_type")
+  sourceId        String?                   @map("source_id") // Reference to source record
+  description     String?                   // Optional description
+  expiresAt       DateTime?                 @map("expires_at") // Only for complimentary credits
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  
+  // Relationships
+  student Student @relation(fields: [studentId], references: [id])
+  
+  @@map("credit_transactions")
+}
+
+model Specialty {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  examSpecialties ExamSpecialty[] // Many-to-many with Exam
+  caseSpecialties CaseSpecialty[] // Many-to-many with CourseCase
+
+  @@map("specialties")
+}
+
+model Curriculum {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  examCurriculums ExamCurriculum[] // Many-to-many with Exam
+  caseCurriculums CaseCurriculum[] // Many-to-many with CourseCase
+
+  @@map("curriculums")
+}
+
+model MarkingDomain {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  examMarkingDomains ExamMarkingDomain[] // Many-to-many with Exam
+
+  @@map("marking_domains")
+}
+
+// Junction Tables for Many-to-Many Relationships
+
+model ExamSpecialty {
+  examId      String   @map("exam_id")
+  specialtyId String   @map("specialty_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  // Relationships
+  exam      Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  specialty Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  
+  @@id([examId, specialtyId])
+  @@map("exam_specialties")
+}
+
+model ExamCurriculum {
+  examId         String     @map("exam_id")
+  curriculumId   String     @map("curriculum_id")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  
+  // Relationships
+  exam       Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  curriculum Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+  
+  @@id([examId, curriculumId])
+  @@map("exam_curriculums")
+}
+
+model ExamMarkingDomain {
+  examId          String        @map("exam_id")
+  markingDomainId String        @map("marking_domain_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  
+  // Relationships
+  exam          Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
+  markingDomain MarkingDomain @relation(fields: [markingDomainId], references: [id], onDelete: Cascade)
+  
+  @@id([examId, markingDomainId])
+  @@map("exam_marking_domains")
+}
+
+model CaseSpecialty {
+  courseCaseId String    @map("course_case_id")
+  specialtyId  String    @map("specialty_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  
+  // Relationships
+  courseCase CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
+  specialty  Specialty  @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  
+  @@id([courseCaseId, specialtyId])
+  @@map("case_specialties")
+}
+
+model CaseCurriculum {
+  courseCaseId String     @map("course_case_id")
+  curriculumId String     @map("curriculum_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  
+  // Relationships
+  courseCase CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
+  curriculum Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+  
+  @@id([courseCaseId, curriculumId])
+  @@map("case_curriculums")
+}
+
+// Enums
 enum CourseStyle {
   RANDOM
   STRUCTURED
@@ -171,26 +361,32 @@ enum VoiceModel {
   VOICE_2
 }
 
-model Specialty {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("specialties")
+enum CaseTabType {
+  DOCTORS_NOTE
+  PATIENT_SCRIPT
+  MARKING_CRITERIA
+  MEDICAL_NOTES
 }
 
-model Curriculum {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("curriculums")
+enum PaymentType {
+  SUBSCRIPTION
+  CREDITS
 }
 
-model MarkingDomain {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
 
-  @@map("marking_domains")
+enum CreditTransactionType {
+  CREDIT  // Adding credits
+  DEBIT   // Deducting credits
+}
+
+enum CreditTransactionSource {
+  SUBSCRIPTION  // Credits from subscription
+  PURCHASE     // Credits from direct purchase
+  SIMULATION   // Credits used for simulation
+  MANUAL       // Manual adjustment
 }

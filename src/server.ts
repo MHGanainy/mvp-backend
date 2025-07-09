@@ -11,6 +11,7 @@ import studentRoutes from './entities/student/student.routes'
 import examRoutes from './entities/exam/exam.routes'
 import courseRoutes from './entities/course/course.routes'
 import courseCaseRoutes from './entities/course-case/course-case.routes'
+import caseTabRoutes from './entities/case-tab/case-tab.routes'  
 import simulationRoutes from './entities/simulation/simulation.routes'
 import simulationAttemptRoutes from './entities/simulation-attempt/simulation-attempt.routes'
 
@@ -75,6 +76,7 @@ const start = async () => {
       await fastify.register(examRoutes, { prefix: '/api' })
       await fastify.register(courseRoutes, { prefix: '/api' })
       await fastify.register(courseCaseRoutes, { prefix: '/api' })
+      await fastify.register(caseTabRoutes, { prefix: '/api' })  
       await fastify.register(simulationRoutes, { prefix: '/api' })
       await fastify.register(simulationAttemptRoutes, { prefix: '/api' })
       

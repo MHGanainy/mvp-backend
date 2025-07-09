@@ -367,4 +367,267 @@ export class CourseCaseService {
       avgAge: result._avg.patientAge ? Math.round(result._avg.patientAge) : null
     }
   }
+
+  async assignSpecialties(courseCaseId: string, specialtyIds: string[]) {
+    // Verify course case exists
+    await this.findById(courseCaseId)
+
+    // Verify all specialties exist
+    const specialties = await this.prisma.specialty.findMany({
+      where: { id: { in: specialtyIds } }
+    })
+
+    if (specialties.length !== specialtyIds.length) {
+      throw new Error('One or more specialties not found')
+    }
+
+    // Remove existing assignments
+    await this.prisma.caseSpecialty.deleteMany({
+      where: { courseCaseId }
+    })
+
+    // Create new assignments
+    const assignments = await this.prisma.caseSpecialty.createMany({
+      data: specialtyIds.map((specialtyId: string) => ({
+        courseCaseId,
+        specialtyId
+      }))
+    })
+
+    return assignments
+  }
+
+  // Assign curriculum items to a course case
+  async assignCurriculums(courseCaseId: string, curriculumIds: string[]) {
+    // Verify course case exists
+    await this.findById(courseCaseId)
+
+    // Verify all curriculum items exist
+    const curriculums = await this.prisma.curriculum.findMany({
+      where: { id: { in: curriculumIds } }
+    })
+
+    if (curriculums.length !== curriculumIds.length) {
+      throw new Error('One or more curriculum items not found')
+    }
+
+    // Remove existing assignments
+    await this.prisma.caseCurriculum.deleteMany({
+      where: { courseCaseId }
+    })
+
+    // Create new assignments
+    const assignments = await this.prisma.caseCurriculum.createMany({
+      data: curriculumIds.map((curriculumId: string) => ({
+        courseCaseId,
+        curriculumId
+      }))
+    })
+
+    return assignments
+  }
+
+  // Get cases filtered by specialties and/or curriculum items
+  async findByFilters(courseId: string, filters: {
+    specialtyIds?: string[]
+    curriculumIds?: string[]
+    isFree?: boolean
+    patientGender?: PatientGender
+  }) {
+    let whereClause: any = { courseId }
+
+    // Add free/paid filter
+    if (filters.isFree !== undefined) {
+      whereClause.isFree = filters.isFree
+    }
+
+    // Add gender filter
+    if (filters.patientGender) {
+      whereClause.patientGender = filters.patientGender
+    }
+
+    // Add specialty filter
+    if (filters.specialtyIds && filters.specialtyIds.length > 0) {
+      whereClause.caseSpecialties = {
+        some: {
+          specialtyId: { in: filters.specialtyIds }
+        }
+      }
+    }
+
+    // Add curriculum filter
+    if (filters.curriculumIds && filters.curriculumIds.length > 0) {
+      whereClause.caseCurriculums = {
+        some: {
+          curriculumId: { in: filters.curriculumIds }
+        }
+      }
+    }
+
+    return await this.prisma.courseCase.findMany({
+      where: whereClause,
+      include: {
+        course: {
+          include: {
+            exam: {
+              select: {
+                id: true,
+                title: true,
+                slug: true
+              }
+            }
+          }
+        },
+        caseSpecialties: {
+          include: {
+            specialty: true
+          }
+        },
+        caseCurriculums: {
+          include: {
+            curriculum: true
+          }
+        }
+      },
+      orderBy: { displayOrder: 'asc' }
+    })
+  }
+
+  // Get specialties assigned to a course case
+  async getCaseSpecialties(courseCaseId: string) {
+    const caseSpecialties = await this.prisma.caseSpecialty.findMany({
+      where: { courseCaseId },
+      include: {
+        specialty: true
+      }
+    })
+
+    return caseSpecialties.map((cs: { specialty: any }) => cs.specialty)
+  }
+
+  // Get curriculum items assigned to a course case
+  async getCaseCurriculums(courseCaseId: string) {
+    const caseCurriculums = await this.prisma.caseCurriculum.findMany({
+      where: { courseCaseId },
+      include: {
+        curriculum: true
+      }
+    })
+
+    return caseCurriculums.map((cc: { curriculum: any }) => cc.curriculum)
+  }
+
+  // Remove specialty from course case
+  async removeSpecialty(courseCaseId: string, specialtyId: string) {
+    const deleted = await this.prisma.caseSpecialty.deleteMany({
+      where: { courseCaseId, specialtyId }
+    })
+
+    if (deleted.count === 0) {
+      throw new Error('Specialty assignment not found')
+    }
+
+    return { message: 'Specialty removed successfully' }
+  }
+
+  // Remove curriculum from course case
+  async removeCurriculum(courseCaseId: string, curriculumId: string) {
+    const deleted = await this.prisma.caseCurriculum.deleteMany({
+      where: { courseCaseId, curriculumId }
+    })
+
+    if (deleted.count === 0) {
+      throw new Error('Curriculum assignment not found')
+    }
+
+    return { message: 'Curriculum removed successfully' }
+  }
+
+  // Get filtering statistics for a course
+  async getFilteringStats(courseId: string) {
+    // Get all cases for this course
+    const totalCases = await this.prisma.courseCase.count({
+      where: { courseId }
+    })
+
+    // Get specialty distribution
+    const specialtyStats = await this.prisma.caseSpecialty.groupBy({
+      by: ['specialtyId'],
+      where: {
+        courseCase: { courseId }
+      },
+      _count: { specialtyId: true },
+      include: {
+        specialty: true
+      }
+    })
+
+    // Get curriculum distribution
+    const curriculumStats = await this.prisma.caseCurriculum.groupBy({
+      by: ['curriculumId'],
+      where: {
+        courseCase: { courseId }
+      },
+      _count: { curriculumId: true }
+    })
+
+    return {
+      courseId,
+      totalCases,
+      specialtyDistribution: specialtyStats,
+      curriculumDistribution: curriculumStats
+    }
+  }
+
+  // Bulk assign specialties and curriculums to multiple cases
+  async bulkAssignFilters(assignments: Array<{
+    courseCaseId: string
+    specialtyIds?: string[]
+    curriculumIds?: string[]
+  }>) {
+    const results = await this.prisma.$transaction(
+      assignments.map((assignment: {
+        courseCaseId: string
+        specialtyIds?: string[]
+        curriculumIds?: string[]
+      }) => {
+        const operations = []
+
+        if (assignment.specialtyIds && assignment.specialtyIds.length > 0) {
+          operations.push(
+            this.prisma.caseSpecialty.deleteMany({
+              where: { courseCaseId: assignment.courseCaseId }
+            }),
+            this.prisma.caseSpecialty.createMany({
+              data: assignment.specialtyIds.map((specialtyId: string) => ({
+                courseCaseId: assignment.courseCaseId,
+                specialtyId
+              }))
+            })
+          )
+        }
+
+        if (assignment.curriculumIds && assignment.curriculumIds.length > 0) {
+          operations.push(
+            this.prisma.caseCurriculum.deleteMany({
+              where: { courseCaseId: assignment.courseCaseId }
+            }),
+            this.prisma.caseCurriculum.createMany({
+              data: assignment.curriculumIds.map((curriculumId: string) => ({
+                courseCaseId: assignment.courseCaseId,
+                curriculumId
+              }))
+            })
+          )
+        }
+
+        return operations
+      }).flat()
+    )
+
+    return {
+      message: 'Bulk assignment completed',
+      processedCases: assignments.length
+    }
+  }
 }

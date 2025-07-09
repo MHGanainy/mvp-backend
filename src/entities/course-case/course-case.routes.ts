@@ -10,6 +10,20 @@ import {
   PatientGenderEnum
 } from './course-case.schema'
 
+import {
+  assignSpecialtiesSchema,
+  assignCurriculumsSchema,
+  filterCasesSchema,
+  bulkAssignFiltersSchema,
+  removeSpecialtySchema,
+  removeCurriculumSchema,
+  courseCaseParamsSchema as junctionCourseCaseParamsSchema,
+  courseParamsSchema,
+  specialtyRemoveParamsSchema,
+  curriculumRemoveParamsSchema,
+  filterQuerySchema
+} from '../../shared/junction-tables.schema'
+
 // Additional schemas for query parameters
 const genderParamsSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
@@ -216,4 +230,228 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       }
     }
   })
+
+    // GET /course-cases/course/:courseId/filtered - Get filtered cases
+    fastify.get('/course-cases/course/:courseId/filtered', async (request, reply) => {
+      try {
+        const { courseId } = courseParamsSchema.parse(request.params)
+        const filters = filterQuerySchema.parse(request.query)
+        
+        const courseCases = await courseCaseService.findByFilters(courseId, {
+          specialtyIds: filters.specialtyIds,
+          curriculumIds: filters.curriculumIds,
+          isFree: filters.isFree,
+          patientGender: filters.patientGender
+        })
+        
+        reply.send(courseCases)
+      } catch (error) {
+        reply.status(400).send({ error: 'Invalid filter parameters' })
+      }
+    })
+  
+    // GET /course-cases/:courseCaseId/specialties - Get case specialties
+    fastify.get('/course-cases/:courseCaseId/specialties', async (request, reply) => {
+      try {
+        const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
+        const specialties = await courseCaseService.getCaseSpecialties(courseCaseId)
+        reply.send(specialties)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      }
+    })
+  
+    // GET /course-cases/:courseCaseId/curriculums - Get case curriculum items
+    fastify.get('/course-cases/:courseCaseId/curriculums', async (request, reply) => {
+      try {
+        const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
+        const curriculums = await courseCaseService.getCaseCurriculums(courseCaseId)
+        reply.send(curriculums)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      }
+    })
+  
+    // POST /course-cases/assign-specialties - Assign specialties to case
+    fastify.post('/course-cases/assign-specialties', async (request, reply) => {
+      try {
+        const { courseCaseId, specialtyIds } = assignSpecialtiesSchema.parse(request.body)
+        const result = await courseCaseService.assignSpecialties(courseCaseId, specialtyIds)
+        reply.send({
+          message: 'Specialties assigned successfully',
+          assignments: result,
+          courseCaseId,
+          specialtiesCount: specialtyIds.length
+        })
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'Course case not found') {
+            reply.status(404).send({ error: 'Course case not found' })
+          } else if (error.message === 'One or more specialties not found') {
+            reply.status(404).send({ error: 'One or more specialties not found' })
+          } else {
+            reply.status(400).send({ error: 'Invalid data' })
+          }
+        } else {
+          reply.status(500).send({ error: 'Internal server error' })
+        }
+      }
+    })
+  
+    // POST /course-cases/assign-curriculums - Assign curriculum items to case
+    fastify.post('/course-cases/assign-curriculums', async (request, reply) => {
+      try {
+        const { courseCaseId, curriculumIds } = assignCurriculumsSchema.parse(request.body)
+        const result = await courseCaseService.assignCurriculums(courseCaseId, curriculumIds)
+        reply.send({
+          message: 'Curriculum items assigned successfully',
+          assignments: result,
+          courseCaseId,
+          curriculumsCount: curriculumIds.length
+        })
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'Course case not found') {
+            reply.status(404).send({ error: 'Course case not found' })
+          } else if (error.message === 'One or more curriculum items not found') {
+            reply.status(404).send({ error: 'One or more curriculum items not found' })
+          } else {
+            reply.status(400).send({ error: 'Invalid data' })
+          }
+        } else {
+          reply.status(500).send({ error: 'Internal server error' })
+        }
+      }
+    })
+  
+    // POST /course-cases/bulk-assign-filters - Bulk assign filters to multiple cases
+    fastify.post('/course-cases/bulk-assign-filters', async (request, reply) => {
+      try {
+        const { assignments } = bulkAssignFiltersSchema.parse(request.body)
+        const result = await courseCaseService.bulkAssignFilters(assignments)
+        reply.send({
+          message: 'Bulk assignment completed successfully',
+          result,
+          processedCases: assignments.length
+        })
+      } catch (error) {
+        if (error instanceof Error) {
+          reply.status(400).send({ error: error.message })
+        } else {
+          reply.status(500).send({ error: 'Internal server error' })
+        }
+      }
+    })
+  
+    // DELETE /course-cases/:courseCaseId/specialties/:specialtyId - Remove specialty
+    fastify.delete('/course-cases/:courseCaseId/specialties/:specialtyId', async (request, reply) => {
+      try {
+        const { courseCaseId, specialtyId } = specialtyRemoveParamsSchema.parse(request.params)
+        const result = await courseCaseService.removeSpecialty(courseCaseId, specialtyId)
+        reply.send(result)
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'Course case not found') {
+            reply.status(404).send({ error: 'Course case not found' })
+          } else if (error.message === 'Specialty assignment not found') {
+            reply.status(404).send({ error: 'Specialty assignment not found' })
+          } else {
+            reply.status(400).send({ error: 'Invalid request' })
+          }
+        } else {
+          reply.status(500).send({ error: 'Internal server error' })
+        }
+      }
+    })
+  
+    // DELETE /course-cases/:courseCaseId/curriculums/:curriculumId - Remove curriculum
+    fastify.delete('/course-cases/:courseCaseId/curriculums/:curriculumId', async (request, reply) => {
+      try {
+        const { courseCaseId, curriculumId } = curriculumRemoveParamsSchema.parse(request.params)
+        const result = await courseCaseService.removeCurriculum(courseCaseId, curriculumId)
+        reply.send(result)
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'Course case not found') {
+            reply.status(404).send({ error: 'Course case not found' })
+          } else if (error.message === 'Curriculum assignment not found') {
+            reply.status(404).send({ error: 'Curriculum assignment not found' })
+          } else {
+            reply.status(400).send({ error: 'Invalid request' })
+          }
+        } else {
+          reply.status(500).send({ error: 'Internal server error' })
+        }
+      }
+    })
+  
+    // GET /course-cases/course/:courseId/filtering-stats - Get filtering statistics
+    fastify.get('/course-cases/course/:courseId/filtering-stats', async (request, reply) => {
+      try {
+        const { courseId } = courseParamsSchema.parse(request.params)
+        const stats = await courseCaseService.getFilteringStats(courseId)
+        reply.send(stats)
+      } catch (error) {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    })
+  
+    // Helper endpoint for available filters
+    fastify.get('/course-cases/course/:courseId/available-filters', async (request, reply) => {
+      try {
+        const { courseId } = courseParamsSchema.parse(request.params)
+        
+        // Get all specialties and curriculums used in this course
+        const courseCases = await courseCaseService.findByCourse(courseId)
+        
+        const uniqueSpecialties = new Set()
+        const uniqueCurriculums = new Set()
+        const availableGenders = new Set()
+        
+        courseCases.forEach((courseCase: any) => {
+          // Add patient gender
+          availableGenders.add(courseCase.patientGender)
+          
+          // Add specialties
+          if (courseCase.caseSpecialties) {
+            courseCase.caseSpecialties.forEach((cs: any) => {
+              uniqueSpecialties.add(JSON.stringify({
+                id: cs.specialty.id,
+                name: cs.specialty.name
+              }))
+            })
+          }
+          
+          // Add curriculums
+          if (courseCase.caseCurriculums) {
+            courseCase.caseCurriculums.forEach((cc: any) => {
+              uniqueCurriculums.add(JSON.stringify({
+                id: cc.curriculum.id,
+                name: cc.curriculum.name
+              }))
+            })
+          }
+        })
+        
+        reply.send({
+          courseId,
+          availableFilters: {
+            specialties: Array.from(uniqueSpecialties).map((s: any) => JSON.parse(s)),
+            curriculums: Array.from(uniqueCurriculums).map((c: any) => JSON.parse(c)),
+            genders: Array.from(availableGenders),
+            freeOptions: [true, false]
+          }
+        })
+      } catch (error) {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    })
 }
