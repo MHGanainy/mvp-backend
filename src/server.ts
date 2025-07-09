@@ -1,23 +1,41 @@
 import Fastify from 'fastify'
 import { PrismaClient } from '@prisma/client'
+import './shared/types'
+
+// Add all imports
+import specialtyRoutes from './entities/specialty/specialty.routes'
+import curriculumRoutes from './entities/curriculum/curriculum.routes'
+import markingDomainRoutes from './entities/marking-domain/marking-domain.routes'
+import instructorRoutes from './entities/instructor/instructor.routes'
+import studentRoutes from './entities/student/student.routes'
+import examRoutes from './entities/exam/exam.routes'
+import courseRoutes from './entities/course/course.routes'
+import courseCaseRoutes from './entities/course-case/course-case.routes'
+import simulationRoutes from './entities/simulation/simulation.routes'
+import simulationAttemptRoutes from './entities/simulation-attempt/simulation-attempt.routes'
 
 const fastify = Fastify({ logger: true })
 const prisma = new PrismaClient()
+
+// Register prisma on fastify instance
+fastify.decorate('prisma', prisma)
 
 // Health check
 fastify.get('/health', async () => {
   return { status: 'OK', timestamp: new Date().toISOString() }
 })
 
-// Get all users
+// Clean User routes
 fastify.get('/users', async () => {
   const users = await prisma.user.findMany({
-    include: { posts: true }
+    include: { 
+      instructor: true,
+      student: true
+    }
   })
   return users
 })
 
-// Create user
 fastify.post('/users', async (request) => {
   const { email, name } = request.body as { email: string; name?: string }
   
@@ -27,13 +45,15 @@ fastify.post('/users', async (request) => {
   return user
 })
 
-// Get user by ID
 fastify.get('/users/:id', async (request) => {
   const { id } = request.params as { id: string }
   
   const user = await prisma.user.findUnique({
     where: { id: parseInt(id) },
-    include: { posts: true }
+    include: { 
+      instructor: true,
+      student: true
+    }
   })
   
   if (!user) {
@@ -43,23 +63,21 @@ fastify.get('/users/:id', async (request) => {
   return user
 })
 
-// Create post
-fastify.post('/posts', async (request) => {
-  const { title, content, authorId } = request.body as {
-    title: string
-    content?: string
-    authorId: number
-  }
-  
-  const post = await prisma.post.create({
-    data: { title, content, authorId }
-  })
-  return post
-})
-
 // Start server
 const start = async () => {
     try {
+      // Register all route sets
+      await fastify.register(specialtyRoutes, { prefix: '/api' })
+      await fastify.register(curriculumRoutes, { prefix: '/api' })
+      await fastify.register(markingDomainRoutes, { prefix: '/api' })
+      await fastify.register(instructorRoutes, { prefix: '/api' })
+      await fastify.register(studentRoutes, { prefix: '/api' })
+      await fastify.register(examRoutes, { prefix: '/api' })
+      await fastify.register(courseRoutes, { prefix: '/api' })
+      await fastify.register(courseCaseRoutes, { prefix: '/api' })
+      await fastify.register(simulationRoutes, { prefix: '/api' })
+      await fastify.register(simulationAttemptRoutes, { prefix: '/api' })
+      
       const port = Number(process.env.PORT) || 3000
       const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost'
       

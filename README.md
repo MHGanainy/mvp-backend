@@ -40,3 +40,6 @@ Local: npx prisma studio
 Production: railway run npx prisma studio
 
 
+npx prisma migrate dev --name add-curriculum
+
+
