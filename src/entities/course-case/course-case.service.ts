@@ -1,45 +1,61 @@
-import { PrismaClient } from '@prisma/client'
-import { CreateCourseCaseInput, UpdateCourseCaseInput, PatientGender } from './course-case.schema'
+// course-case.service.ts
+import { PrismaClient, PatientGender } from '@prisma/client'
+import { CreateCourseCaseInput, UpdateCourseCaseInput } from './course-case.schema'
+
+// Filter input interface
+interface FilterInput {
+  specialtyIds?: string[]
+  curriculumIds?: string[]
+  isFree?: boolean
+  patientGender?: PatientGender
+}
+
+// Bulk assignment interface
+interface BulkAssignmentInput {
+  courseCaseId: string
+  specialtyIds?: string[]
+  curriculumIds?: string[]
+}
 
 export class CourseCaseService {
   constructor(private prisma: PrismaClient) {}
 
+  // ===== BASIC CRUD OPERATIONS =====
+
   async create(data: CreateCourseCaseInput) {
-    // Verify the course exists
+    // Verify course exists and get course data
     const course = await this.prisma.course.findUnique({
-      where: { id: data.courseId },
-      include: { exam: true }
+      where: { id: data.courseId }
     })
 
     if (!course) {
       throw new Error('Course not found')
     }
 
-    // Ensure it's a RANDOM style course (only RANDOM courses have cases)
+    // Check if course style allows adding cases
     if (course.style !== 'RANDOM') {
       throw new Error('Cases can only be added to RANDOM style courses')
     }
 
-    // Auto-assign display order if not provided
-    let displayOrder = data.displayOrder
-    if (!displayOrder) {
-      const lastCase = await this.prisma.courseCase.findFirst({
-        where: { courseId: data.courseId },
-        orderBy: { displayOrder: 'desc' }
+    // Check if display order is already taken
+    if (data.displayOrder) {
+      const existingCase = await this.prisma.courseCase.findFirst({
+        where: {
+          courseId: data.courseId,
+          displayOrder: data.displayOrder
+        }
       })
-      displayOrder = lastCase ? lastCase.displayOrder + 1 : 1
-    }
 
-    // Check if display order conflicts
-    const existingCase = await this.prisma.courseCase.findFirst({
-      where: { 
-        courseId: data.courseId,
-        displayOrder: displayOrder
+      if (existingCase) {
+        throw new Error(`Display order ${data.displayOrder} is already taken for this course`)
       }
-    })
-
-    if (existingCase) {
-      throw new Error(`Display order ${displayOrder} is already taken`)
+    } else {
+      // Auto-assign next display order
+      const maxOrder = await this.prisma.courseCase.aggregate({
+        where: { courseId: data.courseId },
+        _max: { displayOrder: true }
+      })
+      data.displayOrder = (maxOrder._max.displayOrder || 0) + 1
     }
 
     return await this.prisma.courseCase.create({
@@ -52,7 +68,7 @@ export class CourseCaseService {
         patientGender: data.patientGender,
         description: data.description,
         isFree: data.isFree ?? false,
-        displayOrder: displayOrder
+        displayOrder: data.displayOrder
       },
       include: {
         course: {
@@ -92,6 +108,43 @@ export class CourseCaseService {
     })
   }
 
+  async findById(id: string) {
+    const courseCase = await this.prisma.courseCase.findUnique({
+      where: { id },
+      include: {
+        course: {
+          include: {
+            exam: {
+              select: {
+                id: true,
+                title: true,
+                slug: true
+              }
+            }
+          }
+        },
+        simulation: true,
+        caseTabs: true,
+        caseSpecialties: {
+          include: {
+            specialty: true
+          }
+        },
+        caseCurriculums: {
+          include: {
+            curriculum: true
+          }
+        }
+      }
+    })
+
+    if (!courseCase) {
+      throw new Error('Course case not found')
+    }
+
+    return courseCase
+  }
+
   async findByCourse(courseId: string) {
     // Verify course exists
     const course = await this.prisma.course.findUnique({
@@ -115,17 +168,36 @@ export class CourseCaseService {
               }
             }
           }
+        },
+        simulation: {
+          select: {
+            id: true,
+            timeLimitMinutes: true,
+            creditCost: true
+          }
+        },
+        caseSpecialties: {
+          include: {
+            specialty: true
+          }
+        },
+        caseCurriculums: {
+          include: {
+            curriculum: true
+          }
         }
       },
-      orderBy: { displayOrder: 'asc' }
+      orderBy: {
+        displayOrder: 'asc'
+      }
     })
   }
 
   async findFreeCases(courseId: string) {
     return await this.prisma.courseCase.findMany({
-      where: { 
+      where: {
         courseId,
-        isFree: true 
+        isFree: true
       },
       include: {
         course: {
@@ -140,15 +212,17 @@ export class CourseCaseService {
           }
         }
       },
-      orderBy: { displayOrder: 'asc' }
+      orderBy: {
+        displayOrder: 'asc'
+      }
     })
   }
 
   async findPaidCases(courseId: string) {
     return await this.prisma.courseCase.findMany({
-      where: { 
+      where: {
         courseId,
-        isFree: false 
+        isFree: false
       },
       include: {
         course: {
@@ -163,15 +237,17 @@ export class CourseCaseService {
           }
         }
       },
-      orderBy: { displayOrder: 'asc' }
+      orderBy: {
+        displayOrder: 'asc'
+      }
     })
   }
 
   async findByGender(courseId: string, gender: PatientGender) {
     return await this.prisma.courseCase.findMany({
-      where: { 
+      where: {
         courseId,
-        patientGender: gender 
+        patientGender: gender
       },
       include: {
         course: {
@@ -186,52 +262,28 @@ export class CourseCaseService {
           }
         }
       },
-      orderBy: { displayOrder: 'asc' }
-    })
-  }
-
-  async findById(id: string) {
-    const courseCase = await this.prisma.courseCase.findUnique({
-      where: { id },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
+      orderBy: {
+        displayOrder: 'asc'
       }
     })
-
-    if (!courseCase) {
-      throw new Error('Course case not found')
-    }
-
-    return courseCase
   }
 
   async update(id: string, data: UpdateCourseCaseInput) {
-    // Check if case exists
-    await this.findById(id)
+    // Check if course case exists
+    const existingCase = await this.findById(id)
 
-    // If updating display order, check for conflicts
-    if (data.displayOrder) {
-      const caseToUpdate = await this.findById(id)
-      const existingCase = await this.prisma.courseCase.findFirst({
-        where: { 
-          courseId: caseToUpdate.courseId,
+    // If updating display order, check it's not taken by another case
+    if (data.displayOrder && data.displayOrder !== existingCase.displayOrder) {
+      const conflictingCase = await this.prisma.courseCase.findFirst({
+        where: {
+          courseId: existingCase.courseId,
           displayOrder: data.displayOrder,
-          id: { not: id } // Exclude current case
+          id: { not: id }
         }
       })
 
-      if (existingCase) {
-        throw new Error(`Display order ${data.displayOrder} is already taken`)
+      if (conflictingCase) {
+        throw new Error(`Display order ${data.displayOrder} is already taken for this course`)
       }
     }
 
@@ -255,7 +307,7 @@ export class CourseCaseService {
   }
 
   async delete(id: string) {
-    // Check if case exists
+    // Check if course case exists
     await this.findById(id)
 
     return await this.prisma.courseCase.delete({
@@ -287,19 +339,18 @@ export class CourseCaseService {
 
   async reorder(id: string, newOrder: number) {
     const courseCase = await this.findById(id)
-    const courseId = courseCase.courseId
 
-    // Check if new order conflicts
-    const existingCase = await this.prisma.courseCase.findFirst({
-      where: { 
-        courseId,
+    // Check if new order is taken by another case
+    const conflictingCase = await this.prisma.courseCase.findFirst({
+      where: {
+        courseId: courseCase.courseId,
         displayOrder: newOrder,
         id: { not: id }
       }
     })
 
-    if (existingCase) {
-      throw new Error(`Display order ${newOrder} is already taken`)
+    if (conflictingCase) {
+      throw new Error(`Display order ${newOrder} is already taken for this course`)
     }
 
     return await this.prisma.courseCase.update({
@@ -321,7 +372,7 @@ export class CourseCaseService {
     })
   }
 
-  // BUSINESS LOGIC METHODS
+  // ===== STATISTICS & ANALYTICS =====
 
   async getCaseStats(courseId: string) {
     const totalCases = await this.prisma.courseCase.count({
@@ -332,12 +383,25 @@ export class CourseCaseService {
       where: { courseId, isFree: true }
     })
 
-    const paidCases = totalCases - freeCases
+    const paidCases = await this.prisma.courseCase.count({
+      where: { courseId, isFree: false }
+    })
 
-    const genderStats = await this.prisma.courseCase.groupBy({
+    const genderDistribution = await this.prisma.courseCase.groupBy({
       by: ['patientGender'],
       where: { courseId },
-      _count: { patientGender: true }
+      _count: {
+        patientGender: true
+      }
+    })
+
+    const casesWithSimulations = await this.prisma.courseCase.count({
+      where: {
+        courseId,
+        simulation: {
+          isNot: null
+        }
+      }
     })
 
     return {
@@ -345,15 +409,16 @@ export class CourseCaseService {
       totalCases,
       freeCases,
       paidCases,
-      genderDistribution: genderStats.map((stat: { patientGender: string; _count: { patientGender: number } }) => ({
-        gender: stat.patientGender,
-        count: stat._count.patientGender
+      casesWithSimulations,
+      genderDistribution: genderDistribution.map((item: { patientGender: PatientGender; _count: { patientGender: number } }) => ({
+        gender: item.patientGender,
+        count: item._count.patientGender
       }))
     }
   }
 
   async getAgeRange(courseId: string) {
-    const result = await this.prisma.courseCase.aggregate({
+    const ageStats = await this.prisma.courseCase.aggregate({
       where: { courseId },
       _min: { patientAge: true },
       _max: { patientAge: true },
@@ -362,15 +427,128 @@ export class CourseCaseService {
 
     return {
       courseId,
-      minAge: result._min.patientAge,
-      maxAge: result._max.patientAge,
-      avgAge: result._avg.patientAge ? Math.round(result._avg.patientAge) : null
+      minAge: ageStats._min.patientAge,
+      maxAge: ageStats._max.patientAge,
+      avgAge: ageStats._avg.patientAge ? Math.round(ageStats._avg.patientAge * 10) / 10 : null
     }
   }
 
+  // ===== JUNCTION TABLE OPERATIONS (User Stories #4, #42, #43) =====
+
+  // Filter cases by specialties, curriculums, gender, and free status (User Story #4)
+  async findByFilters(courseId: string, filters: FilterInput) {
+    // Verify course exists
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId }
+    })
+
+    if (!course) {
+      throw new Error('Course not found')
+    }
+
+    // Build the filter conditions
+    const whereConditions: any = {
+      courseId: courseId
+    }
+
+    // Add gender filter
+    if (filters.patientGender) {
+      whereConditions.patientGender = filters.patientGender
+    }
+
+    // Add free status filter
+    if (filters.isFree !== undefined) {
+      whereConditions.isFree = filters.isFree
+    }
+
+    // Add specialty filter (cases that have ALL specified specialties)
+    if (filters.specialtyIds && filters.specialtyIds.length > 0) {
+      whereConditions.caseSpecialties = {
+        some: {
+          specialtyId: { in: filters.specialtyIds }
+        }
+      }
+    }
+
+    // Add curriculum filter (cases that have ALL specified curriculums)
+    if (filters.curriculumIds && filters.curriculumIds.length > 0) {
+      whereConditions.caseCurriculums = {
+        some: {
+          curriculumId: { in: filters.curriculumIds }
+        }
+      }
+    }
+
+    const cases = await this.prisma.courseCase.findMany({
+      where: whereConditions,
+      include: {
+        course: {
+          include: {
+            exam: {
+              select: {
+                id: true,
+                title: true,
+                slug: true
+              }
+            }
+          }
+        },
+        caseSpecialties: {
+          include: {
+            specialty: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        caseCurriculums: {
+          include: {
+            curriculum: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        displayOrder: 'asc'
+      }
+    })
+
+    // Transform the response to include specialties and curriculums directly
+    return cases.map((caseItem: any) => ({
+      id: caseItem.id,
+      courseId: caseItem.courseId,
+      title: caseItem.title,
+      diagnosis: caseItem.diagnosis,
+      patientName: caseItem.patientName,
+      patientAge: caseItem.patientAge,
+      patientGender: caseItem.patientGender,
+      description: caseItem.description,
+      isFree: caseItem.isFree,
+      displayOrder: caseItem.displayOrder,
+      createdAt: caseItem.createdAt,
+      updatedAt: caseItem.updatedAt,
+      specialties: caseItem.caseSpecialties.map((cs: any) => cs.specialty),
+      curriculums: caseItem.caseCurriculums.map((cc: any) => cc.curriculum),
+      course: caseItem.course
+    }))
+  }
+
+  // Assign specialties to a course case (User Story #42)
   async assignSpecialties(courseCaseId: string, specialtyIds: string[]) {
     // Verify course case exists
-    await this.findById(courseCaseId)
+    const courseCase = await this.prisma.courseCase.findUnique({
+      where: { id: courseCaseId }
+    })
+
+    if (!courseCase) {
+      throw new Error('Course case not found')
+    }
 
     // Verify all specialties exist
     const specialties = await this.prisma.specialty.findMany({
@@ -397,10 +575,16 @@ export class CourseCaseService {
     return assignments
   }
 
-  // Assign curriculum items to a course case
+  // Assign curriculum items to a course case (User Story #43)
   async assignCurriculums(courseCaseId: string, curriculumIds: string[]) {
     // Verify course case exists
-    await this.findById(courseCaseId)
+    const courseCase = await this.prisma.courseCase.findUnique({
+      where: { id: courseCaseId }
+    })
+
+    if (!courseCase) {
+      throw new Error('Course case not found')
+    }
 
     // Verify all curriculum items exist
     const curriculums = await this.prisma.curriculum.findMany({
@@ -427,74 +611,45 @@ export class CourseCaseService {
     return assignments
   }
 
-  // Get cases filtered by specialties and/or curriculum items
-  async findByFilters(courseId: string, filters: {
-    specialtyIds?: string[]
-    curriculumIds?: string[]
-    isFree?: boolean
-    patientGender?: PatientGender
-  }) {
-    let whereClause: any = { courseId }
+  // Bulk assign filters to multiple course cases
+  async bulkAssignFilters(assignments: BulkAssignmentInput[]) {
+    const results = []
 
-    // Add free/paid filter
-    if (filters.isFree !== undefined) {
-      whereClause.isFree = filters.isFree
-    }
+    for (const assignment of assignments) {
+      const operations = []
 
-    // Add gender filter
-    if (filters.patientGender) {
-      whereClause.patientGender = filters.patientGender
-    }
+      if (assignment.specialtyIds && assignment.specialtyIds.length > 0) {
+        operations.push(
+          this.assignSpecialties(assignment.courseCaseId, assignment.specialtyIds)
+        )
+      }
 
-    // Add specialty filter
-    if (filters.specialtyIds && filters.specialtyIds.length > 0) {
-      whereClause.caseSpecialties = {
-        some: {
-          specialtyId: { in: filters.specialtyIds }
-        }
+      if (assignment.curriculumIds && assignment.curriculumIds.length > 0) {
+        operations.push(
+          this.assignCurriculums(assignment.courseCaseId, assignment.curriculumIds)
+        )
+      }
+
+      if (operations.length > 0) {
+        await Promise.all(operations)
+        results.push({
+          courseCaseId: assignment.courseCaseId,
+          specialtiesAssigned: assignment.specialtyIds?.length || 0,
+          curriculumsAssigned: assignment.curriculumIds?.length || 0
+        })
       }
     }
 
-    // Add curriculum filter
-    if (filters.curriculumIds && filters.curriculumIds.length > 0) {
-      whereClause.caseCurriculums = {
-        some: {
-          curriculumId: { in: filters.curriculumIds }
-        }
-      }
-    }
-
-    return await this.prisma.courseCase.findMany({
-      where: whereClause,
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        },
-        caseSpecialties: {
-          include: {
-            specialty: true
-          }
-        },
-        caseCurriculums: {
-          include: {
-            curriculum: true
-          }
-        }
-      },
-      orderBy: { displayOrder: 'asc' }
-    })
+    return results
   }
+
+  // ===== RETRIEVAL OPERATIONS =====
 
   // Get specialties assigned to a course case
   async getCaseSpecialties(courseCaseId: string) {
+    // Verify course case exists
+    await this.findById(courseCaseId)
+
     const caseSpecialties = await this.prisma.caseSpecialty.findMany({
       where: { courseCaseId },
       include: {
@@ -502,11 +657,14 @@ export class CourseCaseService {
       }
     })
 
-    return caseSpecialties.map((cs: { specialty: any }) => cs.specialty)
+    return caseSpecialties.map(cs => cs.specialty)
   }
 
   // Get curriculum items assigned to a course case
   async getCaseCurriculums(courseCaseId: string) {
+    // Verify course case exists
+    await this.findById(courseCaseId)
+
     const caseCurriculums = await this.prisma.caseCurriculum.findMany({
       where: { courseCaseId },
       include: {
@@ -514,11 +672,16 @@ export class CourseCaseService {
       }
     })
 
-    return caseCurriculums.map((cc: { curriculum: any }) => cc.curriculum)
+    return caseCurriculums.map(cc => cc.curriculum)
   }
+
+  // ===== REMOVAL OPERATIONS =====
 
   // Remove specialty from course case
   async removeSpecialty(courseCaseId: string, specialtyId: string) {
+    // Verify course case exists
+    await this.findById(courseCaseId)
+
     const deleted = await this.prisma.caseSpecialty.deleteMany({
       where: { courseCaseId, specialtyId }
     })
@@ -532,6 +695,9 @@ export class CourseCaseService {
 
   // Remove curriculum from course case
   async removeCurriculum(courseCaseId: string, curriculumId: string) {
+    // Verify course case exists
+    await this.findById(courseCaseId)
+
     const deleted = await this.prisma.caseCurriculum.deleteMany({
       where: { courseCaseId, curriculumId }
     })
@@ -543,91 +709,74 @@ export class CourseCaseService {
     return { message: 'Curriculum removed successfully' }
   }
 
+  // ===== FILTERING STATISTICS =====
+
   // Get filtering statistics for a course
   async getFilteringStats(courseId: string) {
-    // Get all cases for this course
     const totalCases = await this.prisma.courseCase.count({
       where: { courseId }
     })
 
     // Get specialty distribution
-    const specialtyStats = await this.prisma.caseSpecialty.groupBy({
+    const specialtyDistribution = await this.prisma.caseSpecialty.groupBy({
       by: ['specialtyId'],
       where: {
         courseCase: { courseId }
       },
-      _count: { specialtyId: true },
-      include: {
-        specialty: true
+      _count: {
+        specialtyId: true
       }
     })
 
     // Get curriculum distribution
-    const curriculumStats = await this.prisma.caseCurriculum.groupBy({
+    const curriculumDistribution = await this.prisma.caseCurriculum.groupBy({
       by: ['curriculumId'],
       where: {
         courseCase: { courseId }
       },
-      _count: { curriculumId: true }
+      _count: {
+        curriculumId: true
+      }
     })
+
+    // Enrich with specialty and curriculum details
+    const enrichedSpecialtyDistribution = await Promise.all(
+      specialtyDistribution.map(async (item: { specialtyId: string; _count: { specialtyId: number } }) => {
+        const specialty = await this.prisma.specialty.findUnique({
+          where: { id: item.specialtyId }
+        })
+        return {
+          specialtyId: item.specialtyId,
+          count: item._count.specialtyId,
+          specialty: {
+            id: specialty?.id || '',
+            name: specialty?.name || ''
+          }
+        }
+      })
+    )
+
+    const enrichedCurriculumDistribution = await Promise.all(
+      curriculumDistribution.map(async (item: { curriculumId: string; _count: { curriculumId: number } }) => {
+        const curriculum = await this.prisma.curriculum.findUnique({
+          where: { id: item.curriculumId }
+        })
+        return {
+          curriculumId: item.curriculumId,
+          count: item._count.curriculumId,
+          curriculum: {
+            id: curriculum?.id || '',
+            name: curriculum?.name || ''
+          }
+        }
+      })
+    )
 
     return {
       courseId,
       totalCases,
-      specialtyDistribution: specialtyStats,
-      curriculumDistribution: curriculumStats
-    }
-  }
-
-  // Bulk assign specialties and curriculums to multiple cases
-  async bulkAssignFilters(assignments: Array<{
-    courseCaseId: string
-    specialtyIds?: string[]
-    curriculumIds?: string[]
-  }>) {
-    const results = await this.prisma.$transaction(
-      assignments.map((assignment: {
-        courseCaseId: string
-        specialtyIds?: string[]
-        curriculumIds?: string[]
-      }) => {
-        const operations = []
-
-        if (assignment.specialtyIds && assignment.specialtyIds.length > 0) {
-          operations.push(
-            this.prisma.caseSpecialty.deleteMany({
-              where: { courseCaseId: assignment.courseCaseId }
-            }),
-            this.prisma.caseSpecialty.createMany({
-              data: assignment.specialtyIds.map((specialtyId: string) => ({
-                courseCaseId: assignment.courseCaseId,
-                specialtyId
-              }))
-            })
-          )
-        }
-
-        if (assignment.curriculumIds && assignment.curriculumIds.length > 0) {
-          operations.push(
-            this.prisma.caseCurriculum.deleteMany({
-              where: { courseCaseId: assignment.courseCaseId }
-            }),
-            this.prisma.caseCurriculum.createMany({
-              data: assignment.curriculumIds.map((curriculumId: string) => ({
-                courseCaseId: assignment.courseCaseId,
-                curriculumId
-              }))
-            })
-          )
-        }
-
-        return operations
-      }).flat()
-    )
-
-    return {
-      message: 'Bulk assignment completed',
-      processedCases: assignments.length
+      specialtyDistribution: enrichedSpecialtyDistribution,
+      curriculumDistribution: enrichedCurriculumDistribution
     }
   }
 }

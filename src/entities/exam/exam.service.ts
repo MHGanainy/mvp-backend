@@ -2,40 +2,6 @@
 import { PrismaClient } from '@prisma/client'
 import { CreateExamInput, UpdateExamInput } from './exam.schema'
 
-// Type definitions for junction table results
-interface ExamSpecialtyWithSpecialty {
-  id: string
-  examId: string
-  specialtyId: string
-  specialty: {
-    id: string
-    name: string
-    description?: string | null
-  }
-}
-
-interface ExamCurriculumWithCurriculum {
-  id: string
-  examId: string
-  curriculumId: string
-  curriculum: {
-    id: string
-    name: string
-    description?: string | null
-  }
-}
-
-interface ExamMarkingDomainWithMarkingDomain {
-  id: string
-  examId: string
-  markingDomainId: string
-  markingDomain: {
-    id: string
-    name: string
-    description?: string | null
-  }
-}
-
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
 
@@ -358,7 +324,7 @@ export class ExamService {
           name: 'asc'
         }
       }
-    }) as ExamSpecialtyWithSpecialty[]
+    })
 
     return examSpecialties.map(es => es.specialty)
   }
@@ -378,7 +344,7 @@ export class ExamService {
           name: 'asc'
         }
       }
-    }) as ExamCurriculumWithCurriculum[]
+    })
 
     return examCurriculums.map(ec => ec.curriculum)
   }
@@ -398,7 +364,7 @@ export class ExamService {
           name: 'asc'
         }
       }
-    }) as ExamMarkingDomainWithMarkingDomain[]
+    })
 
     return examMarkingDomains.map(emd => emd.markingDomain)
   }
@@ -646,9 +612,9 @@ export class ExamService {
 
     return {
       ...exam,
-      specialties: (exam.examSpecialties as ExamSpecialtyWithSpecialty[]).map(es => es.specialty),
-      curriculums: (exam.examCurriculums as ExamCurriculumWithCurriculum[]).map(ec => ec.curriculum),
-      markingDomains: (exam.examMarkingDomains as ExamMarkingDomainWithMarkingDomain[]).map(emd => emd.markingDomain)
+      specialties: exam.examSpecialties.map(es => es.specialty),
+      curriculums: exam.examCurriculums.map(ec => ec.curriculum),
+      markingDomains: exam.examMarkingDomains.map(emd => emd.markingDomain)
     }
   }
 
