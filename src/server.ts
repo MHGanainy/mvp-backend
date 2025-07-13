@@ -1,8 +1,12 @@
 import Fastify from 'fastify'
 import { PrismaClient } from '@prisma/client'
+import fastifyJwt from '@fastify/jwt'
+import fastifyCors from '@fastify/cors'
 import './shared/types'
 
 // Add all imports
+import authRoutes from './entities/auth/auth.routes'
+import subscriptionRoutes from './entities/subscription/subscription.routes'
 import specialtyRoutes from './entities/specialty/specialty.routes'
 import curriculumRoutes from './entities/curriculum/curriculum.routes'
 import markingDomainRoutes from './entities/marking-domain/marking-domain.routes'
@@ -20,6 +24,22 @@ const prisma = new PrismaClient()
 
 // Register prisma on fastify instance
 fastify.decorate('prisma', prisma)
+
+// Register JWT plugin
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production'
+fastify.register(fastifyJwt, {
+  secret: JWT_SECRET,
+  sign: {
+    expiresIn: '1h'
+  }
+})
+
+// Register CORS plugin - Allow ALL origins
+fastify.register(fastifyCors, {
+  origin: true, // This allows ALL origins
+  credentials: true, // Allow cookies/credentials
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] // Allowed methods
+})
 
 // Health check
 fastify.get('/health', async () => {
@@ -67,7 +87,13 @@ fastify.get('/users/:id', async (request) => {
 // Start server
 const start = async () => {
     try {
-      // Register all route sets
+      // Register auth routes FIRST (no prefix needed)
+      await fastify.register(authRoutes)
+      
+      // Register subscription routes (also at root level for easier access)
+      await fastify.register(subscriptionRoutes, { prefix: '/api' })
+      
+      // Register all other route sets
       await fastify.register(specialtyRoutes, { prefix: '/api' })
       await fastify.register(curriculumRoutes, { prefix: '/api' })
       await fastify.register(markingDomainRoutes, { prefix: '/api' })
@@ -85,6 +111,8 @@ const start = async () => {
       
       await fastify.listen({ port, host })
       console.log(`🚀 Server running on ${host}:${port}`)
+      console.log(`🔐 JWT authentication enabled`)
+      console.log(`🌐 CORS enabled for ALL origins`)
     } catch (err) {
       fastify.log.error(err)
       process.exit(1)

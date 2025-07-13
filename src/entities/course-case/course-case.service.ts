@@ -1,6 +1,7 @@
 // course-case.service.ts
 import { PrismaClient, PatientGender } from '@prisma/client'
 import { CreateCourseCaseInput, UpdateCourseCaseInput } from './course-case.schema'
+import { any } from 'zod'
 
 // Filter input interface
 interface FilterInput {
@@ -657,7 +658,7 @@ export class CourseCaseService {
       }
     })
 
-    return caseSpecialties.map(cs => cs.specialty)
+    return caseSpecialties.map((cs:any) => cs.specialty)
   }
 
   // Get curriculum items assigned to a course case
@@ -672,7 +673,7 @@ export class CourseCaseService {
       }
     })
 
-    return caseCurriculums.map(cc => cc.curriculum)
+    return caseCurriculums.map((cc: any) => cc.curriculum)
   }
 
   // ===== REMOVAL OPERATIONS =====

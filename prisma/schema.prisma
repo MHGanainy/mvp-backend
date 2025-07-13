@@ -9,9 +9,13 @@ datasource db {
 }
 
 model User {
-  id         Int     @id @default(autoincrement())
-  email      String  @unique
-  name       String?
+  id                 Int       @id @default(autoincrement())
+  email              String    @unique
+  name               String?
+  passwordHash       String?   @map("password_hash")
+  emailVerified      Boolean   @default(true) @map("email_verified") // Always true in simplified flow
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
   
   // Relationships (one-to-one)
   instructor Instructor?
