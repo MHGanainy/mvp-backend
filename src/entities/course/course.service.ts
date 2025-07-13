@@ -34,6 +34,7 @@ export class CourseService {
         title: data.title,
         description: data.description,
         style: data.style,
+        infoPoints: data.infoPoints || [],  // ADDED THIS LINE
         price3Months: data.price3Months,
         price6Months: data.price6Months,
         price12Months: data.price12Months,
@@ -258,7 +259,7 @@ export class CourseService {
 
     return await this.prisma.course.update({
       where: { id },
-      data,
+      data,  // This already includes infoPoints if provided
       include: {
         exam: {
           select: {
@@ -380,12 +381,40 @@ export class CourseService {
     })
   }
 
+  async updateInfoPoints(id: string, infoPoints: string[]) {
+    const course = await this.findById(id)
+    
+    return await this.prisma.course.update({
+      where: { id },
+      data: { infoPoints },
+      include: {
+        exam: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            isActive: true
+          }
+        },
+        instructor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            bio: true
+          }
+        }
+      }
+    })
+  }
+
   async getPricingInfo(id: string) {
     const course = await this.findById(id)
     
     return {
       courseId: course.id,
       title: course.title,
+      infoPoints: course.infoPoints || [],  // Include info points in pricing info
       pricing: {
         threeMonths: {
           price: course.price3Months,
