@@ -7,6 +7,7 @@ import {
   courseParamsSchema,
   courseExamParamsSchema,
   courseInstructorParamsSchema,
+  updateCourseInfoPointsSchema,
   CourseStyleEnum
 } from './course.schema'
 
@@ -212,6 +213,27 @@ export default async function courseRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Course not found' })
       } else {
         reply.status(400).send({ error: 'Invalid credits data' })
+      }
+    }
+  })
+
+  // PATCH /courses/:id/info-points - Update course info points
+  fastify.patch('/courses/:id/info-points', async (request, reply) => {
+    try {
+      const { id } = courseParamsSchema.parse(request.params)
+      const { infoPoints } = updateCourseInfoPointsSchema.parse(request.body)
+      
+      const course = await courseService.update(id, { infoPoints })
+      
+      reply.send({
+        message: 'Course info points updated successfully',
+        course
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Course not found') {
+        reply.status(404).send({ error: 'Course not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid info points data' })
       }
     }
   })

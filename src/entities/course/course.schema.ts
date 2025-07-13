@@ -16,6 +16,12 @@ export const createCourseSchema = z.object({
     .optional(),
   style: CourseStyleEnum.default('RANDOM'),
   
+  // Info points - array of strings
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+    .optional()
+    .default([]),
+  
   // Pricing validation (business rules)
   price3Months: z.number()
     .positive('3-month price must be positive')
@@ -80,6 +86,9 @@ export const updateCourseSchema = z.object({
   description: z.string()
     .max(1000, 'Description must be less than 1000 characters')
     .optional(),
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+    .optional(),
   price3Months: z.number()
     .positive('3-month price must be positive')
     .max(99999.99, 'Price too high')
@@ -113,6 +122,12 @@ export const updateCourseSchema = z.object({
   isPublished: z.boolean().optional()
 })
 
+// Add info points update schema for easier management
+export const updateCourseInfoPointsSchema = z.object({
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+})
+
 // URL Params Schemas
 export const courseParamsSchema = z.object({
   id: z.string().uuid('Invalid course ID')
@@ -134,6 +149,7 @@ export const courseResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   style: CourseStyleEnum,
+  infoPoints: z.array(z.string()), // Added info points
   price3Months: z.number(),
   price6Months: z.number(),
   price12Months: z.number(),
@@ -160,6 +176,7 @@ export const courseResponseSchema = z.object({
 // Type exports
 export type CreateCourseInput = z.infer<typeof createCourseSchema>
 export type UpdateCourseInput = z.infer<typeof updateCourseSchema>
+export type UpdateCourseInfoPointsInput = z.infer<typeof updateCourseInfoPointsSchema>
 export type CourseParams = z.infer<typeof courseParamsSchema>
 export type CourseExamParams = z.infer<typeof courseExamParamsSchema>
 export type CourseInstructorParams = z.infer<typeof courseInstructorParamsSchema>
