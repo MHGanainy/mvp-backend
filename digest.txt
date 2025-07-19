@@ -27,7 +27,11 @@ Directory structure:
     │       │   └── migration.sql
     │       ├── 20250708235709_add_simulation_system/
     │       │   └── migration.sql
-    │       └── 20250709125700_complete_random_workflow/
+    │       ├── 20250709125700_complete_random_workflow/
+    │       │   └── migration.sql
+    │       ├── 20250713134451_add_password_hash/
+    │       │   └── migration.sql
+    │       └── 20250713140149_add_course_info_points/
     │           └── migration.sql
     └── src/
         ├── server.ts
@@ -232,10 +236,7 @@ model User {
   email              String    @unique
   name               String?
   passwordHash       String?   @map("password_hash")
-  emailVerified      Boolean   @default(false) @map("email_verified")
-  verificationToken  String?   @unique @map("verification_token")
-  resetToken         String?   @unique @map("reset_token")
-  resetTokenExpiry   DateTime? @map("reset_token_expiry")
+  emailVerified      Boolean   @default(true) @map("email_verified") // Always true in simplified flow
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   
@@ -316,6 +317,7 @@ model Course {
   credits3Months  Int         @map("credits_3_months")
   credits6Months  Int         @map("credits_6_months")
   credits12Months Int         @map("credits_12_months")
+  infoPoints      String[]    @map("info_points") @default([])  // NEW FIELD
   isPublished     Boolean     @default(false) @map("is_published")
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
@@ -1112,6 +1114,31 @@ ALTER TABLE "case_curriculums" ADD CONSTRAINT "case_curriculums_curriculum_id_fk
 
 
 ================================================
+File: prisma/migrations/20250713134451_add_password_hash/migration.sql
+================================================
+/*
+  Warnings:
+
+  - Added the required column `updated_at` to the `users` table without a default value. This is not possible if the table is not empty.
+
+*/
+-- AlterTable
+ALTER TABLE "users" ADD COLUMN     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "email_verified" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN     "password_hash" TEXT,
+ADD COLUMN     "updated_at" TIMESTAMP(3) NOT NULL;
+
+
+
+================================================
+File: prisma/migrations/20250713140149_add_course_info_points/migration.sql
+================================================
+-- AlterTable
+ALTER TABLE "courses" ADD COLUMN     "info_points" TEXT[] DEFAULT ARRAY[]::TEXT[];
+
+
+
+================================================
 File: src/server.ts
 ================================================
 import Fastify from 'fastify'
@@ -1243,10 +1270,53 @@ File: src/entities/auth/auth.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { AuthService } from './auth.service'
-import { loginSchema, refreshTokenSchema } from './auth.schema'
+import { 
+  loginSchema, 
+  refreshTokenSchema,
+  registerStudentSchema,
+  registerInstructorSchema
+} from './auth.schema'
 
 export default async function authRoutes(fastify: FastifyInstance) {
   const authService = new AuthService(fastify.prisma, fastify)
+
+  // POST /auth/register/student - Student registration
+  fastify.post('/auth/register/student', async (request, reply) => {
+    try {
+      const data = registerStudentSchema.parse(request.body)
+      const result = await authService.registerStudent(data)
+      reply.status(201).send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Email already registered') {
+          reply.status(400).send({ error: 'Email already registered' })
+        } else {
+          reply.status(400).send({ error: 'Invalid registration data' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // POST /auth/register/instructor - Instructor registration
+  fastify.post('/auth/register/instructor', async (request, reply) => {
+    try {
+      const data = registerInstructorSchema.parse(request.body)
+      const result = await authService.registerInstructor(data)
+      reply.status(201).send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Email already registered') {
+          reply.status(400).send({ error: 'Email already registered' })
+        } else {
+          reply.status(400).send({ error: 'Invalid registration data' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
 
   // POST /auth/login - Login endpoint
   fastify.post('/auth/login', async (request, reply) => {
@@ -1310,7 +1380,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         return
       }
 
-      const userType = user.student ? 'student' : 'instructor'
+      const role = user.student ? 'student' : 'instructor'
       const profile = user.student ? {
         id: user.student.id,
         firstName: user.student.firstName,
@@ -1328,7 +1398,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           id: user.id,
           email: user.email,
           name: user.name,
-          userType,
+          role,
           profile
         }
       })
@@ -1359,6 +1429,47 @@ File: src/entities/auth/auth.schema.ts
 ================================================
 import { z } from 'zod'
 
+// Student Registration Schema
+export const registerStudentSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  firstName: z.string()
+    .min(1, 'First name is required')
+    .max(50, 'First name must be less than 50 characters')
+    .trim(),
+  lastName: z.string()
+    .min(1, 'Last name is required')
+    .max(50, 'Last name must be less than 50 characters')
+    .trim(),
+  dateOfBirth: z.string()
+    .datetime('Invalid date format')
+    .or(z.date())
+    .transform((val) => new Date(val))
+    .refine((date) => {
+      const age = (new Date().getTime() - date.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+      return age >= 18 && age <= 100
+    }, 'Age must be between 18 and 100 years'),
+  name: z.string().optional() // Optional display name
+})
+
+// Instructor Registration Schema
+export const registerInstructorSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  firstName: z.string()
+    .min(1, 'First name is required')
+    .max(50, 'First name must be less than 50 characters')
+    .trim(),
+  lastName: z.string()
+    .min(1, 'Last name is required')
+    .max(50, 'Last name must be less than 50 characters')
+    .trim(),
+  bio: z.string()
+    .max(500, 'Bio must be less than 500 characters')
+    .optional(),
+  name: z.string().optional() // Optional display name
+})
+
 // Login Schema
 export const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -1371,10 +1482,10 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string()
 })
 
-// JWT Payload Schema
+// JWT Payload Schema - Updated with 'role' field
 export const jwtPayloadSchema = z.object({
   userId: z.number(),
-  userType: z.enum(['student', 'instructor']),
+  role: z.enum(['student', 'instructor']), // Changed from userType to role
   email: z.string().email(),
   studentId: z.string().uuid().optional(),
   instructorId: z.string().uuid().optional()
@@ -1385,7 +1496,7 @@ export const authResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
   expiresIn: z.number(),
-  userType: z.string(),
+  role: z.enum(['student', 'instructor']), // Changed from userType to role
   user: z.object({
     id: z.number(),
     email: z.string(),
@@ -1408,6 +1519,8 @@ export const authResponseSchema = z.object({
 })
 
 // Type exports
+export type RegisterStudentInput = z.infer<typeof registerStudentSchema>
+export type RegisterInstructorInput = z.infer<typeof registerInstructorSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>
 export type JWTPayload = z.infer<typeof jwtPayloadSchema>
@@ -1417,16 +1530,160 @@ export type AuthResponse = z.infer<typeof authResponseSchema>
 ================================================
 File: src/entities/auth/auth.service.ts
 ================================================
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import * as bcrypt from 'bcryptjs'
 import { FastifyInstance } from 'fastify'
-import { LoginInput, JWTPayload } from './auth.schema'
+import { 
+  LoginInput, 
+  JWTPayload, 
+  RegisterStudentInput, 
+  RegisterInstructorInput 
+} from './auth.schema'
 
 export class AuthService {
   private fastify: FastifyInstance
   
   constructor(private prisma: PrismaClient, fastify: FastifyInstance) {
     this.fastify = fastify
+  }
+
+  // Student Registration
+  async registerStudent(data: RegisterStudentInput) {
+    // Check if email already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: data.email }
+    })
+
+    if (existingUser) {
+      throw new Error('Email already registered')
+    }
+
+    // Hash password
+    const passwordHash = await this.hashPassword(data.password)
+
+    // Create user and student profile in transaction
+    const result = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Create user
+      const user = await tx.user.create({
+        data: {
+          email: data.email,
+          name: data.name || `${data.firstName} ${data.lastName}`,
+          passwordHash,
+          emailVerified: true // Always true in simplified flow
+        }
+      })
+
+      // Create student profile
+      const student = await tx.student.create({
+        data: {
+          userId: user.id,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          dateOfBirth: data.dateOfBirth,
+          creditBalance: 0 // Start with 0 credits
+        }
+      })
+
+      return { user, student }
+    })
+
+    // Generate tokens for auto-login
+    const payload: JWTPayload = {
+      userId: result.user.id,
+      role: 'student',
+      email: result.user.email,
+      studentId: result.student.id
+    }
+
+    const accessToken = await this.generateAccessToken(payload)
+    const refreshToken = await this.generateRefreshToken(payload)
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 3600, // 1 hour
+      role: 'student',
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        name: result.user.name,
+        profile: {
+          id: result.student.id,
+          firstName: result.student.firstName,
+          lastName: result.student.lastName,
+          creditBalance: result.student.creditBalance
+        }
+      }
+    }
+  }
+
+  // Instructor Registration
+  async registerInstructor(data: RegisterInstructorInput) {
+    // Check if email already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: data.email }
+    })
+
+    if (existingUser) {
+      throw new Error('Email already registered')
+    }
+
+    // Hash password
+    const passwordHash = await this.hashPassword(data.password)
+
+    // Create user and instructor profile in transaction
+    const result = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Create user
+      const user = await tx.user.create({
+        data: {
+          email: data.email,
+          name: data.name || `${data.firstName} ${data.lastName}`,
+          passwordHash,
+          emailVerified: true // Always true in simplified flow
+        }
+      })
+
+      // Create instructor profile
+      const instructor = await tx.instructor.create({
+        data: {
+          userId: user.id,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          bio: data.bio
+        }
+      })
+
+      return { user, instructor }
+    })
+
+    // Generate tokens for auto-login
+    const payload: JWTPayload = {
+      userId: result.user.id,
+      role: 'instructor',
+      email: result.user.email,
+      instructorId: result.instructor.id
+    }
+
+    const accessToken = await this.generateAccessToken(payload)
+    const refreshToken = await this.generateRefreshToken(payload)
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 3600, // 1 hour
+      role: 'instructor',
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        name: result.user.name,
+        profile: {
+          id: result.instructor.id,
+          firstName: result.instructor.firstName,
+          lastName: result.instructor.lastName,
+          bio: result.instructor.bio
+        }
+      }
+    }
   }
 
   async login(data: LoginInput) {
@@ -1451,9 +1708,12 @@ export class AuthService {
       throw new Error('User is not an instructor')
     }
 
-    // For now, we'll use a temporary password check (you'll need to add password field to DB)
-    // In production, you'd store hashed passwords in the database
-    const isValidPassword = await this.validatePassword(data.password, user.id)
+    // Verify password
+    if (!user.passwordHash) {
+      throw new Error('Invalid credentials')
+    }
+
+    const isValidPassword = await this.comparePassword(data.password, user.passwordHash)
     
     if (!isValidPassword) {
       throw new Error('Invalid credentials')
@@ -1462,7 +1722,7 @@ export class AuthService {
     // Generate tokens
     const payload: JWTPayload = {
       userId: user.id,
-      userType: data.userType,
+      role: data.userType, // Using role field
       email: user.email,
       studentId: user.student?.id,
       instructorId: user.instructor?.id
@@ -1488,7 +1748,7 @@ export class AuthService {
       accessToken,
       refreshToken,
       expiresIn: 3600, // 1 hour
-      userType: data.userType,
+      role: data.userType, // Using role field
       user: {
         id: user.id,
         email: user.email,
@@ -1549,20 +1809,12 @@ export class AuthService {
     })
   }
 
-  // Temporary password validation - in production, passwords would be stored in DB
-  private async validatePassword(password: string, userId: number): Promise<boolean> {
-    // For demo purposes, we'll accept any password that's at least 6 characters
-    // In production, you'd compare against a hashed password stored in the database
-    return password.length >= 6
-  }
-
-  // Helper method to hash passwords (for registration)
+  // Password hashing utilities
   async hashPassword(password: string): Promise<string> {
     const saltRounds = 10
     return bcrypt.hash(password, saltRounds)
   }
 
-  // Helper method to compare passwords
   async comparePassword(password: string, hash: string): Promise<boolean> {
     return bcrypt.compare(password, hash)
   }
@@ -2315,6 +2567,7 @@ import {
   courseParamsSchema,
   courseExamParamsSchema,
   courseInstructorParamsSchema,
+  updateCourseInfoPointsSchema,
   CourseStyleEnum
 } from './course.schema'
 
@@ -2524,6 +2777,27 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // PATCH /courses/:id/info-points - Update course info points
+  fastify.patch('/courses/:id/info-points', async (request, reply) => {
+    try {
+      const { id } = courseParamsSchema.parse(request.params)
+      const { infoPoints } = updateCourseInfoPointsSchema.parse(request.body)
+      
+      const course = await courseService.update(id, { infoPoints })
+      
+      reply.send({
+        message: 'Course info points updated successfully',
+        course
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Course not found') {
+        reply.status(404).send({ error: 'Course not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid info points data' })
+      }
+    }
+  })
+
   // DELETE /courses/:id - Delete course
   fastify.delete('/courses/:id', async (request, reply) => {
     try {
@@ -2561,6 +2835,12 @@ export const createCourseSchema = z.object({
     .max(1000, 'Description must be less than 1000 characters')
     .optional(),
   style: CourseStyleEnum.default('RANDOM'),
+  
+  // Info points - array of strings
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+    .optional()
+    .default([]),
   
   // Pricing validation (business rules)
   price3Months: z.number()
@@ -2626,6 +2906,9 @@ export const updateCourseSchema = z.object({
   description: z.string()
     .max(1000, 'Description must be less than 1000 characters')
     .optional(),
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+    .optional(),
   price3Months: z.number()
     .positive('3-month price must be positive')
     .max(99999.99, 'Price too high')
@@ -2659,6 +2942,12 @@ export const updateCourseSchema = z.object({
   isPublished: z.boolean().optional()
 })
 
+// Add info points update schema for easier management
+export const updateCourseInfoPointsSchema = z.object({
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+})
+
 // URL Params Schemas
 export const courseParamsSchema = z.object({
   id: z.string().uuid('Invalid course ID')
@@ -2680,6 +2969,7 @@ export const courseResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   style: CourseStyleEnum,
+  infoPoints: z.array(z.string()), // Added info points
   price3Months: z.number(),
   price6Months: z.number(),
   price12Months: z.number(),
@@ -2706,6 +2996,7 @@ export const courseResponseSchema = z.object({
 // Type exports
 export type CreateCourseInput = z.infer<typeof createCourseSchema>
 export type UpdateCourseInput = z.infer<typeof updateCourseSchema>
+export type UpdateCourseInfoPointsInput = z.infer<typeof updateCourseInfoPointsSchema>
 export type CourseParams = z.infer<typeof courseParamsSchema>
 export type CourseExamParams = z.infer<typeof courseExamParamsSchema>
 export type CourseInstructorParams = z.infer<typeof courseInstructorParamsSchema>
@@ -2752,6 +3043,7 @@ export class CourseService {
         title: data.title,
         description: data.description,
         style: data.style,
+        infoPoints: data.infoPoints || [],  // ADDED THIS LINE
         price3Months: data.price3Months,
         price6Months: data.price6Months,
         price12Months: data.price12Months,
@@ -2976,7 +3268,7 @@ export class CourseService {
 
     return await this.prisma.course.update({
       where: { id },
-      data,
+      data,  // This already includes infoPoints if provided
       include: {
         exam: {
           select: {
@@ -3098,12 +3390,40 @@ export class CourseService {
     })
   }
 
+  async updateInfoPoints(id: string, infoPoints: string[]) {
+    const course = await this.findById(id)
+    
+    return await this.prisma.course.update({
+      where: { id },
+      data: { infoPoints },
+      include: {
+        exam: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            isActive: true
+          }
+        },
+        instructor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            bio: true
+          }
+        }
+      }
+    })
+  }
+
   async getPricingInfo(id: string) {
     const course = await this.findById(id)
     
     return {
       courseId: course.id,
       title: course.title,
+      infoPoints: course.infoPoints || [],  // Include info points in pricing info
       pricing: {
         threeMonths: {
           price: course.price3Months,
@@ -4695,7 +5015,8 @@ import {
   createExamSchema, 
   updateExamSchema, 
   examParamsSchema,
-  examInstructorParamsSchema
+  examInstructorParamsSchema,
+  createCompleteExamSchema
 } from './exam.schema'
 import {
   assignExamSpecialtiesSchema,
@@ -4800,6 +5121,33 @@ export default async function examRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Exam with this slug already exists' })
         } else {
           reply.status(400).send({ error: 'Invalid data' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // POST /exams/create-complete - Create exam with all relations in one request
+  fastify.post('/exams/create-complete', async (request, reply) => {
+    try {
+      const data = createCompleteExamSchema.parse(request.body)
+      const result = await examService.createCompleteExam(data)
+      
+      reply.status(201).send({
+        message: 'Exam created and configured successfully',
+        ...result
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Instructor not found') {
+          reply.status(404).send({ error: 'Instructor not found' })
+        } else if (error.message === 'Exam with this slug already exists') {
+          reply.status(400).send({ error: 'Exam with this slug already exists' })
+        } else if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else {
+          reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
         reply.status(500).send({ error: 'Internal server error' })
@@ -5221,7 +5569,7 @@ export const examInstructorParamsSchema = z.object({
   instructorId: z.string().uuid('Invalid instructor ID')
 })
 
-// Response Schema
+// Basic Response Schema (without relations)
 export const examResponseSchema = z.object({
   id: z.string(),
   instructorId: z.string(),
@@ -5239,12 +5587,141 @@ export const examResponseSchema = z.object({
   })
 })
 
+// Comprehensive Response Schema (with all relations)
+export const examWithRelationsResponseSchema = z.object({
+  id: z.string(),
+  instructorId: z.string(),
+  title: z.string(),
+  slug: z.string(),
+  description: z.string().nullable(),
+  isActive: z.boolean(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+  instructor: z.object({
+    id: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+    bio: z.string().nullable()
+  }),
+  specialties: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    createdAt: z.date()
+  })),
+  curriculums: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    createdAt: z.date()
+  })),
+  markingDomains: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    createdAt: z.date()
+  })),
+  _count: z.object({
+    courses: z.number(),
+    examSpecialties: z.number(),
+    examCurriculums: z.number(),
+    examMarkingDomains: z.number()
+  }).optional()
+})
+
+// Schema for creating complete exam with all relations
+export const createCompleteExamSchema = z.object({
+  // Basic exam info
+  exam: z.object({
+    instructorId: z.string().uuid('Invalid instructor ID'),
+    title: z.string()
+      .min(1, 'Title is required')
+      .max(200, 'Title must be less than 200 characters')
+      .trim(),
+    slug: z.string()
+      .min(1, 'Slug is required')
+      .max(200, 'Slug must be less than 200 characters')
+      .regex(/^[a-z0-9-]+$/, 'Slug must contain only lowercase letters, numbers, and hyphens')
+      .optional(),
+    description: z.string()
+      .max(1000, 'Description must be less than 1000 characters')
+      .optional(),
+    isActive: z.boolean().default(true).optional()
+  }),
+  
+  // Existing entities (by ID)
+  existing: z.object({
+    specialtyIds: z.array(z.string().uuid('Invalid specialty ID')).default([]),
+    curriculumIds: z.array(z.string().uuid('Invalid curriculum ID')).default([]),
+    markingDomainIds: z.array(z.string().uuid('Invalid marking domain ID')).default([])
+  }).optional(),
+  
+  // New entities to create
+  new: z.object({
+    specialties: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([]),
+    curriculums: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([]),
+    markingDomains: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([])
+  }).optional()
+})
+
+// Response schema for complete exam creation
+export const completeExamResponseSchema = z.object({
+  exam: z.object({
+    id: z.string(),
+    instructorId: z.string(),
+    title: z.string(),
+    slug: z.string(),
+    description: z.string().nullable(),
+    isActive: z.boolean()
+  }),
+  created: z.object({
+    specialties: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    })),
+    curriculums: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    })),
+    markingDomains: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    }))
+  }),
+  assigned: z.object({
+    specialties: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    })),
+    curriculums: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    })),
+    markingDomains: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    }))
+  }),
+  summary: z.object({
+    totalSpecialties: z.number(),
+    totalCurriculums: z.number(),
+    totalMarkingDomains: z.number(),
+    newEntitiesCreated: z.number()
+  })
+})
+
 // Type exports
 export type CreateExamInput = z.infer<typeof createExamSchema>
 export type UpdateExamInput = z.infer<typeof updateExamSchema>
 export type ExamParams = z.infer<typeof examParamsSchema>
 export type ExamInstructorParams = z.infer<typeof examInstructorParamsSchema>
 export type ExamResponse = z.infer<typeof examResponseSchema>
+export type ExamWithRelationsResponse = z.infer<typeof examWithRelationsResponseSchema>
+export type CreateCompleteExamInput = z.infer<typeof createCompleteExamSchema>
+export type CompleteExamResponse = z.infer<typeof completeExamResponseSchema>
 
 
 ================================================
@@ -5252,10 +5729,77 @@ File: src/entities/exam/exam.service.ts
 ================================================
 // exam.service.ts
 import { PrismaClient } from '@prisma/client'
-import { CreateExamInput, UpdateExamInput } from './exam.schema'
+import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput } from './exam.schema'
 
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
+
+  // ===== HELPER METHODS FOR FULL RELATIONS =====
+
+  // Get the full include object for queries with all relations
+  private getFullInclude() {
+    return {
+      instructor: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          bio: true
+        }
+      },
+      examSpecialties: {
+        include: {
+          specialty: true
+        },
+        orderBy: {
+          specialty: {
+            name: 'asc' as const
+          }
+        }
+      },
+      examCurriculums: {
+        include: {
+          curriculum: true
+        },
+        orderBy: {
+          curriculum: {
+            name: 'asc' as const
+          }
+        }
+      },
+      examMarkingDomains: {
+        include: {
+          markingDomain: true
+        },
+        orderBy: {
+          markingDomain: {
+            name: 'asc' as const
+          }
+        }
+      },
+      _count: {
+        select: {
+          courses: true,
+          examSpecialties: true,
+          examCurriculums: true,
+          examMarkingDomains: true
+        }
+      }
+    }
+  }
+
+  // Transform the exam response to include flattened relations
+  private transformExamWithRelations(exam: any) {
+    return {
+      ...exam,
+      specialties: exam.examSpecialties?.map((es: any) => es.specialty) || [],
+      curriculums: exam.examCurriculums?.map((ec: any) => ec.curriculum) || [],
+      markingDomains: exam.examMarkingDomains?.map((emd: any) => emd.markingDomain) || [],
+      examSpecialties: undefined,
+      examCurriculums: undefined,
+      examMarkingDomains: undefined
+    }
+  }
 
   // ===== BASIC EXAM CRUD OPERATIONS =====
 
@@ -5278,7 +5822,7 @@ export class ExamService {
       throw new Error('Exam with this slug already exists')
     }
 
-    return await this.prisma.exam.create({
+    const exam = await this.prisma.exam.create({
       data: {
         instructorId: data.instructorId,
         title: data.title,
@@ -5286,98 +5830,59 @@ export class ExamService {
         description: data.description,
         isActive: data.isActive ?? true
       },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
+
+    return this.transformExamWithRelations(exam)
   }
 
   async findAll() {
-    return await this.prisma.exam.findMany({
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      },
+    const exams = await this.prisma.exam.findMany({
+      include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'
       }
     })
+
+    return exams.map(exam => this.transformExamWithRelations(exam))
   }
 
   async findActive() {
-    return await this.prisma.exam.findMany({
+    const exams = await this.prisma.exam.findMany({
       where: { isActive: true },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      },
+      include: this.getFullInclude(),
       orderBy: {
         title: 'asc'
       }
     })
+
+    return exams.map(exam => this.transformExamWithRelations(exam))
   }
 
   async findById(id: string) {
     const exam = await this.prisma.exam.findUnique({
       where: { id },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
 
     if (!exam) {
       throw new Error('Exam not found')
     }
 
-    return exam
+    return this.transformExamWithRelations(exam)
   }
 
   async findBySlug(slug: string) {
     const exam = await this.prisma.exam.findUnique({
       where: { slug },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
 
     if (!exam) {
       throw new Error('Exam not found')
     }
 
-    return exam
+    return this.transformExamWithRelations(exam)
   }
 
   async findByInstructor(instructorId: string) {
@@ -5390,53 +5895,45 @@ export class ExamService {
       throw new Error('Instructor not found')
     }
 
-    return await this.prisma.exam.findMany({
+    const exams = await this.prisma.exam.findMany({
       where: { instructorId },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      },
+      include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'
       }
     })
+
+    return exams.map(exam => this.transformExamWithRelations(exam))
   }
 
   async update(id: string, data: UpdateExamInput) {
     // Check if exam exists
-    await this.findById(id)
+    const existingExam = await this.prisma.exam.findUnique({
+      where: { id }
+    })
+
+    if (!existingExam) {
+      throw new Error('Exam not found')
+    }
 
     // If updating slug, check it's unique
     if (data.slug) {
-      const existingExam = await this.prisma.exam.findUnique({
+      const examWithSlug = await this.prisma.exam.findUnique({
         where: { slug: data.slug }
       })
 
-      if (existingExam && existingExam.id !== id) {
+      if (examWithSlug && examWithSlug.id !== id) {
         throw new Error('Exam with this slug already exists')
       }
     }
 
-    return await this.prisma.exam.update({
+    const exam = await this.prisma.exam.update({
       where: { id },
       data,
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
+
+    return this.transformExamWithRelations(exam)
   }
 
   async delete(id: string) {
@@ -5449,22 +5946,21 @@ export class ExamService {
   }
 
   async toggleActive(id: string) {
-    const exam = await this.findById(id)
-    
-    return await this.prisma.exam.update({
-      where: { id },
-      data: { isActive: !exam.isActive },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+    const currentExam = await this.prisma.exam.findUnique({
+      where: { id }
     })
+
+    if (!currentExam) {
+      throw new Error('Exam not found')
+    }
+    
+    const exam = await this.prisma.exam.update({
+      where: { id },
+      data: { isActive: !currentExam.isActive },
+      include: this.getFullInclude()
+    })
+
+    return this.transformExamWithRelations(exam)
   }
 
   // ===== JUNCTION TABLE OPERATIONS =====
@@ -5564,7 +6060,13 @@ export class ExamService {
   // Get specialties assigned to an exam
   async getExamSpecialties(examId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const examSpecialties = await this.prisma.examSpecialty.findMany({
       where: { examId },
@@ -5584,7 +6086,13 @@ export class ExamService {
   // Get curriculum items assigned to an exam
   async getExamCurriculums(examId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const examCurriculums = await this.prisma.examCurriculum.findMany({
       where: { examId },
@@ -5604,7 +6112,13 @@ export class ExamService {
   // Get marking domains assigned to an exam
   async getExamMarkingDomains(examId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const examMarkingDomains = await this.prisma.examMarkingDomain.findMany({
       where: { examId },
@@ -5626,7 +6140,13 @@ export class ExamService {
   // Remove specialty from exam
   async removeSpecialty(examId: string, specialtyId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const deleted = await this.prisma.examSpecialty.deleteMany({
       where: { examId, specialtyId }
@@ -5642,7 +6162,13 @@ export class ExamService {
   // Remove curriculum from exam
   async removeCurriculum(examId: string, curriculumId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const deleted = await this.prisma.examCurriculum.deleteMany({
       where: { examId, curriculumId }
@@ -5658,7 +6184,13 @@ export class ExamService {
   // Remove marking domain from exam
   async removeMarkingDomain(examId: string, markingDomainId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const deleted = await this.prisma.examMarkingDomain.deleteMany({
       where: { examId, markingDomainId }
@@ -5816,58 +6348,14 @@ export class ExamService {
   async getExamWithConfiguration(examId: string) {
     const exam = await this.prisma.exam.findUnique({
       where: { id: examId },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        },
-        examSpecialties: {
-          include: {
-            specialty: true
-          },
-          orderBy: {
-            specialty: {
-              name: 'asc'
-            }
-          }
-        },
-        examCurriculums: {
-          include: {
-            curriculum: true
-          },
-          orderBy: {
-            curriculum: {
-              name: 'asc'
-            }
-          }
-        },
-        examMarkingDomains: {
-          include: {
-            markingDomain: true
-          },
-          orderBy: {
-            markingDomain: {
-              name: 'asc'
-            }
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
 
     if (!exam) {
       throw new Error('Exam not found')
     }
 
-    return {
-      ...exam,
-      specialties: exam.examSpecialties.map(es => es.specialty),
-      curriculums: exam.examCurriculums.map(ec => ec.curriculum),
-      markingDomains: exam.examMarkingDomains.map(emd => emd.markingDomain)
-    }
+    return this.transformExamWithRelations(exam)
   }
 
   // Clear all exam configurations
@@ -5882,6 +6370,258 @@ export class ExamService {
     ])
 
     return { message: 'Exam configuration cleared successfully' }
+  }
+
+  // ===== COMPLETE EXAM CREATION =====
+
+  async createCompleteExam(data: CreateCompleteExamInput) {
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify instructor exists
+      const instructor = await tx.instructor.findUnique({
+        where: { id: data.exam.instructorId }
+      })
+
+      if (!instructor) {
+        throw new Error('Instructor not found')
+      }
+
+      // Generate slug if not provided
+      const slug = data.exam.slug || this.generateSlug(data.exam.title)
+
+      // Check if slug already exists
+      const existingExam = await tx.exam.findUnique({
+        where: { slug }
+      })
+
+      if (existingExam) {
+        throw new Error('Exam with this slug already exists')
+      }
+
+      // Step 2: Create the exam
+      const exam = await tx.exam.create({
+        data: {
+          instructorId: data.exam.instructorId,
+          title: data.exam.title,
+          slug: slug,
+          description: data.exam.description,
+          isActive: data.exam.isActive ?? true
+        }
+      })
+
+      // Step 3: Create new entities
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[],
+        markingDomains: [] as any[]
+      }
+
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          // Check if already exists (case-insensitive)
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
+        }
+      }
+
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
+        }
+      }
+
+      // Create new marking domains
+      if (data.new?.markingDomains && data.new.markingDomains.length > 0) {
+        for (const markingDomain of data.new.markingDomains) {
+          const existing = await tx.markingDomain.findFirst({
+            where: { 
+              name: {
+                equals: markingDomain.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.markingDomains.push(existing)
+          } else {
+            const created = await tx.markingDomain.create({
+              data: { name: markingDomain.name }
+            })
+            createdEntities.markingDomains.push(created)
+          }
+        }
+      }
+
+      // Step 4: Collect all IDs (existing + newly created)
+      const allSpecialtyIds = [
+        ...(data.existing?.specialtyIds || []),
+        ...createdEntities.specialties.map(s => s.id)
+      ]
+
+      const allCurriculumIds = [
+        ...(data.existing?.curriculumIds || []),
+        ...createdEntities.curriculums.map(c => c.id)
+      ]
+
+      const allMarkingDomainIds = [
+        ...(data.existing?.markingDomainIds || []),
+        ...createdEntities.markingDomains.map(md => md.id)
+      ]
+
+      // Step 5: Verify existing entities exist
+      if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
+        const count = await tx.specialty.count({
+          where: { id: { in: data.existing.specialtyIds } }
+        })
+        if (count !== data.existing.specialtyIds.length) {
+          throw new Error('One or more specialties not found')
+        }
+      }
+
+      if (data.existing?.curriculumIds && data.existing.curriculumIds.length > 0) {
+        const count = await tx.curriculum.count({
+          where: { id: { in: data.existing.curriculumIds } }
+        })
+        if (count !== data.existing.curriculumIds.length) {
+          throw new Error('One or more curriculums not found')
+        }
+      }
+
+      if (data.existing?.markingDomainIds && data.existing.markingDomainIds.length > 0) {
+        const count = await tx.markingDomain.count({
+          where: { id: { in: data.existing.markingDomainIds } }
+        })
+        if (count !== data.existing.markingDomainIds.length) {
+          throw new Error('One or more marking domains not found')
+        }
+      }
+
+      // Step 6: Create all junction table entries
+      if (allSpecialtyIds.length > 0) {
+        await tx.examSpecialty.createMany({
+          data: allSpecialtyIds.map(specialtyId => ({
+            examId: exam.id,
+            specialtyId
+          }))
+        })
+      }
+
+      if (allCurriculumIds.length > 0) {
+        await tx.examCurriculum.createMany({
+          data: allCurriculumIds.map(curriculumId => ({
+            examId: exam.id,
+            curriculumId
+          }))
+        })
+      }
+
+      if (allMarkingDomainIds.length > 0) {
+        await tx.examMarkingDomain.createMany({
+          data: allMarkingDomainIds.map(markingDomainId => ({
+            examId: exam.id,
+            markingDomainId
+          }))
+        })
+      }
+
+      // Step 7: Fetch all assigned entities for response
+      const assignedSpecialties = await tx.specialty.findMany({
+        where: { id: { in: allSpecialtyIds } }
+      })
+
+      const assignedCurriculums = await tx.curriculum.findMany({
+        where: { id: { in: allCurriculumIds } }
+      })
+
+      const assignedMarkingDomains = await tx.markingDomain.findMany({
+        where: { id: { in: allMarkingDomainIds } }
+      })
+
+      // Count truly new entities created (not including existing ones that were found)
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        !data.existing?.specialtyIds?.includes(s.id) &&
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        !data.existing?.curriculumIds?.includes(c.id) &&
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+
+      const newMarkingDomainsCount = createdEntities.markingDomains.filter(md => 
+        !data.existing?.markingDomainIds?.includes(md.id) &&
+        data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+      ).length
+
+      // Return comprehensive response
+      return {
+        exam,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          ),
+          markingDomains: createdEntities.markingDomains.filter(md => 
+            data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+          )
+        },
+        assigned: {
+          specialties: assignedSpecialties,
+          curriculums: assignedCurriculums,
+          markingDomains: assignedMarkingDomains
+        },
+        summary: {
+          totalSpecialties: assignedSpecialties.length,
+          totalCurriculums: assignedCurriculums.length,
+          totalMarkingDomains: assignedMarkingDomains.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount + newMarkingDomainsCount
+        }
+      }
+    })
+  }
+
+  // Helper method
+  private generateSlug(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
   }
 }
 
@@ -8825,7 +9565,8 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
       const subscription = await subscriptionService.findById(id)
       
       // Check authorization - students can only see their own subscriptions
-      if (request.userType === 'student' && subscription.studentId !== getCurrentStudentId(request)) {
+      const user = request.user as any;
+      if (user?.role === 'student' && subscription.studentId !== getCurrentStudentId(request)) {
         reply.status(403).send({ error: 'Access denied' })
         return
       }
@@ -9520,7 +10261,7 @@ File: src/middleware/auth.middleware.ts
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { JWTPayload } from '../entities/auth/auth.schema'
 
-// Extend FastifyJWT interface instead of FastifyRequest
+// Extend FastifyJWT interface
 declare module '@fastify/jwt' {
   interface FastifyJWT {
     payload: JWTPayload
@@ -9531,7 +10272,7 @@ declare module '@fastify/jwt' {
 // Add custom properties to FastifyRequest
 declare module 'fastify' {
   interface FastifyRequest {
-    userType?: 'student' | 'instructor'
+    role?: 'student' | 'instructor'
   }
 }
 
@@ -9542,7 +10283,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     
     // The JWT payload is automatically attached to request.user by fastify-jwt
     const user = request.user as JWTPayload
-    request.userType = user.userType
+    request.role = user.role // Changed from user.userType to user.role
   } catch (err) {
     reply.status(401).send({ error: 'Unauthorized' })
   }
@@ -9558,7 +10299,7 @@ export function requireRole(role: 'student' | 'instructor') {
       return
     }
 
-    if (request.userType !== role) {
+    if (request.role !== role) {
       reply.status(403).send({ error: `Access denied. ${role} role required.` })
       return
     }
@@ -9583,10 +10324,10 @@ export async function optionalAuth(request: FastifyRequest, reply: FastifyReply)
   try {
     await request.jwtVerify()
     const user = request.user as JWTPayload
-    request.userType = user.userType
+    request.role = user.role // Changed from user.userType to user.role
   } catch (err) {
     // Don't fail, just continue without user
-    request.userType = undefined
+    request.role = undefined
   }
 }
 
@@ -9599,7 +10340,7 @@ export function getCurrentUserId(request: FastifyRequest): number | null {
 // Helper to get current student ID
 export function getCurrentStudentId(request: FastifyRequest): string | null {
   const user = request.user as JWTPayload | undefined
-  if (request.userType === 'student' && user?.studentId) {
+  if (request.role === 'student' && user?.studentId) {
     return user.studentId
   }
   return null
@@ -9608,7 +10349,7 @@ export function getCurrentStudentId(request: FastifyRequest): string | null {
 // Helper to get current instructor ID
 export function getCurrentInstructorId(request: FastifyRequest): string | null {
   const user = request.user as JWTPayload | undefined
-  if (request.userType === 'instructor' && user?.instructorId) {
+  if (request.role === 'instructor' && user?.instructorId) {
     return user.instructorId
   }
   return null

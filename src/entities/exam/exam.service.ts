@@ -1,9 +1,76 @@
 // exam.service.ts
 import { PrismaClient } from '@prisma/client'
-import { CreateExamInput, UpdateExamInput } from './exam.schema'
+import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput } from './exam.schema'
 
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
+
+  // ===== HELPER METHODS FOR FULL RELATIONS =====
+
+  // Get the full include object for queries with all relations
+  private getFullInclude() {
+    return {
+      instructor: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          bio: true
+        }
+      },
+      examSpecialties: {
+        include: {
+          specialty: true
+        },
+        orderBy: {
+          specialty: {
+            name: 'asc' as const
+          }
+        }
+      },
+      examCurriculums: {
+        include: {
+          curriculum: true
+        },
+        orderBy: {
+          curriculum: {
+            name: 'asc' as const
+          }
+        }
+      },
+      examMarkingDomains: {
+        include: {
+          markingDomain: true
+        },
+        orderBy: {
+          markingDomain: {
+            name: 'asc' as const
+          }
+        }
+      },
+      _count: {
+        select: {
+          courses: true,
+          examSpecialties: true,
+          examCurriculums: true,
+          examMarkingDomains: true
+        }
+      }
+    }
+  }
+
+  // Transform the exam response to include flattened relations
+  private transformExamWithRelations(exam: any) {
+    return {
+      ...exam,
+      specialties: exam.examSpecialties?.map((es: any) => es.specialty) || [],
+      curriculums: exam.examCurriculums?.map((ec: any) => ec.curriculum) || [],
+      markingDomains: exam.examMarkingDomains?.map((emd: any) => emd.markingDomain) || [],
+      examSpecialties: undefined,
+      examCurriculums: undefined,
+      examMarkingDomains: undefined
+    }
+  }
 
   // ===== BASIC EXAM CRUD OPERATIONS =====
 
@@ -26,7 +93,7 @@ export class ExamService {
       throw new Error('Exam with this slug already exists')
     }
 
-    return await this.prisma.exam.create({
+    const exam = await this.prisma.exam.create({
       data: {
         instructorId: data.instructorId,
         title: data.title,
@@ -34,98 +101,59 @@ export class ExamService {
         description: data.description,
         isActive: data.isActive ?? true
       },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
+
+    return this.transformExamWithRelations(exam)
   }
 
   async findAll() {
-    return await this.prisma.exam.findMany({
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      },
+    const exams = await this.prisma.exam.findMany({
+      include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'
       }
     })
+
+    return exams.map(exam => this.transformExamWithRelations(exam))
   }
 
   async findActive() {
-    return await this.prisma.exam.findMany({
+    const exams = await this.prisma.exam.findMany({
       where: { isActive: true },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      },
+      include: this.getFullInclude(),
       orderBy: {
         title: 'asc'
       }
     })
+
+    return exams.map(exam => this.transformExamWithRelations(exam))
   }
 
   async findById(id: string) {
     const exam = await this.prisma.exam.findUnique({
       where: { id },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
 
     if (!exam) {
       throw new Error('Exam not found')
     }
 
-    return exam
+    return this.transformExamWithRelations(exam)
   }
 
   async findBySlug(slug: string) {
     const exam = await this.prisma.exam.findUnique({
       where: { slug },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
 
     if (!exam) {
       throw new Error('Exam not found')
     }
 
-    return exam
+    return this.transformExamWithRelations(exam)
   }
 
   async findByInstructor(instructorId: string) {
@@ -138,53 +166,45 @@ export class ExamService {
       throw new Error('Instructor not found')
     }
 
-    return await this.prisma.exam.findMany({
+    const exams = await this.prisma.exam.findMany({
       where: { instructorId },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      },
+      include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'
       }
     })
+
+    return exams.map(exam => this.transformExamWithRelations(exam))
   }
 
   async update(id: string, data: UpdateExamInput) {
     // Check if exam exists
-    await this.findById(id)
+    const existingExam = await this.prisma.exam.findUnique({
+      where: { id }
+    })
+
+    if (!existingExam) {
+      throw new Error('Exam not found')
+    }
 
     // If updating slug, check it's unique
     if (data.slug) {
-      const existingExam = await this.prisma.exam.findUnique({
+      const examWithSlug = await this.prisma.exam.findUnique({
         where: { slug: data.slug }
       })
 
-      if (existingExam && existingExam.id !== id) {
+      if (examWithSlug && examWithSlug.id !== id) {
         throw new Error('Exam with this slug already exists')
       }
     }
 
-    return await this.prisma.exam.update({
+    const exam = await this.prisma.exam.update({
       where: { id },
       data,
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
+
+    return this.transformExamWithRelations(exam)
   }
 
   async delete(id: string) {
@@ -197,22 +217,21 @@ export class ExamService {
   }
 
   async toggleActive(id: string) {
-    const exam = await this.findById(id)
-    
-    return await this.prisma.exam.update({
-      where: { id },
-      data: { isActive: !exam.isActive },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
+    const currentExam = await this.prisma.exam.findUnique({
+      where: { id }
     })
+
+    if (!currentExam) {
+      throw new Error('Exam not found')
+    }
+    
+    const exam = await this.prisma.exam.update({
+      where: { id },
+      data: { isActive: !currentExam.isActive },
+      include: this.getFullInclude()
+    })
+
+    return this.transformExamWithRelations(exam)
   }
 
   // ===== JUNCTION TABLE OPERATIONS =====
@@ -312,7 +331,13 @@ export class ExamService {
   // Get specialties assigned to an exam
   async getExamSpecialties(examId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const examSpecialties = await this.prisma.examSpecialty.findMany({
       where: { examId },
@@ -332,7 +357,13 @@ export class ExamService {
   // Get curriculum items assigned to an exam
   async getExamCurriculums(examId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const examCurriculums = await this.prisma.examCurriculum.findMany({
       where: { examId },
@@ -352,7 +383,13 @@ export class ExamService {
   // Get marking domains assigned to an exam
   async getExamMarkingDomains(examId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const examMarkingDomains = await this.prisma.examMarkingDomain.findMany({
       where: { examId },
@@ -374,7 +411,13 @@ export class ExamService {
   // Remove specialty from exam
   async removeSpecialty(examId: string, specialtyId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const deleted = await this.prisma.examSpecialty.deleteMany({
       where: { examId, specialtyId }
@@ -390,7 +433,13 @@ export class ExamService {
   // Remove curriculum from exam
   async removeCurriculum(examId: string, curriculumId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const deleted = await this.prisma.examCurriculum.deleteMany({
       where: { examId, curriculumId }
@@ -406,7 +455,13 @@ export class ExamService {
   // Remove marking domain from exam
   async removeMarkingDomain(examId: string, markingDomainId: string) {
     // Verify exam exists
-    await this.findById(examId)
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
 
     const deleted = await this.prisma.examMarkingDomain.deleteMany({
       where: { examId, markingDomainId }
@@ -564,58 +619,14 @@ export class ExamService {
   async getExamWithConfiguration(examId: string) {
     const exam = await this.prisma.exam.findUnique({
       where: { id: examId },
-      include: {
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        },
-        examSpecialties: {
-          include: {
-            specialty: true
-          },
-          orderBy: {
-            specialty: {
-              name: 'asc'
-            }
-          }
-        },
-        examCurriculums: {
-          include: {
-            curriculum: true
-          },
-          orderBy: {
-            curriculum: {
-              name: 'asc'
-            }
-          }
-        },
-        examMarkingDomains: {
-          include: {
-            markingDomain: true
-          },
-          orderBy: {
-            markingDomain: {
-              name: 'asc'
-            }
-          }
-        }
-      }
+      include: this.getFullInclude()
     })
 
     if (!exam) {
       throw new Error('Exam not found')
     }
 
-    return {
-      ...exam,
-      specialties: exam.examSpecialties.map(es => es.specialty),
-      curriculums: exam.examCurriculums.map(ec => ec.curriculum),
-      markingDomains: exam.examMarkingDomains.map(emd => emd.markingDomain)
-    }
+    return this.transformExamWithRelations(exam)
   }
 
   // Clear all exam configurations
@@ -630,5 +641,257 @@ export class ExamService {
     ])
 
     return { message: 'Exam configuration cleared successfully' }
+  }
+
+  // ===== COMPLETE EXAM CREATION =====
+
+  async createCompleteExam(data: CreateCompleteExamInput) {
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify instructor exists
+      const instructor = await tx.instructor.findUnique({
+        where: { id: data.exam.instructorId }
+      })
+
+      if (!instructor) {
+        throw new Error('Instructor not found')
+      }
+
+      // Generate slug if not provided
+      const slug = data.exam.slug || this.generateSlug(data.exam.title)
+
+      // Check if slug already exists
+      const existingExam = await tx.exam.findUnique({
+        where: { slug }
+      })
+
+      if (existingExam) {
+        throw new Error('Exam with this slug already exists')
+      }
+
+      // Step 2: Create the exam
+      const exam = await tx.exam.create({
+        data: {
+          instructorId: data.exam.instructorId,
+          title: data.exam.title,
+          slug: slug,
+          description: data.exam.description,
+          isActive: data.exam.isActive ?? true
+        }
+      })
+
+      // Step 3: Create new entities
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[],
+        markingDomains: [] as any[]
+      }
+
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          // Check if already exists (case-insensitive)
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
+        }
+      }
+
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
+        }
+      }
+
+      // Create new marking domains
+      if (data.new?.markingDomains && data.new.markingDomains.length > 0) {
+        for (const markingDomain of data.new.markingDomains) {
+          const existing = await tx.markingDomain.findFirst({
+            where: { 
+              name: {
+                equals: markingDomain.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.markingDomains.push(existing)
+          } else {
+            const created = await tx.markingDomain.create({
+              data: { name: markingDomain.name }
+            })
+            createdEntities.markingDomains.push(created)
+          }
+        }
+      }
+
+      // Step 4: Collect all IDs (existing + newly created)
+      const allSpecialtyIds = [
+        ...(data.existing?.specialtyIds || []),
+        ...createdEntities.specialties.map(s => s.id)
+      ]
+
+      const allCurriculumIds = [
+        ...(data.existing?.curriculumIds || []),
+        ...createdEntities.curriculums.map(c => c.id)
+      ]
+
+      const allMarkingDomainIds = [
+        ...(data.existing?.markingDomainIds || []),
+        ...createdEntities.markingDomains.map(md => md.id)
+      ]
+
+      // Step 5: Verify existing entities exist
+      if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
+        const count = await tx.specialty.count({
+          where: { id: { in: data.existing.specialtyIds } }
+        })
+        if (count !== data.existing.specialtyIds.length) {
+          throw new Error('One or more specialties not found')
+        }
+      }
+
+      if (data.existing?.curriculumIds && data.existing.curriculumIds.length > 0) {
+        const count = await tx.curriculum.count({
+          where: { id: { in: data.existing.curriculumIds } }
+        })
+        if (count !== data.existing.curriculumIds.length) {
+          throw new Error('One or more curriculums not found')
+        }
+      }
+
+      if (data.existing?.markingDomainIds && data.existing.markingDomainIds.length > 0) {
+        const count = await tx.markingDomain.count({
+          where: { id: { in: data.existing.markingDomainIds } }
+        })
+        if (count !== data.existing.markingDomainIds.length) {
+          throw new Error('One or more marking domains not found')
+        }
+      }
+
+      // Step 6: Create all junction table entries
+      if (allSpecialtyIds.length > 0) {
+        await tx.examSpecialty.createMany({
+          data: allSpecialtyIds.map(specialtyId => ({
+            examId: exam.id,
+            specialtyId
+          }))
+        })
+      }
+
+      if (allCurriculumIds.length > 0) {
+        await tx.examCurriculum.createMany({
+          data: allCurriculumIds.map(curriculumId => ({
+            examId: exam.id,
+            curriculumId
+          }))
+        })
+      }
+
+      if (allMarkingDomainIds.length > 0) {
+        await tx.examMarkingDomain.createMany({
+          data: allMarkingDomainIds.map(markingDomainId => ({
+            examId: exam.id,
+            markingDomainId
+          }))
+        })
+      }
+
+      // Step 7: Fetch all assigned entities for response
+      const assignedSpecialties = await tx.specialty.findMany({
+        where: { id: { in: allSpecialtyIds } }
+      })
+
+      const assignedCurriculums = await tx.curriculum.findMany({
+        where: { id: { in: allCurriculumIds } }
+      })
+
+      const assignedMarkingDomains = await tx.markingDomain.findMany({
+        where: { id: { in: allMarkingDomainIds } }
+      })
+
+      // Count truly new entities created (not including existing ones that were found)
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        !data.existing?.specialtyIds?.includes(s.id) &&
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        !data.existing?.curriculumIds?.includes(c.id) &&
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+
+      const newMarkingDomainsCount = createdEntities.markingDomains.filter(md => 
+        !data.existing?.markingDomainIds?.includes(md.id) &&
+        data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+      ).length
+
+      // Return comprehensive response
+      return {
+        exam,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          ),
+          markingDomains: createdEntities.markingDomains.filter(md => 
+            data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+          )
+        },
+        assigned: {
+          specialties: assignedSpecialties,
+          curriculums: assignedCurriculums,
+          markingDomains: assignedMarkingDomains
+        },
+        summary: {
+          totalSpecialties: assignedSpecialties.length,
+          totalCurriculums: assignedCurriculums.length,
+          totalMarkingDomains: assignedMarkingDomains.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount + newMarkingDomainsCount
+        }
+      }
+    })
+  }
+
+  // Helper method
+  private generateSlug(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
   }
 }
