@@ -632,18 +632,10 @@ export class CourseCaseService {
       curriculumDistribution: enrichedCurriculumDistribution
     }
   }
+
   // ===== COMPLETE COURSE CASE OPERATIONS =====
 
   async createCompleteCourseCase(data: CreateCompleteCourseCaseInput) {
-    // Helper function to ensure tab content is always an array
-    const getTabContent = (tabs: any, tabType: string): string[] => {
-      if (!tabs || !tabs[tabType]) return []
-      const content = tabs[tabType]
-      if (Array.isArray(content)) return content
-      if (typeof content === 'string') return [content] // Handle legacy
-      return []
-    }
-  
     // Use transaction to ensure atomicity
     return await this.prisma.$transaction(async (tx) => {
       // Step 1: Verify course exists and get course data
@@ -701,8 +693,9 @@ export class CourseCaseService {
       const createdTabs: any = {}
       
       for (const tabType of tabTypes) {
-        // Use helper function to ensure content is always an array
-        const content = getTabContent(data.tabs, tabType)
+        // Content is already an array thanks to Zod transform
+        const content = data.tabs?.[tabType] || []
+        
         const tab = await tx.caseTab.create({
           data: {
             courseCaseId: courseCase.id,
@@ -710,6 +703,7 @@ export class CourseCaseService {
             content
           }
         })
+        
         createdTabs[tabType] = {
           id: tab.id,
           content: tab.content,
@@ -890,18 +884,7 @@ export class CourseCaseService {
     })
   }
   
-  // 2. updateCompleteCourseCase method for course-case.service.ts
-  
   async updateCompleteCourseCase(data: UpdateCompleteCourseCaseInput) {
-    // Helper function to ensure tab content is always an array
-    const getTabContent = (tabs: any, tabType: string): string[] => {
-      if (!tabs || !tabs[tabType]) return []
-      const content = tabs[tabType]
-      if (Array.isArray(content)) return content
-      if (typeof content === 'string') return [content] // Handle legacy
-      return []
-    }
-  
     // Use transaction to ensure atomicity
     return await this.prisma.$transaction(async (tx) => {
       // Step 1: Verify course case exists
@@ -960,11 +943,10 @@ export class CourseCaseService {
           
           if (data.tabs[tabType] !== undefined) {
             if (existingTab) {
-              // Update existing tab
-              const contentArray = getTabContent(data.tabs, tabType)
+              // Content is already an array thanks to Zod transform
               const updatedTab = await tx.caseTab.update({
                 where: { id: existingTab.id },
-                data: { content: contentArray }
+                data: { content: data.tabs[tabType] }
               })
               tabsResponse[tabType] = {
                 id: updatedTab.id,
@@ -974,12 +956,11 @@ export class CourseCaseService {
               tabsUpdated++
             } else {
               // Create new tab if doesn't exist
-              const contentArray = getTabContent(data.tabs, tabType)
               const newTab = await tx.caseTab.create({
                 data: {
                   courseCaseId: data.courseCaseId,
                   tabType,
-                  content: contentArray
+                  content: data.tabs[tabType]
                 }
               })
               tabsResponse[tabType] = {
@@ -993,7 +974,7 @@ export class CourseCaseService {
             tabsResponse[tabType] = {
               id: existingTab.id,
               content: existingTab.content,
-              hasContent: existingTab.content.length > 0 // Changed from existingTab.content.trim().length > 0
+              hasContent: existingTab.content.length > 0
             }
           }
         }
@@ -1003,7 +984,7 @@ export class CourseCaseService {
           tabsResponse[tab.tabType] = {
             id: tab.id,
             content: tab.content,
-            hasContent: tab.content.length > 0 // Changed from tab.content.trim().length > 0
+            hasContent: tab.content.length > 0
           }
         }
       }
@@ -1186,5 +1167,4 @@ export class CourseCaseService {
       }
     })
   }
-  
 }

@@ -148,12 +148,24 @@ export const createCompleteCourseCaseSchema = z.object({
       .optional()
   }),
   
-  // Tabs content
+  // Tabs content - Accept either string or array of strings for flexibility
   tabs: z.object({
-    DOCTORS_NOTE: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
-    PATIENT_SCRIPT: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
-    MARKING_CRITERIA: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
-    MEDICAL_NOTES: z.string().max(10000, 'Content must be less than 10,000 characters').default('')
+    DOCTORS_NOTE: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    PATIENT_SCRIPT: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    MARKING_CRITERIA: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    MEDICAL_NOTES: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val])
   }).optional(),
   
   // Existing entities (by ID)
@@ -239,12 +251,24 @@ export const updateCompleteCourseCaseSchema = z.object({
       .optional()
   }).optional(),
   
-  // Tabs content (optional)
+  // Tabs content (optional) - Accept either string or array of strings
   tabs: z.object({
-    DOCTORS_NOTE: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
-    PATIENT_SCRIPT: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
-    MARKING_CRITERIA: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
-    MEDICAL_NOTES: z.string().max(10000, 'Content must be less than 10,000 characters').optional()
+    DOCTORS_NOTE: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
+    PATIENT_SCRIPT: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
+    MARKING_CRITERIA: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
+    MEDICAL_NOTES: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional()
   }).optional(),
   
   // Relations update
@@ -309,22 +333,22 @@ export const completeCourseCaseResponseSchema = z.object({
   tabs: z.object({
     DOCTORS_NOTE: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     }),
     PATIENT_SCRIPT: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     }),
     MARKING_CRITERIA: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     }),
     MEDICAL_NOTES: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     })
   }),
