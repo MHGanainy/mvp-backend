@@ -634,534 +634,557 @@ export class CourseCaseService {
   }
   // ===== COMPLETE COURSE CASE OPERATIONS =====
 
-async createCompleteCourseCase(data: CreateCompleteCourseCaseInput) {
-  // Use transaction to ensure atomicity
-  return await this.prisma.$transaction(async (tx) => {
-    // Step 1: Verify course exists and get course data
-    const course = await tx.course.findUnique({
-      where: { id: data.courseCase.courseId }
-    })
-
-    if (!course) {
-      throw new Error('Course not found')
+  async createCompleteCourseCase(data: CreateCompleteCourseCaseInput) {
+    // Helper function to ensure tab content is always an array
+    const getTabContent = (tabs: any, tabType: string): string[] => {
+      if (!tabs || !tabs[tabType]) return []
+      const content = tabs[tabType]
+      if (Array.isArray(content)) return content
+      if (typeof content === 'string') return [content] // Handle legacy
+      return []
     }
-
-    // Check if course style allows adding cases
-    if (course.style !== 'RANDOM') {
-      throw new Error('Cases can only be added to RANDOM style courses')
-    }
-
-    // Auto-assign display order if not provided
-    if (!data.courseCase.displayOrder) {
-      const maxOrder = await tx.courseCase.aggregate({
-        where: { courseId: data.courseCase.courseId },
-        _max: { displayOrder: true }
+  
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify course exists and get course data
+      const course = await tx.course.findUnique({
+        where: { id: data.courseCase.courseId }
       })
-      data.courseCase.displayOrder = (maxOrder._max.displayOrder || 0) + 1
-    } else {
-      // Check if display order is already taken
-      const existingCase = await tx.courseCase.findFirst({
-        where: {
+  
+      if (!course) {
+        throw new Error('Course not found')
+      }
+  
+      // Check if course style allows adding cases
+      if (course.style !== 'RANDOM') {
+        throw new Error('Cases can only be added to RANDOM style courses')
+      }
+  
+      // Auto-assign display order if not provided
+      if (!data.courseCase.displayOrder) {
+        const maxOrder = await tx.courseCase.aggregate({
+          where: { courseId: data.courseCase.courseId },
+          _max: { displayOrder: true }
+        })
+        data.courseCase.displayOrder = (maxOrder._max.displayOrder || 0) + 1
+      } else {
+        // Check if display order is already taken
+        const existingCase = await tx.courseCase.findFirst({
+          where: {
+            courseId: data.courseCase.courseId,
+            displayOrder: data.courseCase.displayOrder
+          }
+        })
+  
+        if (existingCase) {
+          throw new Error(`Display order ${data.courseCase.displayOrder} is already taken for this course`)
+        }
+      }
+  
+      // Step 2: Create the course case
+      const courseCase = await tx.courseCase.create({
+        data: {
           courseId: data.courseCase.courseId,
+          title: data.courseCase.title,
+          diagnosis: data.courseCase.diagnosis,
+          patientName: data.courseCase.patientName,
+          patientAge: data.courseCase.patientAge,
+          patientGender: data.courseCase.patientGender,
+          description: data.courseCase.description,
+          isFree: data.courseCase.isFree ?? false,
           displayOrder: data.courseCase.displayOrder
         }
       })
-
-      if (existingCase) {
-        throw new Error(`Display order ${data.courseCase.displayOrder} is already taken for this course`)
-      }
-    }
-
-    // Step 2: Create the course case
-    const courseCase = await tx.courseCase.create({
-      data: {
-        courseId: data.courseCase.courseId,
-        title: data.courseCase.title,
-        diagnosis: data.courseCase.diagnosis,
-        patientName: data.courseCase.patientName,
-        patientAge: data.courseCase.patientAge,
-        patientGender: data.courseCase.patientGender,
-        description: data.courseCase.description,
-        isFree: data.courseCase.isFree ?? false,
-        displayOrder: data.courseCase.displayOrder
-      }
-    })
-
-    // Step 3: Create all 4 tabs
-    const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
-    const createdTabs: any = {}
-    
-    for (const tabType of tabTypes) {
-      const content = data.tabs?.[tabType] || ''
-      const tab = await tx.caseTab.create({
-        data: {
-          courseCaseId: courseCase.id,
-          tabType,
-          content
+  
+      // Step 3: Create all 4 tabs
+      const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
+      const createdTabs: any = {}
+      
+      for (const tabType of tabTypes) {
+        // Use helper function to ensure content is always an array
+        const content = getTabContent(data.tabs, tabType)
+        const tab = await tx.caseTab.create({
+          data: {
+            courseCaseId: courseCase.id,
+            tabType,
+            content
+          }
+        })
+        createdTabs[tabType] = {
+          id: tab.id,
+          content: tab.content,
+          hasContent: tab.content.length > 0
         }
-      })
-      createdTabs[tabType] = {
-        id: tab.id,
-        content: tab.content,
-        hasContent: tab.content.trim().length > 0
       }
-    }
-
-    // Step 4: Create new entities
-    const createdEntities = {
-      specialties: [] as any[],
-      curriculums: [] as any[]
-    }
-
-    // Create new specialties
-    if (data.new?.specialties && data.new.specialties.length > 0) {
-      for (const specialty of data.new.specialties) {
-        // Check if already exists (case-insensitive)
-        const existing = await tx.specialty.findFirst({
-          where: { 
-            name: {
-              equals: specialty.name,
-              mode: 'insensitive'
+  
+      // Step 4: Create new entities
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[]
+      }
+  
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          // Check if already exists (case-insensitive)
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
             }
-          }
-        })
-        
-        if (existing) {
-          createdEntities.specialties.push(existing)
-        } else {
-          const created = await tx.specialty.create({
-            data: { name: specialty.name }
           })
-          createdEntities.specialties.push(created)
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
         }
       }
-    }
-
-    // Create new curriculums
-    if (data.new?.curriculums && data.new.curriculums.length > 0) {
-      for (const curriculum of data.new.curriculums) {
-        const existing = await tx.curriculum.findFirst({
-          where: { 
-            name: {
-              equals: curriculum.name,
-              mode: 'insensitive'
+  
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
             }
-          }
-        })
-        
-        if (existing) {
-          createdEntities.curriculums.push(existing)
-        } else {
-          const created = await tx.curriculum.create({
-            data: { name: curriculum.name }
           })
-          createdEntities.curriculums.push(created)
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
         }
       }
-    }
-
-    // Step 5: Collect all IDs (existing + newly created)
-    const allSpecialtyIds = [
-      ...(data.existing?.specialtyIds || []),
-      ...createdEntities.specialties.map(s => s.id)
-    ]
-
-    const allCurriculumIds = [
-      ...(data.existing?.curriculumIds || []),
-      ...createdEntities.curriculums.map(c => c.id)
-    ]
-
-    // Step 6: Verify existing entities exist
-    if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
-      const count = await tx.specialty.count({
-        where: { id: { in: data.existing.specialtyIds } }
-      })
-      if (count !== data.existing.specialtyIds.length) {
-        throw new Error('One or more specialties not found')
-      }
-    }
-
-    if (data.existing?.curriculumIds && data.existing.curriculumIds.length > 0) {
-      const count = await tx.curriculum.count({
-        where: { id: { in: data.existing.curriculumIds } }
-      })
-      if (count !== data.existing.curriculumIds.length) {
-        throw new Error('One or more curriculums not found')
-      }
-    }
-
-    // Step 7: Create all junction table entries
-    if (allSpecialtyIds.length > 0) {
-      await tx.caseSpecialty.createMany({
-        data: allSpecialtyIds.map(specialtyId => ({
-          courseCaseId: courseCase.id,
-          specialtyId
-        }))
-      })
-    }
-
-    if (allCurriculumIds.length > 0) {
-      await tx.caseCurriculum.createMany({
-        data: allCurriculumIds.map(curriculumId => ({
-          courseCaseId: courseCase.id,
-          curriculumId
-        }))
-      })
-    }
-
-    // Step 8: Create simulation if provided
-    let simulation = null
-    if (data.simulation) {
-      // Validate warning time
-      if (data.simulation.warningTimeMinutes && 
-          data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
-        throw new Error('Warning time must be less than time limit')
-      }
-
-      simulation = await tx.simulation.create({
-        data: {
-          courseCaseId: courseCase.id,
-          casePrompt: data.simulation.casePrompt,
-          openingLine: data.simulation.openingLine,
-          timeLimitMinutes: data.simulation.timeLimitMinutes,
-          voiceModel: data.simulation.voiceModel,
-          warningTimeMinutes: data.simulation.warningTimeMinutes,
-          creditCost: data.simulation.creditCost
+  
+      // Step 5: Collect all IDs (existing + newly created)
+      const allSpecialtyIds = [
+        ...(data.existing?.specialtyIds || []),
+        ...createdEntities.specialties.map(s => s.id)
+      ]
+  
+      const allCurriculumIds = [
+        ...(data.existing?.curriculumIds || []),
+        ...createdEntities.curriculums.map(c => c.id)
+      ]
+  
+      // Step 6: Verify existing entities exist
+      if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
+        const count = await tx.specialty.count({
+          where: { id: { in: data.existing.specialtyIds } }
+        })
+        if (count !== data.existing.specialtyIds.length) {
+          throw new Error('One or more specialties not found')
         }
-      })
-    }
-
-    // Step 9: Fetch all assigned entities for response
-    const assignedSpecialties = await tx.specialty.findMany({
-      where: { id: { in: allSpecialtyIds } }
-    })
-
-    const assignedCurriculums = await tx.curriculum.findMany({
-      where: { id: { in: allCurriculumIds } }
-    })
-
-    // Count truly new entities created
-    const newSpecialtiesCount = createdEntities.specialties.filter(s => 
-      !data.existing?.specialtyIds?.includes(s.id) &&
-      data.new?.specialties?.some(ns => ns.name === s.name)
-    ).length
-
-    const newCurriculumsCount = createdEntities.curriculums.filter(c => 
-      !data.existing?.curriculumIds?.includes(c.id) &&
-      data.new?.curriculums?.some(nc => nc.name === c.name)
-    ).length
-
-    // Return comprehensive response
-    return {
-      courseCase,
-      tabs: createdTabs,
-      created: {
-        specialties: createdEntities.specialties.filter(s => 
-          data.new?.specialties?.some(ns => ns.name === s.name)
-        ),
-        curriculums: createdEntities.curriculums.filter(c => 
-          data.new?.curriculums?.some(nc => nc.name === c.name)
-        )
-      },
-      assigned: {
-        specialties: assignedSpecialties,
-        curriculums: assignedCurriculums
-      },
-      simulation,
-      summary: {
-        totalSpecialties: assignedSpecialties.length,
-        totalCurriculums: assignedCurriculums.length,
-        newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
-        simulationCreated: !!simulation,
-        tabsCreated: 4,
-        tabsUpdated: 0
       }
-    }
-  })
-}
-
-async updateCompleteCourseCase(data: UpdateCompleteCourseCaseInput) {
-  // Use transaction to ensure atomicity
-  return await this.prisma.$transaction(async (tx) => {
-    // Step 1: Verify course case exists
-    const existingCourseCase = await tx.courseCase.findUnique({
-      where: { id: data.courseCaseId },
-      include: {
-        course: true,
-        simulation: true,
-        caseTabs: true
+  
+      if (data.existing?.curriculumIds && data.existing.curriculumIds.length > 0) {
+        const count = await tx.curriculum.count({
+          where: { id: { in: data.existing.curriculumIds } }
+        })
+        if (count !== data.existing.curriculumIds.length) {
+          throw new Error('One or more curriculums not found')
+        }
       }
-    })
-
-    if (!existingCourseCase) {
-      throw new Error('Course case not found')
-    }
-
-    // Step 2: Update course case if data provided
-    let updatedCourseCase = existingCourseCase
-    if (data.courseCase) {
-      // Check display order if updating
-      if (data.courseCase.displayOrder && 
-          data.courseCase.displayOrder !== existingCourseCase.displayOrder) {
-        const conflictingCase = await tx.courseCase.findFirst({
-          where: {
-            courseId: existingCourseCase.courseId,
-            displayOrder: data.courseCase.displayOrder,
-            id: { not: data.courseCaseId }
+  
+      // Step 7: Create all junction table entries
+      if (allSpecialtyIds.length > 0) {
+        await tx.caseSpecialty.createMany({
+          data: allSpecialtyIds.map(specialtyId => ({
+            courseCaseId: courseCase.id,
+            specialtyId
+          }))
+        })
+      }
+  
+      if (allCurriculumIds.length > 0) {
+        await tx.caseCurriculum.createMany({
+          data: allCurriculumIds.map(curriculumId => ({
+            courseCaseId: courseCase.id,
+            curriculumId
+          }))
+        })
+      }
+  
+      // Step 8: Create simulation if provided
+      let simulation = null
+      if (data.simulation) {
+        // Validate warning time
+        if (data.simulation.warningTimeMinutes && 
+            data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
+          throw new Error('Warning time must be less than time limit')
+        }
+  
+        simulation = await tx.simulation.create({
+          data: {
+            courseCaseId: courseCase.id,
+            casePrompt: data.simulation.casePrompt,
+            openingLine: data.simulation.openingLine,
+            timeLimitMinutes: data.simulation.timeLimitMinutes,
+            voiceModel: data.simulation.voiceModel,
+            warningTimeMinutes: data.simulation.warningTimeMinutes,
+            creditCost: data.simulation.creditCost
           }
         })
-
-        if (conflictingCase) {
-          throw new Error(`Display order ${data.courseCase.displayOrder} is already taken`)
+      }
+  
+      // Step 9: Fetch all assigned entities for response
+      const assignedSpecialties = await tx.specialty.findMany({
+        where: { id: { in: allSpecialtyIds } }
+      })
+  
+      const assignedCurriculums = await tx.curriculum.findMany({
+        where: { id: { in: allCurriculumIds } }
+      })
+  
+      // Count truly new entities created
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        !data.existing?.specialtyIds?.includes(s.id) &&
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+  
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        !data.existing?.curriculumIds?.includes(c.id) &&
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+  
+      // Return comprehensive response
+      return {
+        courseCase,
+        tabs: createdTabs,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          )
+        },
+        assigned: {
+          specialties: assignedSpecialties,
+          curriculums: assignedCurriculums
+        },
+        simulation,
+        summary: {
+          totalSpecialties: assignedSpecialties.length,
+          totalCurriculums: assignedCurriculums.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
+          simulationCreated: !!simulation,
+          tabsCreated: 4,
+          tabsUpdated: 0
         }
       }
-
-      updatedCourseCase = await tx.courseCase.update({
+    })
+  }
+  
+  // 2. updateCompleteCourseCase method for course-case.service.ts
+  
+  async updateCompleteCourseCase(data: UpdateCompleteCourseCaseInput) {
+    // Helper function to ensure tab content is always an array
+    const getTabContent = (tabs: any, tabType: string): string[] => {
+      if (!tabs || !tabs[tabType]) return []
+      const content = tabs[tabType]
+      if (Array.isArray(content)) return content
+      if (typeof content === 'string') return [content] // Handle legacy
+      return []
+    }
+  
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify course case exists
+      const existingCourseCase = await tx.courseCase.findUnique({
         where: { id: data.courseCaseId },
-        data: data.courseCase,
         include: {
           course: true,
           simulation: true,
           caseTabs: true
         }
       })
-    }
-
-    // Step 3: Update tabs if provided
-    const tabsResponse: any = {}
-    let tabsUpdated = 0
-    
-    if (data.tabs) {
-      const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
+  
+      if (!existingCourseCase) {
+        throw new Error('Course case not found')
+      }
+  
+      // Step 2: Update course case if data provided
+      let updatedCourseCase = existingCourseCase
+      if (data.courseCase) {
+        // Check display order if updating
+        if (data.courseCase.displayOrder && 
+            data.courseCase.displayOrder !== existingCourseCase.displayOrder) {
+          const conflictingCase = await tx.courseCase.findFirst({
+            where: {
+              courseId: existingCourseCase.courseId,
+              displayOrder: data.courseCase.displayOrder,
+              id: { not: data.courseCaseId }
+            }
+          })
+  
+          if (conflictingCase) {
+            throw new Error(`Display order ${data.courseCase.displayOrder} is already taken`)
+          }
+        }
+  
+        updatedCourseCase = await tx.courseCase.update({
+          where: { id: data.courseCaseId },
+          data: data.courseCase,
+          include: {
+            course: true,
+            simulation: true,
+            caseTabs: true
+          }
+        })
+      }
+  
+      // Step 3: Update tabs if provided
+      const tabsResponse: any = {}
+      let tabsUpdated = 0
       
-      for (const tabType of tabTypes) {
-        const existingTab = existingCourseCase.caseTabs.find(t => t.tabType === tabType)
+      if (data.tabs) {
+        const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
         
-        if (data.tabs[tabType] !== undefined) {
-          if (existingTab) {
-            // Update existing tab
-            const updatedTab = await tx.caseTab.update({
-              where: { id: existingTab.id },
-              data: { content: data.tabs[tabType] || '' }
-            })
-            tabsResponse[tabType] = {
-              id: updatedTab.id,
-              content: updatedTab.content,
-              hasContent: updatedTab.content.trim().length > 0
-            }
-            tabsUpdated++
-          } else {
-            // Create new tab if doesn't exist
-            const newTab = await tx.caseTab.create({
-              data: {
-                courseCaseId: data.courseCaseId,
-                tabType,
-                content: data.tabs[tabType] || ''
+        for (const tabType of tabTypes) {
+          const existingTab = existingCourseCase.caseTabs.find(t => t.tabType === tabType)
+          
+          if (data.tabs[tabType] !== undefined) {
+            if (existingTab) {
+              // Update existing tab
+              const contentArray = getTabContent(data.tabs, tabType)
+              const updatedTab = await tx.caseTab.update({
+                where: { id: existingTab.id },
+                data: { content: contentArray }
+              })
+              tabsResponse[tabType] = {
+                id: updatedTab.id,
+                content: updatedTab.content,
+                hasContent: updatedTab.content.length > 0
               }
-            })
+              tabsUpdated++
+            } else {
+              // Create new tab if doesn't exist
+              const contentArray = getTabContent(data.tabs, tabType)
+              const newTab = await tx.caseTab.create({
+                data: {
+                  courseCaseId: data.courseCaseId,
+                  tabType,
+                  content: contentArray
+                }
+              })
+              tabsResponse[tabType] = {
+                id: newTab.id,
+                content: newTab.content,
+                hasContent: newTab.content.length > 0
+              }
+            }
+          } else if (existingTab) {
+            // Include existing tab in response
             tabsResponse[tabType] = {
-              id: newTab.id,
-              content: newTab.content,
-              hasContent: newTab.content.trim().length > 0
+              id: existingTab.id,
+              content: existingTab.content,
+              hasContent: existingTab.content.length > 0 // Changed from existingTab.content.trim().length > 0
             }
           }
-        } else if (existingTab) {
-          // Include existing tab in response
-          tabsResponse[tabType] = {
-            id: existingTab.id,
-            content: existingTab.content,
-            hasContent: existingTab.content.trim().length > 0
-          }
         }
-      }
-    } else {
-      // Include all existing tabs in response
-      for (const tab of existingCourseCase.caseTabs) {
-        tabsResponse[tab.tabType] = {
-          id: tab.id,
-          content: tab.content,
-          hasContent: tab.content.trim().length > 0
-        }
-      }
-    }
-
-    // Step 4: Handle specialties and curriculums
-    const createdEntities = {
-      specialties: [] as any[],
-      curriculums: [] as any[]
-    }
-
-    // Create new specialties
-    if (data.new?.specialties && data.new.specialties.length > 0) {
-      for (const specialty of data.new.specialties) {
-        const existing = await tx.specialty.findFirst({
-          where: { 
-            name: {
-              equals: specialty.name,
-              mode: 'insensitive'
-            }
-          }
-        })
-        
-        if (existing) {
-          createdEntities.specialties.push(existing)
-        } else {
-          const created = await tx.specialty.create({
-            data: { name: specialty.name }
-          })
-          createdEntities.specialties.push(created)
-        }
-      }
-    }
-
-    // Create new curriculums
-    if (data.new?.curriculums && data.new.curriculums.length > 0) {
-      for (const curriculum of data.new.curriculums) {
-        const existing = await tx.curriculum.findFirst({
-          where: { 
-            name: {
-              equals: curriculum.name,
-              mode: 'insensitive'
-            }
-          }
-        })
-        
-        if (existing) {
-          createdEntities.curriculums.push(existing)
-        } else {
-          const created = await tx.curriculum.create({
-            data: { name: curriculum.name }
-          })
-          createdEntities.curriculums.push(created)
-        }
-      }
-    }
-
-    // Update specialties if provided
-    if (data.existing?.specialtyIds !== undefined || createdEntities.specialties.length > 0) {
-      // Remove existing assignments
-      await tx.caseSpecialty.deleteMany({
-        where: { courseCaseId: data.courseCaseId }
-      })
-
-      // Create new assignments
-      const allSpecialtyIds = [
-        ...(data.existing?.specialtyIds || []),
-        ...createdEntities.specialties.map(s => s.id)
-      ]
-
-      if (allSpecialtyIds.length > 0) {
-        await tx.caseSpecialty.createMany({
-          data: allSpecialtyIds.map(specialtyId => ({
-            courseCaseId: data.courseCaseId,
-            specialtyId
-          }))
-        })
-      }
-    }
-
-    // Update curriculums if provided
-    if (data.existing?.curriculumIds !== undefined || createdEntities.curriculums.length > 0) {
-      // Remove existing assignments
-      await tx.caseCurriculum.deleteMany({
-        where: { courseCaseId: data.courseCaseId }
-      })
-
-      // Create new assignments
-      const allCurriculumIds = [
-        ...(data.existing?.curriculumIds || []),
-        ...createdEntities.curriculums.map(c => c.id)
-      ]
-
-      if (allCurriculumIds.length > 0) {
-        await tx.caseCurriculum.createMany({
-          data: allCurriculumIds.map(curriculumId => ({
-            courseCaseId: data.courseCaseId,
-            curriculumId
-          }))
-        })
-      }
-    }
-
-    // Step 5: Update or create simulation
-    let simulation = existingCourseCase.simulation
-    if (data.simulation) {
-      // Validate warning time
-      if (data.simulation.warningTimeMinutes && 
-          data.simulation.timeLimitMinutes &&
-          data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
-        throw new Error('Warning time must be less than time limit')
-      }
-
-      if (simulation) {
-        // Update existing simulation
-        simulation = await tx.simulation.update({
-          where: { id: simulation.id },
-          data: data.simulation
-        })
       } else {
-        // Create new simulation
-        simulation = await tx.simulation.create({
-          data: {
-            courseCaseId: data.courseCaseId,
-            casePrompt: data.simulation.casePrompt!,
-            openingLine: data.simulation.openingLine!,
-            timeLimitMinutes: data.simulation.timeLimitMinutes!,
-            voiceModel: data.simulation.voiceModel!,
-            warningTimeMinutes: data.simulation.warningTimeMinutes,
-            creditCost: data.simulation.creditCost || 1
+        // Include all existing tabs in response
+        for (const tab of existingCourseCase.caseTabs) {
+          tabsResponse[tab.tabType] = {
+            id: tab.id,
+            content: tab.content,
+            hasContent: tab.content.length > 0 // Changed from tab.content.trim().length > 0
           }
+        }
+      }
+  
+      // Step 4: Handle specialties and curriculums
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[]
+      }
+  
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
+        }
+      }
+  
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
+        }
+      }
+  
+      // Update specialties if provided
+      if (data.existing?.specialtyIds !== undefined || createdEntities.specialties.length > 0) {
+        // Remove existing assignments
+        await tx.caseSpecialty.deleteMany({
+          where: { courseCaseId: data.courseCaseId }
         })
+  
+        // Create new assignments
+        const allSpecialtyIds = [
+          ...(data.existing?.specialtyIds || []),
+          ...createdEntities.specialties.map(s => s.id)
+        ]
+  
+        if (allSpecialtyIds.length > 0) {
+          await tx.caseSpecialty.createMany({
+            data: allSpecialtyIds.map(specialtyId => ({
+              courseCaseId: data.courseCaseId,
+              specialtyId
+            }))
+          })
+        }
       }
-    }
-
-    // Step 6: Fetch all current relations for response
-    const currentSpecialties = await tx.caseSpecialty.findMany({
-      where: { courseCaseId: data.courseCaseId },
-      include: { specialty: true }
-    })
-
-    const currentCurriculums = await tx.caseCurriculum.findMany({
-      where: { courseCaseId: data.courseCaseId },
-      include: { curriculum: true }
-    })
-
-    // Count new entities created
-    const newSpecialtiesCount = createdEntities.specialties.filter(s => 
-      data.new?.specialties?.some(ns => ns.name === s.name)
-    ).length
-
-    const newCurriculumsCount = createdEntities.curriculums.filter(c => 
-      data.new?.curriculums?.some(nc => nc.name === c.name)
-    ).length
-
-    // Return comprehensive response
-    return {
-      courseCase: updatedCourseCase,
-      tabs: tabsResponse,
-      created: {
-        specialties: createdEntities.specialties.filter(s => 
-          data.new?.specialties?.some(ns => ns.name === s.name)
-        ),
-        curriculums: createdEntities.curriculums.filter(c => 
-          data.new?.curriculums?.some(nc => nc.name === c.name)
-        )
-      },
-      assigned: {
-        specialties: currentSpecialties.map(cs => cs.specialty),
-        curriculums: currentCurriculums.map(cc => cc.curriculum)
-      },
-      simulation,
-      summary: {
-        totalSpecialties: currentSpecialties.length,
-        totalCurriculums: currentCurriculums.length,
-        newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
-        simulationCreated: !existingCourseCase.simulation && !!simulation,
-        tabsCreated: 0,
-        tabsUpdated
+  
+      // Update curriculums if provided
+      if (data.existing?.curriculumIds !== undefined || createdEntities.curriculums.length > 0) {
+        // Remove existing assignments
+        await tx.caseCurriculum.deleteMany({
+          where: { courseCaseId: data.courseCaseId }
+        })
+  
+        // Create new assignments
+        const allCurriculumIds = [
+          ...(data.existing?.curriculumIds || []),
+          ...createdEntities.curriculums.map(c => c.id)
+        ]
+  
+        if (allCurriculumIds.length > 0) {
+          await tx.caseCurriculum.createMany({
+            data: allCurriculumIds.map(curriculumId => ({
+              courseCaseId: data.courseCaseId,
+              curriculumId
+            }))
+          })
+        }
       }
-    }
-  })
-}
+  
+      // Step 5: Update or create simulation
+      let simulation = existingCourseCase.simulation
+      if (data.simulation) {
+        // Validate warning time
+        if (data.simulation.warningTimeMinutes && 
+            data.simulation.timeLimitMinutes &&
+            data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
+          throw new Error('Warning time must be less than time limit')
+        }
+  
+        if (simulation) {
+          // Update existing simulation
+          simulation = await tx.simulation.update({
+            where: { id: simulation.id },
+            data: data.simulation
+          })
+        } else {
+          // Create new simulation
+          simulation = await tx.simulation.create({
+            data: {
+              courseCaseId: data.courseCaseId,
+              casePrompt: data.simulation.casePrompt!,
+              openingLine: data.simulation.openingLine!,
+              timeLimitMinutes: data.simulation.timeLimitMinutes!,
+              voiceModel: data.simulation.voiceModel!,
+              warningTimeMinutes: data.simulation.warningTimeMinutes,
+              creditCost: data.simulation.creditCost || 1
+            }
+          })
+        }
+      }
+  
+      // Step 6: Fetch all current relations for response
+      const currentSpecialties = await tx.caseSpecialty.findMany({
+        where: { courseCaseId: data.courseCaseId },
+        include: { specialty: true }
+      })
+  
+      const currentCurriculums = await tx.caseCurriculum.findMany({
+        where: { courseCaseId: data.courseCaseId },
+        include: { curriculum: true }
+      })
+  
+      // Count new entities created
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+  
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+  
+      // Return comprehensive response
+      return {
+        courseCase: updatedCourseCase,
+        tabs: tabsResponse,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          )
+        },
+        assigned: {
+          specialties: currentSpecialties.map(cs => cs.specialty),
+          curriculums: currentCurriculums.map(cc => cc.curriculum)
+        },
+        simulation,
+        summary: {
+          totalSpecialties: currentSpecialties.length,
+          totalCurriculums: currentCurriculums.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
+          simulationCreated: !existingCourseCase.simulation && !!simulation,
+          tabsCreated: 0,
+          tabsUpdated
+        }
+      }
+    })
+  }
   
 }

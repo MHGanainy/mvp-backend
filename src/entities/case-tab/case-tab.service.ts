@@ -238,7 +238,7 @@ export class CaseTabService {
       throw new Error('Some tabs already exist for this case')
     }
 
-    // Create all 4 tabs with empty content
+    // Create all 4 tabs with empty content arrays
     const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
     
     const tabs = await Promise.all(
@@ -247,7 +247,7 @@ export class CaseTabService {
           data: {
             courseCaseId,
             tabType,
-            content: '' // Start with empty content
+            content: [] // Start with empty array
           },
           include: {
             courseCase: {
@@ -286,12 +286,13 @@ export class CaseTabService {
     return {
       courseCaseId,
       totalTabs: tabs.length,
-      completedTabs: tabs.filter((tab: { content: string }) => tab.content && tab.content.trim().length > 0).length,
-      emptyTabs: tabs.filter((tab: { content: string }) => !tab.content || tab.content.trim().length === 0).length,
-      tabDetails: tabs.map((tab: { tabType: any; content: string; updatedAt: Date }) => ({
+      completedTabs: tabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length,
+      emptyTabs: tabs.filter((tab: { content: string[] }) => !tab.content || tab.content.length === 0).length,
+      tabDetails: tabs.map((tab: { tabType: any; content: string[]; updatedAt: Date }) => ({
         tabType: tab.tabType,
-        hasContent: !!(tab.content && tab.content.trim().length > 0),
-        contentLength: tab.content?.length || 0,
+        hasContent: !!(tab.content && tab.content.length > 0),
+        contentItems: tab.content?.length || 0,
+        totalContentLength: tab.content?.reduce((sum, item) => sum + item.length, 0) || 0,
         lastUpdated: tab.updatedAt
       }))
     }
@@ -314,14 +315,14 @@ export class CaseTabService {
     const overview = courseCases.map((courseCase: { 
       id: string; 
       title: string; 
-      caseTabs: Array<{ tabType: any; content: string }> 
+      caseTabs: Array<{ tabType: any; content: string[] }> 
     }) => ({
       caseId: courseCase.id,
       caseTitle: courseCase.title,
       totalTabs: courseCase.caseTabs.length,
-      completedTabs: courseCase.caseTabs.filter((tab: { content: string }) => tab.content && tab.content.trim().length > 0).length,
+      completedTabs: courseCase.caseTabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length,
       completionPercentage: courseCase.caseTabs.length > 0 
-        ? Math.round((courseCase.caseTabs.filter((tab: { content: string }) => tab.content && tab.content.trim().length > 0).length / 4) * 100)
+        ? Math.round((courseCase.caseTabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length / 4) * 100)
         : 0
     }))
 
@@ -337,7 +338,7 @@ export class CaseTabService {
     }
   }
 
-  async bulkUpdateTabContent(courseCaseId: string, tabUpdates: { tabType: CaseTabType; content: string }[]) {
+  async bulkUpdateTabContent(courseCaseId: string, tabUpdates: { tabType: CaseTabType; content: string[] }[]) {
     // Verify course case exists
     const courseCase = await this.prisma.courseCase.findUnique({
       where: { id: courseCaseId }
@@ -349,7 +350,7 @@ export class CaseTabService {
 
     // Update all tabs in a transaction
     const updatedTabs = await this.prisma.$transaction(
-      tabUpdates.map((update: { tabType: CaseTabType; content: string }) => 
+      tabUpdates.map((update: { tabType: CaseTabType; content: string[] }) => 
         this.prisma.caseTab.upsert({
           where: {
             courseCaseId_tabType: {
@@ -387,5 +388,106 @@ export class CaseTabService {
     )
 
     return updatedTabs
+  }
+
+  // Helper method to add a single item to content array
+  async addContentItem(id: string, contentItem: string) {
+    const caseTab = await this.findById(id)
+    
+    return await this.prisma.caseTab.update({
+      where: { id },
+      data: {
+        content: [...(caseTab.content || []), contentItem]
+      },
+      include: {
+        courseCase: {
+          include: {
+            course: {
+              include: {
+                exam: {
+                  select: {
+                    id: true,
+                    title: true,
+                    slug: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  // Helper method to remove a content item by index
+  async removeContentItem(id: string, index: number) {
+    const caseTab = await this.findById(id)
+    
+    if (!caseTab.content || index < 0 || index >= caseTab.content.length) {
+      throw new Error('Invalid content index')
+    }
+    
+    const newContent = [...caseTab.content]
+    newContent.splice(index, 1)
+    
+    return await this.prisma.caseTab.update({
+      where: { id },
+      data: {
+        content: newContent
+      },
+      include: {
+        courseCase: {
+          include: {
+            course: {
+              include: {
+                exam: {
+                  select: {
+                    id: true,
+                    title: true,
+                    slug: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  // Helper method to update a specific content item by index
+  async updateContentItem(id: string, index: number, newContent: string) {
+    const caseTab = await this.findById(id)
+    
+    if (!caseTab.content || index < 0 || index >= caseTab.content.length) {
+      throw new Error('Invalid content index')
+    }
+    
+    const updatedContent = [...caseTab.content]
+    updatedContent[index] = newContent
+    
+    return await this.prisma.caseTab.update({
+      where: { id },
+      data: {
+        content: updatedContent
+      },
+      include: {
+        courseCase: {
+          include: {
+            course: {
+              include: {
+                exam: {
+                  select: {
+                    id: true,
+                    title: true,
+                    slug: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
   }
 }

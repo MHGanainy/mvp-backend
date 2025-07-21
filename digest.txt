@@ -31,7 +31,9 @@ Directory structure:
     │       │   └── migration.sql
     │       ├── 20250713134451_add_password_hash/
     │       │   └── migration.sql
-    │       └── 20250713140149_add_course_info_points/
+    │       ├── 20250713140149_add_course_info_points/
+    │       │   └── migration.sql
+    │       └── 20250720165744_update_case_tab_content_to_array/
     │           └── migration.sql
     └── src/
         ├── server.ts
@@ -360,7 +362,7 @@ model CaseTab {
   id           String      @id @default(uuid())
   courseCaseId String      @map("course_case_id")
   tabType      CaseTabType @map("tab_type")
-  content      String      @db.Text
+  content      String[]    @default([])  // Changed from String to String[]
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
   
@@ -1139,6 +1141,21 @@ ALTER TABLE "courses" ADD COLUMN     "info_points" TEXT[] DEFAULT ARRAY[]::TEXT[
 
 
 ================================================
+File: prisma/migrations/20250720165744_update_case_tab_content_to_array/migration.sql
+================================================
+/*
+  Warnings:
+
+  - The `content` column on the `case_tabs` table would be dropped and recreated. This will lead to data loss if there is data in the column.
+
+*/
+-- AlterTable
+ALTER TABLE "case_tabs" DROP COLUMN "content",
+ADD COLUMN     "content" TEXT[] DEFAULT ARRAY[]::TEXT[];
+
+
+
+================================================
 File: src/server.ts
 ================================================
 import Fastify from 'fastify'
@@ -1836,6 +1853,7 @@ import {
   bulkUpdateCaseTabSchema,
   createAllTabsSchema
 } from './case-tab.schema'
+import { z } from 'zod'
 
 export default async function caseTabRoutes(fastify: FastifyInstance) {
   const caseTabService = new CaseTabService(fastify.prisma)
@@ -2031,6 +2049,93 @@ export default async function caseTabRoutes(fastify: FastifyInstance) {
       }
     })
   })
+  fastify.post('/case-tabs/:id/content', async (request, reply) => {
+    try {
+      const { id } = caseTabParamsSchema.parse(request.params)
+      const { content } = z.object({ 
+        content: z.string().max(10000, 'Content must be less than 10,000 characters') 
+      }).parse(request.body)
+      
+      const caseTab = await caseTabService.addContentItem(id, content)
+      reply.send({
+        message: 'Content item added successfully',
+        caseTab,
+        totalItems: caseTab.content.length
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Case tab not found') {
+        reply.status(404).send({ error: 'Case tab not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // PUT /case-tabs/:id/content/:index - Update a specific content item
+  fastify.put('/case-tabs/:id/content/:index', async (request, reply) => {
+    try {
+      const { id } = caseTabParamsSchema.parse(request.params)
+      const index = parseInt((request.params as any).index as string)
+      const { content } = z.object({ 
+        content: z.string().max(10000, 'Content must be less than 10,000 characters') 
+      }).parse(request.body)
+      
+      if (isNaN(index) || index < 0) {
+        reply.status(400).send({ error: 'Invalid content index' })
+        return
+      }
+      
+      const caseTab = await caseTabService.updateContentItem(id, index, content)
+      reply.send({
+        message: 'Content item updated successfully',
+        caseTab
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Case tab not found') {
+          reply.status(404).send({ error: 'Case tab not found' })
+        } else if (error.message === 'Invalid content index') {
+          reply.status(400).send({ error: 'Invalid content index' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // DELETE /case-tabs/:id/content/:index - Remove a content item
+  fastify.delete('/case-tabs/:id/content/:index', async (request, reply) => {
+    try {
+      const { id } = caseTabParamsSchema.parse(request.params)
+      const index = parseInt((request.params as any).index as string)
+      
+      if (isNaN(index) || index < 0) {
+        reply.status(400).send({ error: 'Invalid content index' })
+        return
+      }
+      
+      const caseTab = await caseTabService.removeContentItem(id, index)
+      reply.send({
+        message: 'Content item removed successfully',
+        caseTab,
+        remainingItems: caseTab.content.length
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Case tab not found') {
+          reply.status(404).send({ error: 'Case tab not found' })
+        } else if (error.message === 'Invalid content index') {
+          reply.status(400).send({ error: 'Invalid content index' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
 }
 
 
@@ -2038,6 +2143,7 @@ export default async function caseTabRoutes(fastify: FastifyInstance) {
 File: src/entities/case-tab/case-tab.schema.ts
 ================================================
 import { z } from 'zod'
+import { PatientGenderEnum } from '../course-case/course-case.schema'
 
 // CaseTabType enum
 export const CaseTabTypeEnum = z.enum(['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES'])
@@ -2046,16 +2152,18 @@ export const CaseTabTypeEnum = z.enum(['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKIN
 export const createCaseTabSchema = z.object({
   courseCaseId: z.string().uuid('Invalid course case ID'),
   tabType: CaseTabTypeEnum,
-  content: z.string()
-    .max(10000, 'Content must be less than 10,000 characters')
-    .default('')
+  content: z.array(z.string())
+    .default([])
+    .refine(arr => arr.every(item => item.length <= 10000), 
+      'Each content item must be less than 10,000 characters')
 })
 
 // Update CaseTab Schema
 export const updateCaseTabSchema = z.object({
-  content: z.string()
-    .max(10000, 'Content must be less than 10,000 characters')
+  content: z.array(z.string())
     .optional()
+    .refine(arr => !arr || arr.every(item => item.length <= 10000), 
+      'Each content item must be less than 10,000 characters')
 })
 
 // URL Params Schemas
@@ -2080,8 +2188,9 @@ export const courseParamsSchema = z.object({
 export const bulkUpdateCaseTabSchema = z.object({
   tabUpdates: z.array(z.object({
     tabType: CaseTabTypeEnum,
-    content: z.string()
-      .max(10000, 'Content must be less than 10,000 characters')
+    content: z.array(z.string())
+      .refine(arr => arr.every(item => item.length <= 10000), 
+        'Each content item must be less than 10,000 characters')
   })).min(1, 'At least one tab update is required').max(4, 'Cannot update more than 4 tabs')
 })
 
@@ -2095,7 +2204,7 @@ export const caseTabResponseSchema = z.object({
   id: z.string(),
   courseCaseId: z.string(),
   tabType: CaseTabTypeEnum,
-  content: z.string(),
+  content: z.array(z.string()),
   createdAt: z.date(),
   updatedAt: z.date(),
   courseCase: z.object({
@@ -2124,7 +2233,8 @@ export const caseTabStatsResponseSchema = z.object({
   tabDetails: z.array(z.object({
     tabType: CaseTabTypeEnum,
     hasContent: z.boolean(),
-    contentLength: z.number(),
+    contentItems: z.number(),
+    totalContentLength: z.number(),
     lastUpdated: z.date()
   }))
 })
@@ -2402,7 +2512,7 @@ export class CaseTabService {
       throw new Error('Some tabs already exist for this case')
     }
 
-    // Create all 4 tabs with empty content
+    // Create all 4 tabs with empty content arrays
     const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
     
     const tabs = await Promise.all(
@@ -2411,7 +2521,7 @@ export class CaseTabService {
           data: {
             courseCaseId,
             tabType,
-            content: '' // Start with empty content
+            content: [] // Start with empty array
           },
           include: {
             courseCase: {
@@ -2450,12 +2560,13 @@ export class CaseTabService {
     return {
       courseCaseId,
       totalTabs: tabs.length,
-      completedTabs: tabs.filter((tab: { content: string }) => tab.content && tab.content.trim().length > 0).length,
-      emptyTabs: tabs.filter((tab: { content: string }) => !tab.content || tab.content.trim().length === 0).length,
-      tabDetails: tabs.map((tab: { tabType: any; content: string; updatedAt: Date }) => ({
+      completedTabs: tabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length,
+      emptyTabs: tabs.filter((tab: { content: string[] }) => !tab.content || tab.content.length === 0).length,
+      tabDetails: tabs.map((tab: { tabType: any; content: string[]; updatedAt: Date }) => ({
         tabType: tab.tabType,
-        hasContent: !!(tab.content && tab.content.trim().length > 0),
-        contentLength: tab.content?.length || 0,
+        hasContent: !!(tab.content && tab.content.length > 0),
+        contentItems: tab.content?.length || 0,
+        totalContentLength: tab.content?.reduce((sum, item) => sum + item.length, 0) || 0,
         lastUpdated: tab.updatedAt
       }))
     }
@@ -2478,14 +2589,14 @@ export class CaseTabService {
     const overview = courseCases.map((courseCase: { 
       id: string; 
       title: string; 
-      caseTabs: Array<{ tabType: any; content: string }> 
+      caseTabs: Array<{ tabType: any; content: string[] }> 
     }) => ({
       caseId: courseCase.id,
       caseTitle: courseCase.title,
       totalTabs: courseCase.caseTabs.length,
-      completedTabs: courseCase.caseTabs.filter((tab: { content: string }) => tab.content && tab.content.trim().length > 0).length,
+      completedTabs: courseCase.caseTabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length,
       completionPercentage: courseCase.caseTabs.length > 0 
-        ? Math.round((courseCase.caseTabs.filter((tab: { content: string }) => tab.content && tab.content.trim().length > 0).length / 4) * 100)
+        ? Math.round((courseCase.caseTabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length / 4) * 100)
         : 0
     }))
 
@@ -2501,7 +2612,7 @@ export class CaseTabService {
     }
   }
 
-  async bulkUpdateTabContent(courseCaseId: string, tabUpdates: { tabType: CaseTabType; content: string }[]) {
+  async bulkUpdateTabContent(courseCaseId: string, tabUpdates: { tabType: CaseTabType; content: string[] }[]) {
     // Verify course case exists
     const courseCase = await this.prisma.courseCase.findUnique({
       where: { id: courseCaseId }
@@ -2513,7 +2624,7 @@ export class CaseTabService {
 
     // Update all tabs in a transaction
     const updatedTabs = await this.prisma.$transaction(
-      tabUpdates.map((update: { tabType: CaseTabType; content: string }) => 
+      tabUpdates.map((update: { tabType: CaseTabType; content: string[] }) => 
         this.prisma.caseTab.upsert({
           where: {
             courseCaseId_tabType: {
@@ -2551,6 +2662,107 @@ export class CaseTabService {
     )
 
     return updatedTabs
+  }
+
+  // Helper method to add a single item to content array
+  async addContentItem(id: string, contentItem: string) {
+    const caseTab = await this.findById(id)
+    
+    return await this.prisma.caseTab.update({
+      where: { id },
+      data: {
+        content: [...(caseTab.content || []), contentItem]
+      },
+      include: {
+        courseCase: {
+          include: {
+            course: {
+              include: {
+                exam: {
+                  select: {
+                    id: true,
+                    title: true,
+                    slug: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  // Helper method to remove a content item by index
+  async removeContentItem(id: string, index: number) {
+    const caseTab = await this.findById(id)
+    
+    if (!caseTab.content || index < 0 || index >= caseTab.content.length) {
+      throw new Error('Invalid content index')
+    }
+    
+    const newContent = [...caseTab.content]
+    newContent.splice(index, 1)
+    
+    return await this.prisma.caseTab.update({
+      where: { id },
+      data: {
+        content: newContent
+      },
+      include: {
+        courseCase: {
+          include: {
+            course: {
+              include: {
+                exam: {
+                  select: {
+                    id: true,
+                    title: true,
+                    slug: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  // Helper method to update a specific content item by index
+  async updateContentItem(id: string, index: number, newContent: string) {
+    const caseTab = await this.findById(id)
+    
+    if (!caseTab.content || index < 0 || index >= caseTab.content.length) {
+      throw new Error('Invalid content index')
+    }
+    
+    const updatedContent = [...caseTab.content]
+    updatedContent[index] = newContent
+    
+    return await this.prisma.caseTab.update({
+      where: { id },
+      data: {
+        content: updatedContent
+      },
+      include: {
+        courseCase: {
+          include: {
+            course: {
+              include: {
+                exam: {
+                  select: {
+                    id: true,
+                    title: true,
+                    slug: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
   }
 }
 
@@ -3458,7 +3670,9 @@ import {
   courseCaseParamsSchema,
   courseCaseCourseParamsSchema,
   reorderCourseCaseSchema,
-  PatientGenderEnum
+  PatientGenderEnum,
+  createCompleteCourseCaseSchema,  // NEW
+  updateCompleteCourseCaseSchema   // NEW
 } from './course-case.schema'
 
 import {
@@ -3682,229 +3896,353 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-    // GET /course-cases/course/:courseId/filtered - Get filtered cases
-    fastify.get('/course-cases/course/:courseId/filtered', async (request, reply) => {
-      try {
-        const { courseId } = courseParamsSchema.parse(request.params)
-        const filters = filterQuerySchema.parse(request.query)
-        
-        const courseCases = await courseCaseService.findByFilters(courseId, {
-          specialtyIds: filters.specialtyIds,
-          curriculumIds: filters.curriculumIds,
-          isFree: filters.isFree,
-          patientGender: filters.patientGender
-        })
-        
-        reply.send(courseCases)
-      } catch (error) {
-        reply.status(400).send({ error: 'Invalid filter parameters' })
+  // GET /course-cases/course/:courseId/filtered - Get filtered cases
+  fastify.get('/course-cases/course/:courseId/filtered', async (request, reply) => {
+    try {
+      const { courseId } = courseParamsSchema.parse(request.params)
+      const filters = filterQuerySchema.parse(request.query)
+      
+      const courseCases = await courseCaseService.findByFilters(courseId, {
+        specialtyIds: filters.specialtyIds,
+        curriculumIds: filters.curriculumIds,
+        isFree: filters.isFree,
+        patientGender: filters.patientGender
+      })
+      
+      reply.send(courseCases)
+    } catch (error) {
+      reply.status(400).send({ error: 'Invalid filter parameters' })
+    }
+  })
+
+  // GET /course-cases/:courseCaseId/specialties - Get case specialties
+  fastify.get('/course-cases/:courseCaseId/specialties', async (request, reply) => {
+    try {
+      const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
+      const specialties = await courseCaseService.getCaseSpecialties(courseCaseId)
+      reply.send(specialties)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Course case not found') {
+        reply.status(404).send({ error: 'Course case not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
       }
-    })
-  
-    // GET /course-cases/:courseCaseId/specialties - Get case specialties
-    fastify.get('/course-cases/:courseCaseId/specialties', async (request, reply) => {
-      try {
-        const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
-        const specialties = await courseCaseService.getCaseSpecialties(courseCaseId)
-        reply.send(specialties)
-      } catch (error) {
-        if (error instanceof Error && error.message === 'Course case not found') {
+    }
+  })
+
+  // GET /course-cases/:courseCaseId/curriculums - Get case curriculum items
+  fastify.get('/course-cases/:courseCaseId/curriculums', async (request, reply) => {
+    try {
+      const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
+      const curriculums = await courseCaseService.getCaseCurriculums(courseCaseId)
+      reply.send(curriculums)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Course case not found') {
+        reply.status(404).send({ error: 'Course case not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // POST /course-cases/assign-specialties - Assign specialties to case
+  fastify.post('/course-cases/assign-specialties', async (request, reply) => {
+    try {
+      const { courseCaseId, specialtyIds } = assignSpecialtiesSchema.parse(request.body)
+      const result = await courseCaseService.assignSpecialties(courseCaseId, specialtyIds)
+      reply.send({
+        message: 'Specialties assigned successfully',
+        assignments: result,
+        courseCaseId,
+        specialtiesCount: specialtyIds.length
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Course case not found') {
           reply.status(404).send({ error: 'Course case not found' })
+        } else if (error.message === 'One or more specialties not found') {
+          reply.status(404).send({ error: 'One or more specialties not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid data' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // POST /course-cases/assign-curriculums - Assign curriculum items to case
+  fastify.post('/course-cases/assign-curriculums', async (request, reply) => {
+    try {
+      const { courseCaseId, curriculumIds } = assignCurriculumsSchema.parse(request.body)
+      const result = await courseCaseService.assignCurriculums(courseCaseId, curriculumIds)
+      reply.send({
+        message: 'Curriculum items assigned successfully',
+        assignments: result,
+        courseCaseId,
+        curriculumsCount: curriculumIds.length
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else if (error.message === 'One or more curriculum items not found') {
+          reply.status(404).send({ error: 'One or more curriculum items not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid data' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // POST /course-cases/bulk-assign-filters - Bulk assign filters to multiple cases
+  fastify.post('/course-cases/bulk-assign-filters', async (request, reply) => {
+    try {
+      const { assignments } = bulkAssignFiltersSchema.parse(request.body)
+      const result = await courseCaseService.bulkAssignFilters(assignments)
+      reply.send({
+        message: 'Bulk assignment completed successfully',
+        result,
+        processedCases: assignments.length
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        reply.status(400).send({ error: error.message })
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // DELETE /course-cases/:courseCaseId/specialties/:specialtyId - Remove specialty
+  fastify.delete('/course-cases/:courseCaseId/specialties/:specialtyId', async (request, reply) => {
+    try {
+      const { courseCaseId, specialtyId } = specialtyRemoveParamsSchema.parse(request.params)
+      const result = await courseCaseService.removeSpecialty(courseCaseId, specialtyId)
+      reply.send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else if (error.message === 'Specialty assignment not found') {
+          reply.status(404).send({ error: 'Specialty assignment not found' })
         } else {
           reply.status(400).send({ error: 'Invalid request' })
         }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
       }
-    })
-  
-    // GET /course-cases/:courseCaseId/curriculums - Get case curriculum items
-    fastify.get('/course-cases/:courseCaseId/curriculums', async (request, reply) => {
-      try {
-        const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
-        const curriculums = await courseCaseService.getCaseCurriculums(courseCaseId)
-        reply.send(curriculums)
-      } catch (error) {
-        if (error instanceof Error && error.message === 'Course case not found') {
+    }
+  })
+
+  // DELETE /course-cases/:courseCaseId/curriculums/:curriculumId - Remove curriculum
+  fastify.delete('/course-cases/:courseCaseId/curriculums/:curriculumId', async (request, reply) => {
+    try {
+      const { courseCaseId, curriculumId } = curriculumRemoveParamsSchema.parse(request.params)
+      const result = await courseCaseService.removeCurriculum(courseCaseId, curriculumId)
+      reply.send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Course case not found') {
           reply.status(404).send({ error: 'Course case not found' })
+        } else if (error.message === 'Curriculum assignment not found') {
+          reply.status(404).send({ error: 'Curriculum assignment not found' })
         } else {
           reply.status(400).send({ error: 'Invalid request' })
         }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
       }
-    })
-  
-    // POST /course-cases/assign-specialties - Assign specialties to case
-    fastify.post('/course-cases/assign-specialties', async (request, reply) => {
-      try {
-        const { courseCaseId, specialtyIds } = assignSpecialtiesSchema.parse(request.body)
-        const result = await courseCaseService.assignSpecialties(courseCaseId, specialtyIds)
-        reply.send({
-          message: 'Specialties assigned successfully',
-          assignments: result,
-          courseCaseId,
-          specialtiesCount: specialtyIds.length
-        })
-      } catch (error) {
-        if (error instanceof Error) {
-          if (error.message === 'Course case not found') {
-            reply.status(404).send({ error: 'Course case not found' })
-          } else if (error.message === 'One or more specialties not found') {
-            reply.status(404).send({ error: 'One or more specialties not found' })
-          } else {
-            reply.status(400).send({ error: 'Invalid data' })
-          }
-        } else {
-          reply.status(500).send({ error: 'Internal server error' })
+    }
+  })
+
+  // GET /course-cases/course/:courseId/filtering-stats - Get filtering statistics
+  fastify.get('/course-cases/course/:courseId/filtering-stats', async (request, reply) => {
+    try {
+      const { courseId } = courseParamsSchema.parse(request.params)
+      const stats = await courseCaseService.getFilteringStats(courseId)
+      reply.send(stats)
+    } catch (error) {
+      reply.status(400).send({ error: 'Invalid request' })
+    }
+  })
+
+  // Helper endpoint for available filters
+  fastify.get('/course-cases/course/:courseId/available-filters', async (request, reply) => {
+    try {
+      const { courseId } = courseParamsSchema.parse(request.params)
+      
+      // Get all specialties and curriculums used in this course
+      const courseCases = await courseCaseService.findByCourse(courseId)
+      
+      const uniqueSpecialties = new Set()
+      const uniqueCurriculums = new Set()
+      const availableGenders = new Set()
+      
+      courseCases.forEach((courseCase: any) => {
+        // Add patient gender
+        availableGenders.add(courseCase.patientGender)
+        
+        // Add specialties
+        if (courseCase.caseSpecialties) {
+          courseCase.caseSpecialties.forEach((cs: any) => {
+            uniqueSpecialties.add(JSON.stringify({
+              id: cs.specialty.id,
+              name: cs.specialty.name
+            }))
+          })
         }
-      }
-    })
-  
-    // POST /course-cases/assign-curriculums - Assign curriculum items to case
-    fastify.post('/course-cases/assign-curriculums', async (request, reply) => {
-      try {
-        const { courseCaseId, curriculumIds } = assignCurriculumsSchema.parse(request.body)
-        const result = await courseCaseService.assignCurriculums(courseCaseId, curriculumIds)
-        reply.send({
-          message: 'Curriculum items assigned successfully',
-          assignments: result,
-          courseCaseId,
-          curriculumsCount: curriculumIds.length
-        })
-      } catch (error) {
-        if (error instanceof Error) {
-          if (error.message === 'Course case not found') {
-            reply.status(404).send({ error: 'Course case not found' })
-          } else if (error.message === 'One or more curriculum items not found') {
-            reply.status(404).send({ error: 'One or more curriculum items not found' })
-          } else {
-            reply.status(400).send({ error: 'Invalid data' })
-          }
-        } else {
-          reply.status(500).send({ error: 'Internal server error' })
+        
+        // Add curriculums
+        if (courseCase.caseCurriculums) {
+          courseCase.caseCurriculums.forEach((cc: any) => {
+            uniqueCurriculums.add(JSON.stringify({
+              id: cc.curriculum.id,
+              name: cc.curriculum.name
+            }))
+          })
         }
-      }
-    })
-  
-    // POST /course-cases/bulk-assign-filters - Bulk assign filters to multiple cases
-    fastify.post('/course-cases/bulk-assign-filters', async (request, reply) => {
-      try {
-        const { assignments } = bulkAssignFiltersSchema.parse(request.body)
-        const result = await courseCaseService.bulkAssignFilters(assignments)
-        reply.send({
-          message: 'Bulk assignment completed successfully',
-          result,
-          processedCases: assignments.length
-        })
-      } catch (error) {
-        if (error instanceof Error) {
+      })
+      
+      reply.send({
+        courseId,
+        availableFilters: {
+          specialties: Array.from(uniqueSpecialties).map((s: any) => JSON.parse(s)),
+          curriculums: Array.from(uniqueCurriculums).map((c: any) => JSON.parse(c)),
+          genders: Array.from(availableGenders),
+          freeOptions: [true, false]
+        }
+      })
+    } catch (error) {
+      reply.status(400).send({ error: 'Invalid request' })
+    }
+  })
+
+  // ===== NEW COMPLETE COURSE CASE ROUTES =====
+
+  // POST /course-cases/create-complete - Create course case with all relations
+  fastify.post('/course-cases/create-complete', async (request, reply) => {
+    try {
+      const data = createCompleteCourseCaseSchema.parse(request.body)
+      const result = await courseCaseService.createCompleteCourseCase(data)
+      
+      reply.status(201).send({
+        message: 'Course case created and configured successfully',
+        ...result
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Course not found') {
+          reply.status(404).send({ error: 'Course not found' })
+        } else if (error.message === 'Cases can only be added to RANDOM style courses') {
+          reply.status(400).send({ error: 'Cases can only be added to RANDOM style courses' })
+        } else if (error.message.includes('Display order') && error.message.includes('already taken')) {
+          reply.status(400).send({ error: error.message })
+        } else if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else if (error.message === 'Warning time must be less than time limit') {
           reply.status(400).send({ error: error.message })
         } else {
-          reply.status(500).send({ error: 'Internal server error' })
+          reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
       }
-    })
-  
-    // DELETE /course-cases/:courseCaseId/specialties/:specialtyId - Remove specialty
-    fastify.delete('/course-cases/:courseCaseId/specialties/:specialtyId', async (request, reply) => {
-      try {
-        const { courseCaseId, specialtyId } = specialtyRemoveParamsSchema.parse(request.params)
-        const result = await courseCaseService.removeSpecialty(courseCaseId, specialtyId)
-        reply.send(result)
-      } catch (error) {
-        if (error instanceof Error) {
-          if (error.message === 'Course case not found') {
-            reply.status(404).send({ error: 'Course case not found' })
-          } else if (error.message === 'Specialty assignment not found') {
-            reply.status(404).send({ error: 'Specialty assignment not found' })
-          } else {
-            reply.status(400).send({ error: 'Invalid request' })
-          }
+    }
+  })
+
+  // PUT /course-cases/update-complete - Update course case with all relations
+  fastify.put('/course-cases/update-complete', async (request, reply) => {
+    try {
+      const data = updateCompleteCourseCaseSchema.parse(request.body)
+      const result = await courseCaseService.updateCompleteCourseCase(data)
+      
+      reply.send({
+        message: 'Course case updated successfully',
+        ...result
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else if (error.message.includes('Display order') && error.message.includes('already taken')) {
+          reply.status(400).send({ error: error.message })
+        } else if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else if (error.message === 'Warning time must be less than time limit') {
+          reply.status(400).send({ error: error.message })
         } else {
-          reply.status(500).send({ error: 'Internal server error' })
+          reply.status(400).send({ error: 'Invalid data: ' + error.message })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // GET /course-cases/:id/complete - Get course case with all relations
+  fastify.get('/course-cases/:id/complete', async (request, reply) => {
+    try {
+      const { id } = courseCaseParamsSchema.parse(request.params)
+      
+      // Fetch course case with all relations
+      const courseCase = await courseCaseService.findById(id)
+      
+      // Get all tabs
+      const tabs = await fastify.prisma.caseTab.findMany({
+        where: { courseCaseId: id }
+      })
+      
+      // Get specialties
+      const specialties = await courseCaseService.getCaseSpecialties(id)
+      
+      // Get curriculums
+      const curriculums = await courseCaseService.getCaseCurriculums(id)
+      
+      // Get simulation
+      const simulation = await fastify.prisma.simulation.findUnique({
+        where: { courseCaseId: id }
+      })
+      
+      // Format response
+      const tabsResponse: any = {}
+      for (const tab of tabs) {
+        tabsResponse[tab.tabType] = {
+          id: tab.id,
+          content: tab.content,
+          hasContent: tab.content.length > 0 // Changed from tab.content.trim().length > 0
         }
       }
-    })
-  
-    // DELETE /course-cases/:courseCaseId/curriculums/:curriculumId - Remove curriculum
-    fastify.delete('/course-cases/:courseCaseId/curriculums/:curriculumId', async (request, reply) => {
-      try {
-        const { courseCaseId, curriculumId } = curriculumRemoveParamsSchema.parse(request.params)
-        const result = await courseCaseService.removeCurriculum(courseCaseId, curriculumId)
-        reply.send(result)
-      } catch (error) {
-        if (error instanceof Error) {
-          if (error.message === 'Course case not found') {
-            reply.status(404).send({ error: 'Course case not found' })
-          } else if (error.message === 'Curriculum assignment not found') {
-            reply.status(404).send({ error: 'Curriculum assignment not found' })
-          } else {
-            reply.status(400).send({ error: 'Invalid request' })
-          }
-        } else {
-          reply.status(500).send({ error: 'Internal server error' })
-        }
-      }
-    })
-  
-    // GET /course-cases/course/:courseId/filtering-stats - Get filtering statistics
-    fastify.get('/course-cases/course/:courseId/filtering-stats', async (request, reply) => {
-      try {
-        const { courseId } = courseParamsSchema.parse(request.params)
-        const stats = await courseCaseService.getFilteringStats(courseId)
-        reply.send(stats)
-      } catch (error) {
+      
+      reply.send({
+        courseCase: {
+          id: courseCase.id,
+          courseId: courseCase.courseId,
+          title: courseCase.title,
+          diagnosis: courseCase.diagnosis,
+          patientName: courseCase.patientName,
+          patientAge: courseCase.patientAge,
+          patientGender: courseCase.patientGender,
+          description: courseCase.description,
+          isFree: courseCase.isFree,
+          displayOrder: courseCase.displayOrder
+        },
+        tabs: tabsResponse,
+        specialties,
+        curriculums,
+        simulation,
+        course: courseCase.course
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Course case not found') {
+        reply.status(404).send({ error: 'Course case not found' })
+      } else {
         reply.status(400).send({ error: 'Invalid request' })
       }
-    })
-  
-    // Helper endpoint for available filters
-    fastify.get('/course-cases/course/:courseId/available-filters', async (request, reply) => {
-      try {
-        const { courseId } = courseParamsSchema.parse(request.params)
-        
-        // Get all specialties and curriculums used in this course
-        const courseCases = await courseCaseService.findByCourse(courseId)
-        
-        const uniqueSpecialties = new Set()
-        const uniqueCurriculums = new Set()
-        const availableGenders = new Set()
-        
-        courseCases.forEach((courseCase: any) => {
-          // Add patient gender
-          availableGenders.add(courseCase.patientGender)
-          
-          // Add specialties
-          if (courseCase.caseSpecialties) {
-            courseCase.caseSpecialties.forEach((cs: any) => {
-              uniqueSpecialties.add(JSON.stringify({
-                id: cs.specialty.id,
-                name: cs.specialty.name
-              }))
-            })
-          }
-          
-          // Add curriculums
-          if (courseCase.caseCurriculums) {
-            courseCase.caseCurriculums.forEach((cc: any) => {
-              uniqueCurriculums.add(JSON.stringify({
-                id: cc.curriculum.id,
-                name: cc.curriculum.name
-              }))
-            })
-          }
-        })
-        
-        reply.send({
-          courseId,
-          availableFilters: {
-            specialties: Array.from(uniqueSpecialties).map((s: any) => JSON.parse(s)),
-            curriculums: Array.from(uniqueCurriculums).map((c: any) => JSON.parse(c)),
-            genders: Array.from(availableGenders),
-            freeOptions: [true, false]
-          }
-        })
-      } catch (error) {
-        reply.status(400).send({ error: 'Invalid request' })
-      }
-    })
+    }
+  })
 }
 
 
@@ -3912,6 +4250,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 File: src/entities/course-case/course-case.schema.ts
 ================================================
 import { z } from 'zod'
+import { VoiceModelEnum } from '../simulation/simulation.schema'
 
 // PatientGender enum
 export const PatientGenderEnum = z.enum(['MALE', 'FEMALE', 'OTHER'])
@@ -4025,6 +4364,260 @@ export const courseCaseResponseSchema = z.object({
   })
 })
 
+// ===== COMPLETE COURSE CASE SCHEMAS =====
+
+// Schema for creating/updating complete course case with all relations
+export const createCompleteCourseCaseSchema = z.object({
+  // Basic course case info
+  courseCase: z.object({
+    courseId: z.string().uuid('Invalid course ID'),
+    title: z.string()
+      .min(1, 'Title is required')
+      .max(200, 'Title must be less than 200 characters')
+      .trim(),
+    diagnosis: z.string()
+      .min(1, 'Diagnosis is required')
+      .max(200, 'Diagnosis must be less than 200 characters')
+      .trim(),
+    patientName: z.string()
+      .min(1, 'Patient name is required')
+      .max(100, 'Patient name must be less than 100 characters')
+      .trim(),
+    patientAge: z.number()
+      .int('Age must be a whole number')
+      .min(0, 'Age cannot be negative')
+      .max(150, 'Age must be realistic'),
+    patientGender: PatientGenderEnum,
+    description: z.string()
+      .min(1, 'Description is required')
+      .max(2000, 'Description must be less than 2000 characters')
+      .trim(),
+    isFree: z.boolean().default(false).optional(),
+    displayOrder: z.number()
+      .int('Display order must be a whole number')
+      .min(1, 'Display order must be positive')
+      .optional()
+  }),
+  
+  // Tabs content
+  tabs: z.object({
+    DOCTORS_NOTE: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
+    PATIENT_SCRIPT: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
+    MARKING_CRITERIA: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
+    MEDICAL_NOTES: z.string().max(10000, 'Content must be less than 10,000 characters').default('')
+  }).optional(),
+  
+  // Existing entities (by ID)
+  existing: z.object({
+    specialtyIds: z.array(z.string().uuid('Invalid specialty ID')).default([]),
+    curriculumIds: z.array(z.string().uuid('Invalid curriculum ID')).default([])
+  }).optional(),
+  
+  // New entities to create
+  new: z.object({
+    specialties: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([]),
+    curriculums: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([])
+  }).optional(),
+  
+  // Simulation configuration (optional)
+  simulation: z.object({
+    casePrompt: z.string()
+      .min(10, 'Case prompt must be at least 10 characters')
+      .max(2000, 'Case prompt must be less than 2000 characters')
+      .trim(),
+    openingLine: z.string()
+      .min(5, 'Opening line must be at least 5 characters')
+      .max(500, 'Opening line must be less than 500 characters')
+      .trim(),
+    timeLimitMinutes: z.number()
+      .int('Time limit must be a whole number')
+      .min(1, 'Time limit must be at least 1 minute')
+      .max(120, 'Time limit cannot exceed 120 minutes'),
+    voiceModel: VoiceModelEnum,
+    warningTimeMinutes: z.number()
+      .int('Warning time must be a whole number')
+      .min(1, 'Warning time must be at least 1 minute')
+      .optional(),
+    creditCost: z.number()
+      .int('Credit cost must be a whole number')
+      .min(1, 'Credit cost must be at least 1')
+      .max(10, 'Credit cost cannot exceed 10')
+      .default(1)
+  }).optional()
+})
+
+// Update complete course case schema
+export const updateCompleteCourseCaseSchema = z.object({
+  // Course case ID for update
+  courseCaseId: z.string().uuid('Invalid course case ID'),
+  
+  // Basic course case info (all optional for update)
+  courseCase: z.object({
+    title: z.string()
+      .min(1, 'Title is required')
+      .max(200, 'Title must be less than 200 characters')
+      .trim()
+      .optional(),
+    diagnosis: z.string()
+      .min(1, 'Diagnosis is required')
+      .max(200, 'Diagnosis must be less than 200 characters')
+      .trim()
+      .optional(),
+    patientName: z.string()
+      .min(1, 'Patient name is required')
+      .max(100, 'Patient name must be less than 100 characters')
+      .trim()
+      .optional(),
+    patientAge: z.number()
+      .int('Age must be a whole number')
+      .min(0, 'Age cannot be negative')
+      .max(150, 'Age must be realistic')
+      .optional(),
+    patientGender: PatientGenderEnum.optional(),
+    description: z.string()
+      .min(1, 'Description is required')
+      .max(2000, 'Description must be less than 2000 characters')
+      .trim()
+      .optional(),
+    isFree: z.boolean().optional(),
+    displayOrder: z.number()
+      .int('Display order must be a whole number')
+      .min(1, 'Display order must be positive')
+      .optional()
+  }).optional(),
+  
+  // Tabs content (optional)
+  tabs: z.object({
+    DOCTORS_NOTE: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
+    PATIENT_SCRIPT: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
+    MARKING_CRITERIA: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
+    MEDICAL_NOTES: z.string().max(10000, 'Content must be less than 10,000 characters').optional()
+  }).optional(),
+  
+  // Relations update
+  existing: z.object({
+    specialtyIds: z.array(z.string().uuid('Invalid specialty ID')).optional(),
+    curriculumIds: z.array(z.string().uuid('Invalid curriculum ID')).optional()
+  }).optional(),
+  
+  new: z.object({
+    specialties: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).optional(),
+    curriculums: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).optional()
+  }).optional(),
+  
+  // Simulation update (optional)
+  simulation: z.object({
+    casePrompt: z.string()
+      .min(10, 'Case prompt must be at least 10 characters')
+      .max(2000, 'Case prompt must be less than 2000 characters')
+      .trim()
+      .optional(),
+    openingLine: z.string()
+      .min(5, 'Opening line must be at least 5 characters')
+      .max(500, 'Opening line must be less than 500 characters')
+      .trim()
+      .optional(),
+    timeLimitMinutes: z.number()
+      .int('Time limit must be a whole number')
+      .min(1, 'Time limit must be at least 1 minute')
+      .max(120, 'Time limit cannot exceed 120 minutes')
+      .optional(),
+    voiceModel: VoiceModelEnum.optional(),
+    warningTimeMinutes: z.number()
+      .int('Warning time must be a whole number')
+      .min(1, 'Warning time must be at least 1 minute')
+      .optional(),
+    creditCost: z.number()
+      .int('Credit cost must be a whole number')
+      .min(1, 'Credit cost must be at least 1')
+      .max(10, 'Credit cost cannot exceed 10')
+      .optional()
+  }).optional()
+})
+
+// Response schema for complete course case creation/update
+export const completeCourseCaseResponseSchema = z.object({
+  courseCase: z.object({
+    id: z.string(),
+    courseId: z.string(),
+    title: z.string(),
+    diagnosis: z.string(),
+    patientName: z.string(),
+    patientAge: z.number(),
+    patientGender: PatientGenderEnum,
+    description: z.string(),
+    isFree: z.boolean(),
+    displayOrder: z.number()
+  }),
+  tabs: z.object({
+    DOCTORS_NOTE: z.object({
+      id: z.string(),
+      content: z.string(),
+      hasContent: z.boolean()
+    }),
+    PATIENT_SCRIPT: z.object({
+      id: z.string(),
+      content: z.string(),
+      hasContent: z.boolean()
+    }),
+    MARKING_CRITERIA: z.object({
+      id: z.string(),
+      content: z.string(),
+      hasContent: z.boolean()
+    }),
+    MEDICAL_NOTES: z.object({
+      id: z.string(),
+      content: z.string(),
+      hasContent: z.boolean()
+    })
+  }),
+  created: z.object({
+    specialties: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    })),
+    curriculums: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    }))
+  }),
+  assigned: z.object({
+    specialties: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    })),
+    curriculums: z.array(z.object({
+      id: z.string(),
+      name: z.string()
+    }))
+  }),
+  simulation: z.object({
+    id: z.string(),
+    casePrompt: z.string(),
+    openingLine: z.string(),
+    timeLimitMinutes: z.number(),
+    voiceModel: z.string(),
+    warningTimeMinutes: z.number().nullable(),
+    creditCost: z.number()
+  }).nullable(),
+  summary: z.object({
+    totalSpecialties: z.number(),
+    totalCurriculums: z.number(),
+    newEntitiesCreated: z.number(),
+    simulationCreated: z.boolean(),
+    tabsCreated: z.number(),
+    tabsUpdated: z.number()
+  })
+})
+
 // Type exports
 export type CreateCourseCaseInput = z.infer<typeof createCourseCaseSchema>
 export type UpdateCourseCaseInput = z.infer<typeof updateCourseCaseSchema>
@@ -4034,14 +4627,21 @@ export type ReorderCourseCaseInput = z.infer<typeof reorderCourseCaseSchema>
 export type CourseCaseResponse = z.infer<typeof courseCaseResponseSchema>
 export type PatientGender = z.infer<typeof PatientGenderEnum>
 
+// Complete course case type exports
+export type CreateCompleteCourseCaseInput = z.infer<typeof createCompleteCourseCaseSchema>
+export type UpdateCompleteCourseCaseInput = z.infer<typeof updateCompleteCourseCaseSchema>
+export type CompleteCourseCaseResponse = z.infer<typeof completeCourseCaseResponseSchema>
+
 
 ================================================
 File: src/entities/course-case/course-case.service.ts
 ================================================
 // course-case.service.ts
 import { PrismaClient, PatientGender } from '@prisma/client'
-import { CreateCourseCaseInput, UpdateCourseCaseInput } from './course-case.schema'
-import { any } from 'zod'
+import { CreateCourseCaseInput, UpdateCourseCaseInput, CreateCompleteCourseCaseInput, UpdateCompleteCourseCaseInput } from './course-case.schema'
+
+// Define CaseTabType - should match your Prisma schema enum
+type CaseTabType = 'DOCTORS_NOTE' | 'PATIENT_SCRIPT' | 'MARKING_CRITERIA' | 'MEDICAL_NOTES'
 
 // Filter input interface
 interface FilterInput {
@@ -4060,6 +4660,35 @@ interface BulkAssignmentInput {
 
 export class CourseCaseService {
   constructor(private prisma: PrismaClient) {}
+
+  // Helper function to get standard include object for course cases
+  private getStandardInclude() {
+    return {
+      course: {
+        include: {
+          exam: {
+            select: {
+              id: true,
+              title: true,
+              slug: true
+            }
+          }
+        }
+      },
+      simulation: true,
+      caseTabs: true,
+      caseSpecialties: {
+        include: {
+          specialty: true
+        }
+      },
+      caseCurriculums: {
+        include: {
+          curriculum: true
+        }
+      }
+    }
+  }
 
   // ===== BASIC CRUD OPERATIONS =====
 
@@ -4111,37 +4740,13 @@ export class CourseCaseService {
         isFree: data.isFree ?? false,
         displayOrder: data.displayOrder
       },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      }
+      include: this.getStandardInclude()
     })
   }
 
   async findAll() {
     return await this.prisma.courseCase.findMany({
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      },
+      include: this.getStandardInclude(),
       orderBy: [
         { courseId: 'asc' },
         { displayOrder: 'asc' }
@@ -4152,31 +4757,7 @@ export class CourseCaseService {
   async findById(id: string) {
     const courseCase = await this.prisma.courseCase.findUnique({
       where: { id },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        },
-        simulation: true,
-        caseTabs: true,
-        caseSpecialties: {
-          include: {
-            specialty: true
-          }
-        },
-        caseCurriculums: {
-          include: {
-            curriculum: true
-          }
-        }
-      }
+      include: this.getStandardInclude()
     })
 
     if (!courseCase) {
@@ -4198,36 +4779,7 @@ export class CourseCaseService {
 
     return await this.prisma.courseCase.findMany({
       where: { courseId },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        },
-        simulation: {
-          select: {
-            id: true,
-            timeLimitMinutes: true,
-            creditCost: true
-          }
-        },
-        caseSpecialties: {
-          include: {
-            specialty: true
-          }
-        },
-        caseCurriculums: {
-          include: {
-            curriculum: true
-          }
-        }
-      },
+      include: this.getStandardInclude(),
       orderBy: {
         displayOrder: 'asc'
       }
@@ -4240,19 +4792,7 @@ export class CourseCaseService {
         courseId,
         isFree: true
       },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      },
+      include: this.getStandardInclude(),
       orderBy: {
         displayOrder: 'asc'
       }
@@ -4265,19 +4805,7 @@ export class CourseCaseService {
         courseId,
         isFree: false
       },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      },
+      include: this.getStandardInclude(),
       orderBy: {
         displayOrder: 'asc'
       }
@@ -4290,19 +4818,7 @@ export class CourseCaseService {
         courseId,
         patientGender: gender
       },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      },
+      include: this.getStandardInclude(),
       orderBy: {
         displayOrder: 'asc'
       }
@@ -4331,19 +4847,7 @@ export class CourseCaseService {
     return await this.prisma.courseCase.update({
       where: { id },
       data,
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      }
+      include: this.getStandardInclude()
     })
   }
 
@@ -4362,19 +4866,7 @@ export class CourseCaseService {
     return await this.prisma.courseCase.update({
       where: { id },
       data: { isFree: !courseCase.isFree },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      }
+      include: this.getStandardInclude()
     })
   }
 
@@ -4397,19 +4889,7 @@ export class CourseCaseService {
     return await this.prisma.courseCase.update({
       where: { id },
       data: { displayOrder: newOrder },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      }
+      include: this.getStandardInclude()
     })
   }
 
@@ -4522,39 +5002,7 @@ export class CourseCaseService {
 
     const cases = await this.prisma.courseCase.findMany({
       where: whereConditions,
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        },
-        caseSpecialties: {
-          include: {
-            specialty: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          }
-        },
-        caseCurriculums: {
-          include: {
-            curriculum: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          }
-        }
-      },
+      include: this.getStandardInclude(),
       orderBy: {
         displayOrder: 'asc'
       }
@@ -4576,7 +5024,9 @@ export class CourseCaseService {
       updatedAt: caseItem.updatedAt,
       specialties: caseItem.caseSpecialties.map((cs: any) => cs.specialty),
       curriculums: caseItem.caseCurriculums.map((cc: any) => cc.curriculum),
-      course: caseItem.course
+      course: caseItem.course,
+      simulation: caseItem.simulation,
+      caseTabs: caseItem.caseTabs
     }))
   }
 
@@ -4820,6 +5270,561 @@ export class CourseCaseService {
       curriculumDistribution: enrichedCurriculumDistribution
     }
   }
+  // ===== COMPLETE COURSE CASE OPERATIONS =====
+
+  async createCompleteCourseCase(data: CreateCompleteCourseCaseInput) {
+    // Helper function to ensure tab content is always an array
+    const getTabContent = (tabs: any, tabType: string): string[] => {
+      if (!tabs || !tabs[tabType]) return []
+      const content = tabs[tabType]
+      if (Array.isArray(content)) return content
+      if (typeof content === 'string') return [content] // Handle legacy
+      return []
+    }
+  
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify course exists and get course data
+      const course = await tx.course.findUnique({
+        where: { id: data.courseCase.courseId }
+      })
+  
+      if (!course) {
+        throw new Error('Course not found')
+      }
+  
+      // Check if course style allows adding cases
+      if (course.style !== 'RANDOM') {
+        throw new Error('Cases can only be added to RANDOM style courses')
+      }
+  
+      // Auto-assign display order if not provided
+      if (!data.courseCase.displayOrder) {
+        const maxOrder = await tx.courseCase.aggregate({
+          where: { courseId: data.courseCase.courseId },
+          _max: { displayOrder: true }
+        })
+        data.courseCase.displayOrder = (maxOrder._max.displayOrder || 0) + 1
+      } else {
+        // Check if display order is already taken
+        const existingCase = await tx.courseCase.findFirst({
+          where: {
+            courseId: data.courseCase.courseId,
+            displayOrder: data.courseCase.displayOrder
+          }
+        })
+  
+        if (existingCase) {
+          throw new Error(`Display order ${data.courseCase.displayOrder} is already taken for this course`)
+        }
+      }
+  
+      // Step 2: Create the course case
+      const courseCase = await tx.courseCase.create({
+        data: {
+          courseId: data.courseCase.courseId,
+          title: data.courseCase.title,
+          diagnosis: data.courseCase.diagnosis,
+          patientName: data.courseCase.patientName,
+          patientAge: data.courseCase.patientAge,
+          patientGender: data.courseCase.patientGender,
+          description: data.courseCase.description,
+          isFree: data.courseCase.isFree ?? false,
+          displayOrder: data.courseCase.displayOrder
+        }
+      })
+  
+      // Step 3: Create all 4 tabs
+      const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
+      const createdTabs: any = {}
+      
+      for (const tabType of tabTypes) {
+        // Use helper function to ensure content is always an array
+        const content = getTabContent(data.tabs, tabType)
+        const tab = await tx.caseTab.create({
+          data: {
+            courseCaseId: courseCase.id,
+            tabType,
+            content
+          }
+        })
+        createdTabs[tabType] = {
+          id: tab.id,
+          content: tab.content,
+          hasContent: tab.content.length > 0
+        }
+      }
+  
+      // Step 4: Create new entities
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[]
+      }
+  
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          // Check if already exists (case-insensitive)
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
+        }
+      }
+  
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
+        }
+      }
+  
+      // Step 5: Collect all IDs (existing + newly created)
+      const allSpecialtyIds = [
+        ...(data.existing?.specialtyIds || []),
+        ...createdEntities.specialties.map(s => s.id)
+      ]
+  
+      const allCurriculumIds = [
+        ...(data.existing?.curriculumIds || []),
+        ...createdEntities.curriculums.map(c => c.id)
+      ]
+  
+      // Step 6: Verify existing entities exist
+      if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
+        const count = await tx.specialty.count({
+          where: { id: { in: data.existing.specialtyIds } }
+        })
+        if (count !== data.existing.specialtyIds.length) {
+          throw new Error('One or more specialties not found')
+        }
+      }
+  
+      if (data.existing?.curriculumIds && data.existing.curriculumIds.length > 0) {
+        const count = await tx.curriculum.count({
+          where: { id: { in: data.existing.curriculumIds } }
+        })
+        if (count !== data.existing.curriculumIds.length) {
+          throw new Error('One or more curriculums not found')
+        }
+      }
+  
+      // Step 7: Create all junction table entries
+      if (allSpecialtyIds.length > 0) {
+        await tx.caseSpecialty.createMany({
+          data: allSpecialtyIds.map(specialtyId => ({
+            courseCaseId: courseCase.id,
+            specialtyId
+          }))
+        })
+      }
+  
+      if (allCurriculumIds.length > 0) {
+        await tx.caseCurriculum.createMany({
+          data: allCurriculumIds.map(curriculumId => ({
+            courseCaseId: courseCase.id,
+            curriculumId
+          }))
+        })
+      }
+  
+      // Step 8: Create simulation if provided
+      let simulation = null
+      if (data.simulation) {
+        // Validate warning time
+        if (data.simulation.warningTimeMinutes && 
+            data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
+          throw new Error('Warning time must be less than time limit')
+        }
+  
+        simulation = await tx.simulation.create({
+          data: {
+            courseCaseId: courseCase.id,
+            casePrompt: data.simulation.casePrompt,
+            openingLine: data.simulation.openingLine,
+            timeLimitMinutes: data.simulation.timeLimitMinutes,
+            voiceModel: data.simulation.voiceModel,
+            warningTimeMinutes: data.simulation.warningTimeMinutes,
+            creditCost: data.simulation.creditCost
+          }
+        })
+      }
+  
+      // Step 9: Fetch all assigned entities for response
+      const assignedSpecialties = await tx.specialty.findMany({
+        where: { id: { in: allSpecialtyIds } }
+      })
+  
+      const assignedCurriculums = await tx.curriculum.findMany({
+        where: { id: { in: allCurriculumIds } }
+      })
+  
+      // Count truly new entities created
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        !data.existing?.specialtyIds?.includes(s.id) &&
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+  
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        !data.existing?.curriculumIds?.includes(c.id) &&
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+  
+      // Return comprehensive response
+      return {
+        courseCase,
+        tabs: createdTabs,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          )
+        },
+        assigned: {
+          specialties: assignedSpecialties,
+          curriculums: assignedCurriculums
+        },
+        simulation,
+        summary: {
+          totalSpecialties: assignedSpecialties.length,
+          totalCurriculums: assignedCurriculums.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
+          simulationCreated: !!simulation,
+          tabsCreated: 4,
+          tabsUpdated: 0
+        }
+      }
+    })
+  }
+  
+  // 2. updateCompleteCourseCase method for course-case.service.ts
+  
+  async updateCompleteCourseCase(data: UpdateCompleteCourseCaseInput) {
+    // Helper function to ensure tab content is always an array
+    const getTabContent = (tabs: any, tabType: string): string[] => {
+      if (!tabs || !tabs[tabType]) return []
+      const content = tabs[tabType]
+      if (Array.isArray(content)) return content
+      if (typeof content === 'string') return [content] // Handle legacy
+      return []
+    }
+  
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify course case exists
+      const existingCourseCase = await tx.courseCase.findUnique({
+        where: { id: data.courseCaseId },
+        include: {
+          course: true,
+          simulation: true,
+          caseTabs: true
+        }
+      })
+  
+      if (!existingCourseCase) {
+        throw new Error('Course case not found')
+      }
+  
+      // Step 2: Update course case if data provided
+      let updatedCourseCase = existingCourseCase
+      if (data.courseCase) {
+        // Check display order if updating
+        if (data.courseCase.displayOrder && 
+            data.courseCase.displayOrder !== existingCourseCase.displayOrder) {
+          const conflictingCase = await tx.courseCase.findFirst({
+            where: {
+              courseId: existingCourseCase.courseId,
+              displayOrder: data.courseCase.displayOrder,
+              id: { not: data.courseCaseId }
+            }
+          })
+  
+          if (conflictingCase) {
+            throw new Error(`Display order ${data.courseCase.displayOrder} is already taken`)
+          }
+        }
+  
+        updatedCourseCase = await tx.courseCase.update({
+          where: { id: data.courseCaseId },
+          data: data.courseCase,
+          include: {
+            course: true,
+            simulation: true,
+            caseTabs: true
+          }
+        })
+      }
+  
+      // Step 3: Update tabs if provided
+      const tabsResponse: any = {}
+      let tabsUpdated = 0
+      
+      if (data.tabs) {
+        const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
+        
+        for (const tabType of tabTypes) {
+          const existingTab = existingCourseCase.caseTabs.find(t => t.tabType === tabType)
+          
+          if (data.tabs[tabType] !== undefined) {
+            if (existingTab) {
+              // Update existing tab
+              const contentArray = getTabContent(data.tabs, tabType)
+              const updatedTab = await tx.caseTab.update({
+                where: { id: existingTab.id },
+                data: { content: contentArray }
+              })
+              tabsResponse[tabType] = {
+                id: updatedTab.id,
+                content: updatedTab.content,
+                hasContent: updatedTab.content.length > 0
+              }
+              tabsUpdated++
+            } else {
+              // Create new tab if doesn't exist
+              const contentArray = getTabContent(data.tabs, tabType)
+              const newTab = await tx.caseTab.create({
+                data: {
+                  courseCaseId: data.courseCaseId,
+                  tabType,
+                  content: contentArray
+                }
+              })
+              tabsResponse[tabType] = {
+                id: newTab.id,
+                content: newTab.content,
+                hasContent: newTab.content.length > 0
+              }
+            }
+          } else if (existingTab) {
+            // Include existing tab in response
+            tabsResponse[tabType] = {
+              id: existingTab.id,
+              content: existingTab.content,
+              hasContent: existingTab.content.length > 0 // Changed from existingTab.content.trim().length > 0
+            }
+          }
+        }
+      } else {
+        // Include all existing tabs in response
+        for (const tab of existingCourseCase.caseTabs) {
+          tabsResponse[tab.tabType] = {
+            id: tab.id,
+            content: tab.content,
+            hasContent: tab.content.length > 0 // Changed from tab.content.trim().length > 0
+          }
+        }
+      }
+  
+      // Step 4: Handle specialties and curriculums
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[]
+      }
+  
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
+        }
+      }
+  
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
+        }
+      }
+  
+      // Update specialties if provided
+      if (data.existing?.specialtyIds !== undefined || createdEntities.specialties.length > 0) {
+        // Remove existing assignments
+        await tx.caseSpecialty.deleteMany({
+          where: { courseCaseId: data.courseCaseId }
+        })
+  
+        // Create new assignments
+        const allSpecialtyIds = [
+          ...(data.existing?.specialtyIds || []),
+          ...createdEntities.specialties.map(s => s.id)
+        ]
+  
+        if (allSpecialtyIds.length > 0) {
+          await tx.caseSpecialty.createMany({
+            data: allSpecialtyIds.map(specialtyId => ({
+              courseCaseId: data.courseCaseId,
+              specialtyId
+            }))
+          })
+        }
+      }
+  
+      // Update curriculums if provided
+      if (data.existing?.curriculumIds !== undefined || createdEntities.curriculums.length > 0) {
+        // Remove existing assignments
+        await tx.caseCurriculum.deleteMany({
+          where: { courseCaseId: data.courseCaseId }
+        })
+  
+        // Create new assignments
+        const allCurriculumIds = [
+          ...(data.existing?.curriculumIds || []),
+          ...createdEntities.curriculums.map(c => c.id)
+        ]
+  
+        if (allCurriculumIds.length > 0) {
+          await tx.caseCurriculum.createMany({
+            data: allCurriculumIds.map(curriculumId => ({
+              courseCaseId: data.courseCaseId,
+              curriculumId
+            }))
+          })
+        }
+      }
+  
+      // Step 5: Update or create simulation
+      let simulation = existingCourseCase.simulation
+      if (data.simulation) {
+        // Validate warning time
+        if (data.simulation.warningTimeMinutes && 
+            data.simulation.timeLimitMinutes &&
+            data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
+          throw new Error('Warning time must be less than time limit')
+        }
+  
+        if (simulation) {
+          // Update existing simulation
+          simulation = await tx.simulation.update({
+            where: { id: simulation.id },
+            data: data.simulation
+          })
+        } else {
+          // Create new simulation
+          simulation = await tx.simulation.create({
+            data: {
+              courseCaseId: data.courseCaseId,
+              casePrompt: data.simulation.casePrompt!,
+              openingLine: data.simulation.openingLine!,
+              timeLimitMinutes: data.simulation.timeLimitMinutes!,
+              voiceModel: data.simulation.voiceModel!,
+              warningTimeMinutes: data.simulation.warningTimeMinutes,
+              creditCost: data.simulation.creditCost || 1
+            }
+          })
+        }
+      }
+  
+      // Step 6: Fetch all current relations for response
+      const currentSpecialties = await tx.caseSpecialty.findMany({
+        where: { courseCaseId: data.courseCaseId },
+        include: { specialty: true }
+      })
+  
+      const currentCurriculums = await tx.caseCurriculum.findMany({
+        where: { courseCaseId: data.courseCaseId },
+        include: { curriculum: true }
+      })
+  
+      // Count new entities created
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+  
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+  
+      // Return comprehensive response
+      return {
+        courseCase: updatedCourseCase,
+        tabs: tabsResponse,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          )
+        },
+        assigned: {
+          specialties: currentSpecialties.map(cs => cs.specialty),
+          curriculums: currentCurriculums.map(cc => cc.curriculum)
+        },
+        simulation,
+        summary: {
+          totalSpecialties: currentSpecialties.length,
+          totalCurriculums: currentCurriculums.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
+          simulationCreated: !existingCourseCase.simulation && !!simulation,
+          tabsCreated: 0,
+          tabsUpdated
+        }
+      }
+    })
+  }
+  
 }
 
 

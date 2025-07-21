@@ -549,7 +549,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         tabsResponse[tab.tabType] = {
           id: tab.id,
           content: tab.content,
-          hasContent: tab.content.trim().length > 0
+          hasContent: tab.content.length > 0 // Changed from tab.content.trim().length > 0
         }
       }
       

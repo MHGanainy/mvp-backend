@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PatientGenderEnum } from '../course-case/course-case.schema'
 
 // CaseTabType enum
 export const CaseTabTypeEnum = z.enum(['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES'])
@@ -7,16 +8,18 @@ export const CaseTabTypeEnum = z.enum(['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKIN
 export const createCaseTabSchema = z.object({
   courseCaseId: z.string().uuid('Invalid course case ID'),
   tabType: CaseTabTypeEnum,
-  content: z.string()
-    .max(10000, 'Content must be less than 10,000 characters')
-    .default('')
+  content: z.array(z.string())
+    .default([])
+    .refine(arr => arr.every(item => item.length <= 10000), 
+      'Each content item must be less than 10,000 characters')
 })
 
 // Update CaseTab Schema
 export const updateCaseTabSchema = z.object({
-  content: z.string()
-    .max(10000, 'Content must be less than 10,000 characters')
+  content: z.array(z.string())
     .optional()
+    .refine(arr => !arr || arr.every(item => item.length <= 10000), 
+      'Each content item must be less than 10,000 characters')
 })
 
 // URL Params Schemas
@@ -41,8 +44,9 @@ export const courseParamsSchema = z.object({
 export const bulkUpdateCaseTabSchema = z.object({
   tabUpdates: z.array(z.object({
     tabType: CaseTabTypeEnum,
-    content: z.string()
-      .max(10000, 'Content must be less than 10,000 characters')
+    content: z.array(z.string())
+      .refine(arr => arr.every(item => item.length <= 10000), 
+        'Each content item must be less than 10,000 characters')
   })).min(1, 'At least one tab update is required').max(4, 'Cannot update more than 4 tabs')
 })
 
@@ -56,7 +60,7 @@ export const caseTabResponseSchema = z.object({
   id: z.string(),
   courseCaseId: z.string(),
   tabType: CaseTabTypeEnum,
-  content: z.string(),
+  content: z.array(z.string()),
   createdAt: z.date(),
   updatedAt: z.date(),
   courseCase: z.object({
@@ -85,7 +89,8 @@ export const caseTabStatsResponseSchema = z.object({
   tabDetails: z.array(z.object({
     tabType: CaseTabTypeEnum,
     hasContent: z.boolean(),
-    contentLength: z.number(),
+    contentItems: z.number(),
+    totalContentLength: z.number(),
     lastUpdated: z.date()
   }))
 })

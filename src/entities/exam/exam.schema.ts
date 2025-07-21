@@ -156,6 +156,47 @@ export const createCompleteExamSchema = z.object({
   }).optional()
 })
 
+// Schema for updating complete exam with all relations
+export const updateCompleteExamSchema = z.object({
+  // Basic exam info updates
+  exam: z.object({
+    title: z.string()
+      .min(1, 'Title is required')
+      .max(200, 'Title must be less than 200 characters')
+      .trim()
+      .optional(),
+    slug: z.string()
+      .min(1, 'Slug is required')
+      .max(200, 'Slug must be less than 200 characters')
+      .regex(/^[a-z0-9-]+$/, 'Slug must contain only lowercase letters, numbers, and hyphens')
+      .optional(),
+    description: z.string()
+      .max(1000, 'Description must be less than 1000 characters')
+      .optional(),
+    isActive: z.boolean().optional()
+  }).optional(),
+  
+  // Existing entities (by ID) - these will replace current assignments
+  existing: z.object({
+    specialtyIds: z.array(z.string().uuid('Invalid specialty ID')).default([]),
+    curriculumIds: z.array(z.string().uuid('Invalid curriculum ID')).default([]),
+    markingDomainIds: z.array(z.string().uuid('Invalid marking domain ID')).default([])
+  }).optional(),
+  
+  // New entities to create
+  new: z.object({
+    specialties: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([]),
+    curriculums: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([]),
+    markingDomains: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([])
+  }).optional()
+})
+
 // Response schema for complete exam creation
 export const completeExamResponseSchema = z.object({
   exam: z.object({
@@ -210,4 +251,5 @@ export type ExamInstructorParams = z.infer<typeof examInstructorParamsSchema>
 export type ExamResponse = z.infer<typeof examResponseSchema>
 export type ExamWithRelationsResponse = z.infer<typeof examWithRelationsResponseSchema>
 export type CreateCompleteExamInput = z.infer<typeof createCompleteExamSchema>
+export type UpdateCompleteExamInput = z.infer<typeof updateCompleteExamSchema>
 export type CompleteExamResponse = z.infer<typeof completeExamResponseSchema>

@@ -137,7 +137,7 @@ model CaseTab {
   id           String      @id @default(uuid())
   courseCaseId String      @map("course_case_id")
   tabType      CaseTabType @map("tab_type")
-  content      String      @db.Text
+  content      String[]    @default([])  // Changed from String to String[]
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
   

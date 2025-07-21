@@ -10,6 +10,7 @@ import {
   bulkUpdateCaseTabSchema,
   createAllTabsSchema
 } from './case-tab.schema'
+import { z } from 'zod'
 
 export default async function caseTabRoutes(fastify: FastifyInstance) {
   const caseTabService = new CaseTabService(fastify.prisma)
@@ -204,5 +205,92 @@ export default async function caseTabRoutes(fastify: FastifyInstance) {
         MEDICAL_NOTES: "Key medical points and references"
       }
     })
+  })
+  fastify.post('/case-tabs/:id/content', async (request, reply) => {
+    try {
+      const { id } = caseTabParamsSchema.parse(request.params)
+      const { content } = z.object({ 
+        content: z.string().max(10000, 'Content must be less than 10,000 characters') 
+      }).parse(request.body)
+      
+      const caseTab = await caseTabService.addContentItem(id, content)
+      reply.send({
+        message: 'Content item added successfully',
+        caseTab,
+        totalItems: caseTab.content.length
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Case tab not found') {
+        reply.status(404).send({ error: 'Case tab not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // PUT /case-tabs/:id/content/:index - Update a specific content item
+  fastify.put('/case-tabs/:id/content/:index', async (request, reply) => {
+    try {
+      const { id } = caseTabParamsSchema.parse(request.params)
+      const index = parseInt((request.params as any).index as string)
+      const { content } = z.object({ 
+        content: z.string().max(10000, 'Content must be less than 10,000 characters') 
+      }).parse(request.body)
+      
+      if (isNaN(index) || index < 0) {
+        reply.status(400).send({ error: 'Invalid content index' })
+        return
+      }
+      
+      const caseTab = await caseTabService.updateContentItem(id, index, content)
+      reply.send({
+        message: 'Content item updated successfully',
+        caseTab
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Case tab not found') {
+          reply.status(404).send({ error: 'Case tab not found' })
+        } else if (error.message === 'Invalid content index') {
+          reply.status(400).send({ error: 'Invalid content index' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // DELETE /case-tabs/:id/content/:index - Remove a content item
+  fastify.delete('/case-tabs/:id/content/:index', async (request, reply) => {
+    try {
+      const { id } = caseTabParamsSchema.parse(request.params)
+      const index = parseInt((request.params as any).index as string)
+      
+      if (isNaN(index) || index < 0) {
+        reply.status(400).send({ error: 'Invalid content index' })
+        return
+      }
+      
+      const caseTab = await caseTabService.removeContentItem(id, index)
+      reply.send({
+        message: 'Content item removed successfully',
+        caseTab,
+        remainingItems: caseTab.content.length
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Case tab not found') {
+          reply.status(404).send({ error: 'Case tab not found' })
+        } else if (error.message === 'Invalid content index') {
+          reply.status(400).send({ error: 'Invalid content index' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
   })
 }
