@@ -156,8 +156,11 @@ export const createCompleteExamSchema = z.object({
   }).optional()
 })
 
-// Schema for updating complete exam with all relations
+// Schema for updating complete exam with all relations - NOW INCLUDES examId
 export const updateCompleteExamSchema = z.object({
+  // Exam ID to update
+  examId: z.string().uuid('Invalid exam ID'),
+  
   // Basic exam info updates
   exam: z.object({
     title: z.string()

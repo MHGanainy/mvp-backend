@@ -1,6 +1,6 @@
 // exam.service.ts
 import { PrismaClient } from '@prisma/client'
-import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput } from './exam.schema'
+import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput, UpdateCompleteExamInput } from './exam.schema'
 
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
@@ -882,6 +882,263 @@ export class ExamService {
           totalCurriculums: assignedCurriculums.length,
           totalMarkingDomains: assignedMarkingDomains.length,
           newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount + newMarkingDomainsCount
+        }
+      }
+    })
+  }
+
+  // ===== COMPLETE EXAM UPDATE =====
+
+  async updateCompleteExam(examId: string, data: Omit<UpdateCompleteExamInput, 'examId'>) {
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify exam exists
+      const existingExam = await tx.exam.findUnique({
+        where: { id: examId }
+      })
+
+      if (!existingExam) {
+        throw new Error('Exam not found')
+      }
+
+      // Step 2: Update exam basic info if provided
+      let updatedExam = existingExam
+      if (data.exam && Object.keys(data.exam).length > 0) {
+        // If updating slug, check it's unique
+        if (data.exam.slug) {
+          const examWithSlug = await tx.exam.findUnique({
+            where: { slug: data.exam.slug }
+          })
+
+          if (examWithSlug && examWithSlug.id !== examId) {
+            throw new Error('Exam with this slug already exists')
+          }
+        }
+
+        updatedExam = await tx.exam.update({
+          where: { id: examId },
+          data: data.exam
+        })
+      }
+
+      // Step 3: Create new entities
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[],
+        markingDomains: [] as any[]
+      }
+
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          // Check if already exists (case-insensitive)
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
+        }
+      }
+
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
+        }
+      }
+
+      // Create new marking domains
+      if (data.new?.markingDomains && data.new.markingDomains.length > 0) {
+        for (const markingDomain of data.new.markingDomains) {
+          const existing = await tx.markingDomain.findFirst({
+            where: { 
+              name: {
+                equals: markingDomain.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.markingDomains.push(existing)
+          } else {
+            const created = await tx.markingDomain.create({
+              data: { name: markingDomain.name }
+            })
+            createdEntities.markingDomains.push(created)
+          }
+        }
+      }
+
+      // Step 4: Collect all IDs (existing + newly created)
+      const allSpecialtyIds = [
+        ...(data.existing?.specialtyIds || []),
+        ...createdEntities.specialties.map(s => s.id)
+      ]
+
+      const allCurriculumIds = [
+        ...(data.existing?.curriculumIds || []),
+        ...createdEntities.curriculums.map(c => c.id)
+      ]
+
+      const allMarkingDomainIds = [
+        ...(data.existing?.markingDomainIds || []),
+        ...createdEntities.markingDomains.map(md => md.id)
+      ]
+
+      // Step 5: Verify existing entities exist
+      if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
+        const count = await tx.specialty.count({
+          where: { id: { in: data.existing.specialtyIds } }
+        })
+        if (count !== data.existing.specialtyIds.length) {
+          throw new Error('One or more specialties not found')
+        }
+      }
+
+      if (data.existing?.curriculumIds && data.existing.curriculumIds.length > 0) {
+        const count = await tx.curriculum.count({
+          where: { id: { in: data.existing.curriculumIds } }
+        })
+        if (count !== data.existing.curriculumIds.length) {
+          throw new Error('One or more curriculums not found')
+        }
+      }
+
+      if (data.existing?.markingDomainIds && data.existing.markingDomainIds.length > 0) {
+        const count = await tx.markingDomain.count({
+          where: { id: { in: data.existing.markingDomainIds } }
+        })
+        if (count !== data.existing.markingDomainIds.length) {
+          throw new Error('One or more marking domains not found')
+        }
+      }
+
+      // Step 6: Clear existing assignments and create new ones
+      // Only update if new assignments are provided
+      if (data.existing || data.new) {
+        // Clear and reassign specialties
+        if (allSpecialtyIds.length > 0 || (data.existing && 'specialtyIds' in data.existing)) {
+          await tx.examSpecialty.deleteMany({ where: { examId } })
+          if (allSpecialtyIds.length > 0) {
+            await tx.examSpecialty.createMany({
+              data: allSpecialtyIds.map(specialtyId => ({
+                examId,
+                specialtyId
+              }))
+            })
+          }
+        }
+
+        // Clear and reassign curriculums
+        if (allCurriculumIds.length > 0 || (data.existing && 'curriculumIds' in data.existing)) {
+          await tx.examCurriculum.deleteMany({ where: { examId } })
+          if (allCurriculumIds.length > 0) {
+            await tx.examCurriculum.createMany({
+              data: allCurriculumIds.map(curriculumId => ({
+                examId,
+                curriculumId
+              }))
+            })
+          }
+        }
+
+        // Clear and reassign marking domains
+        if (allMarkingDomainIds.length > 0 || (data.existing && 'markingDomainIds' in data.existing)) {
+          await tx.examMarkingDomain.deleteMany({ where: { examId } })
+          if (allMarkingDomainIds.length > 0) {
+            await tx.examMarkingDomain.createMany({
+              data: allMarkingDomainIds.map(markingDomainId => ({
+                examId,
+                markingDomainId
+              }))
+            })
+          }
+        }
+      }
+
+      // Step 7: Fetch all assigned entities for response
+      const assignedSpecialties = await tx.specialty.findMany({
+        where: { id: { in: allSpecialtyIds } }
+      })
+
+      const assignedCurriculums = await tx.curriculum.findMany({
+        where: { id: { in: allCurriculumIds } }
+      })
+
+      const assignedMarkingDomains = await tx.markingDomain.findMany({
+        where: { id: { in: allMarkingDomainIds } }
+      })
+
+      // Count truly new entities created (not including existing ones that were found)
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        !data.existing?.specialtyIds?.includes(s.id) &&
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        !data.existing?.curriculumIds?.includes(c.id) &&
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+
+      const newMarkingDomainsCount = createdEntities.markingDomains.filter(md => 
+        !data.existing?.markingDomainIds?.includes(md.id) &&
+        data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+      ).length
+
+      // Return comprehensive response
+      return {
+        exam: updatedExam,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          ),
+          markingDomains: createdEntities.markingDomains.filter(md => 
+            data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+          )
+        },
+        assigned: {
+          specialties: assignedSpecialties,
+          curriculums: assignedCurriculums,
+          markingDomains: assignedMarkingDomains
+        },
+        summary: {
+          totalSpecialties: assignedSpecialties.length,
+          totalCurriculums: assignedCurriculums.length,
+          totalMarkingDomains: assignedMarkingDomains.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount + newMarkingDomainsCount,
+          examUpdated: data.exam && Object.keys(data.exam).length > 0
         }
       }
     })

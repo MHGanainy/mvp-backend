@@ -6,7 +6,8 @@ import {
   updateExamSchema, 
   examParamsSchema,
   examInstructorParamsSchema,
-  createCompleteExamSchema
+  createCompleteExamSchema,
+  updateCompleteExamSchema
 } from './exam.schema'
 import {
   assignExamSpecialtiesSchema,
@@ -160,6 +161,34 @@ export default async function examRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Exam with this slug already exists' })
         } else {
           reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // PUT /exams/update-complete - Update exam with all relations in one request (examId in body)
+  fastify.put('/exams/update-complete', async (request, reply) => {
+    try {
+      const data = updateCompleteExamSchema.parse(request.body)
+      const { examId, ...updateData } = data
+      const result = await examService.updateCompleteExam(examId, updateData)
+      
+      reply.send({
+        message: 'Exam updated and configured successfully',
+        ...result
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Exam not found') {
+          reply.status(404).send({ error: 'Exam not found' })
+        } else if (error.message === 'Exam with this slug already exists') {
+          reply.status(400).send({ error: 'Exam with this slug already exists' })
+        } else if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else {
+          reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
         reply.status(500).send({ error: 'Internal server error' })
