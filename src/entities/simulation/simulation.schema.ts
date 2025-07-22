@@ -8,7 +8,7 @@ export const createSimulationSchema = z.object({
   courseCaseId: z.string().uuid('Invalid course case ID'),
   casePrompt: z.string()
     .min(10, 'Case prompt must be at least 10 characters')
-    .max(2000, 'Case prompt must be less than 2000 characters')
+    .max(100000, 'Case prompt must be less than 100,000 characters') // Increased to 100k characters
     .trim(),
   openingLine: z.string()
     .min(5, 'Opening line must be at least 5 characters')
@@ -43,7 +43,7 @@ export const createSimulationSchema = z.object({
 export const updateSimulationSchema = z.object({
   casePrompt: z.string()
     .min(10, 'Case prompt must be at least 10 characters')
-    .max(2000, 'Case prompt must be less than 2000 characters')
+    .max(100000, 'Case prompt must be less than 100,000 characters') // Increased to 100k characters
     .trim()
     .optional(),
   openingLine: z.string()
