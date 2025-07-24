@@ -13,7 +13,7 @@ export const createCourseCaseSchema = z.object({
     .trim(),
   diagnosis: z.string()
     .min(1, 'Diagnosis is required')
-    .max(200, 'Diagnosis must be less than 200 characters')
+    .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
     .trim(),
   patientName: z.string()
     .min(1, 'Patient name is required')
@@ -26,7 +26,7 @@ export const createCourseCaseSchema = z.object({
   patientGender: PatientGenderEnum,
   description: z.string()
     .min(1, 'Description is required')
-    .max(2000, 'Description must be less than 2000 characters')
+    .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
     .trim(),
   isFree: z.boolean().default(false).optional(),
   displayOrder: z.number()
@@ -44,7 +44,7 @@ export const updateCourseCaseSchema = z.object({
     .optional(),
   diagnosis: z.string()
     .min(1, 'Diagnosis is required')
-    .max(200, 'Diagnosis must be less than 200 characters')
+    .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
     .trim()
     .optional(),
   patientName: z.string()
@@ -60,7 +60,7 @@ export const updateCourseCaseSchema = z.object({
   patientGender: PatientGenderEnum.optional(),
   description: z.string()
     .min(1, 'Description is required')
-    .max(2000, 'Description must be less than 2000 characters')
+    .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
     .trim()
     .optional(),
   isFree: z.boolean().optional(),
@@ -126,7 +126,7 @@ export const createCompleteCourseCaseSchema = z.object({
       .trim(),
     diagnosis: z.string()
       .min(1, 'Diagnosis is required')
-      .max(200, 'Diagnosis must be less than 200 characters')
+      .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
       .trim(),
     patientName: z.string()
       .min(1, 'Patient name is required')
@@ -139,7 +139,7 @@ export const createCompleteCourseCaseSchema = z.object({
     patientGender: PatientGenderEnum,
     description: z.string()
       .min(1, 'Description is required')
-      .max(2000, 'Description must be less than 2000 characters')
+      .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim(),
     isFree: z.boolean().default(false).optional(),
     displayOrder: z.number()
@@ -188,7 +188,7 @@ export const createCompleteCourseCaseSchema = z.object({
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
-      .max(2000, 'Case prompt must be less than 2000 characters')
+      .max(100000, 'Case prompt must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim(),
     openingLine: z.string()
       .min(5, 'Opening line must be at least 5 characters')
@@ -225,7 +225,7 @@ export const updateCompleteCourseCaseSchema = z.object({
       .optional(),
     diagnosis: z.string()
       .min(1, 'Diagnosis is required')
-      .max(200, 'Diagnosis must be less than 200 characters')
+      .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
       .trim()
       .optional(),
     patientName: z.string()
@@ -241,7 +241,7 @@ export const updateCompleteCourseCaseSchema = z.object({
     patientGender: PatientGenderEnum.optional(),
     description: z.string()
       .min(1, 'Description is required')
-      .max(2000, 'Description must be less than 2000 characters')
+      .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim()
       .optional(),
     isFree: z.boolean().optional(),
@@ -290,7 +290,7 @@ export const updateCompleteCourseCaseSchema = z.object({
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
-      .max(2000, 'Case prompt must be less than 2000 characters')
+      .max(100000, 'Case prompt must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim()
       .optional(),
     openingLine: z.string()
