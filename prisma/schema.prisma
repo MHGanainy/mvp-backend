@@ -159,10 +159,12 @@ model SimulationAttempt {
   isCompleted     Boolean    @default(false) @map("is_completed")
   score           Decimal?   @db.Decimal(5, 2)
   aiFeedback      Json?      @map("ai_feedback")
+  aiPrompt        Json?      @map("ai_prompt")
   transcript      Json?
   createdAt       DateTime   @default(now()) @map("created_at")
   simulation      Simulation @relation(fields: [simulationId], references: [id])
   student         Student    @relation(fields: [studentId], references: [id])
+  correlationToken  String?   @unique
 
   @@map("simulation_attempts")
 }

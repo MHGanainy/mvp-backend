@@ -1,1162 +1,71 @@
 Directory structure:
-└── mvp-backend/
-    ├── README.md
-    ├── package.json
-    ├── tsconfig.json
-    ├── prisma/
-    │   ├── schema.prisma
-    │   └── migrations/
-    │       ├── migration_lock.toml
-    │       ├── 20250708140016_init/
-    │       │   └── migration.sql
-    │       ├── 20250708144233_add_specialty/
-    │       │   └── migration.sql
-    │       ├── 20250708150007_add_curriculum/
-    │       │   └── migration.sql
-    │       ├── 20250708160421_add_instructor/
-    │       │   └── migration.sql
-    │       ├── 20250708214917_add_student/
-    │       │   └── migration.sql
-    │       ├── 20250708230514_add_marking_domain/
-    │       │   └── migration.sql
-    │       ├── 20250708231354_add_exam/
-    │       │   └── migration.sql
-    │       ├── 20250708232445_add_course/
-    │       │   └── migration.sql
-    │       ├── 20250708233701_add_course_case/
-    │       │   └── migration.sql
-    │       ├── 20250708235709_add_simulation_system/
-    │       │   └── migration.sql
-    │       ├── 20250709125700_complete_random_workflow/
-    │       │   └── migration.sql
-    │       ├── 20250713134451_add_password_hash/
-    │       │   └── migration.sql
-    │       ├── 20250713140149_add_course_info_points/
-    │       │   └── migration.sql
-    │       └── 20250720165744_update_case_tab_content_to_array/
-    │           └── migration.sql
-    └── src/
-        ├── server.ts
-        ├── entities/
-        │   ├── auth/
-        │   │   ├── auth.routes.ts
-        │   │   ├── auth.schema.ts
-        │   │   └── auth.service.ts
-        │   ├── case-tab/
-        │   │   ├── case-tab.routes.ts
-        │   │   ├── case-tab.schema.ts
-        │   │   └── case-tab.service.ts
-        │   ├── course/
-        │   │   ├── course.routes.ts
-        │   │   ├── course.schema.ts
-        │   │   └── course.service.ts
-        │   ├── course-case/
-        │   │   ├── course-case.routes.ts
-        │   │   ├── course-case.schema.ts
-        │   │   └── course-case.service.ts
-        │   ├── curriculum/
-        │   │   ├── curriculum.routes.ts
-        │   │   ├── curriculum.schema.ts
-        │   │   └── curriculum.service.ts
-        │   ├── exam/
-        │   │   ├── exam.routes.ts
-        │   │   ├── exam.schema.ts
-        │   │   └── exam.service.ts
-        │   ├── instructor/
-        │   │   ├── instructor.routes.ts
-        │   │   ├── instructor.schema.ts
-        │   │   └── instructor.service.ts
-        │   ├── marking-domain/
-        │   │   ├── marking-domain.routes.ts
-        │   │   ├── marking-domain.schema.ts
-        │   │   └── marking-domain.service.ts
-        │   ├── simulation/
-        │   │   ├── simulation.routes.ts
-        │   │   ├── simulation.schema.ts
-        │   │   └── simulation.service.ts
-        │   ├── simulation-attempt/
-        │   │   ├── simulation-attempt.routes.ts
-        │   │   ├── simulation-attempt.schema.ts
-        │   │   └── simulation-attempt.service.ts
-        │   ├── specialty/
-        │   │   ├── specialty.routes.ts
-        │   │   ├── specialty.schema.ts
-        │   │   └── specialty.service.ts
-        │   ├── student/
-        │   │   ├── student.routes.ts
-        │   │   ├── student.schema.ts
-        │   │   └── student.service.ts
-        │   └── subscription/
-        │       ├── subscription.routes.ts
-        │       ├── subscription.schema.ts
-        │       └── subscription.service.ts
-        ├── middleware/
-        │   └── auth.middleware.ts
-        └── shared/
-            ├── junction-tables.schema.ts
-            └── types.ts
+└── src/
+    ├── server.ts
+    ├── entities/
+    │   ├── auth/
+    │   │   ├── auth.routes.ts
+    │   │   ├── auth.schema.ts
+    │   │   └── auth.service.ts
+    │   ├── case-tab/
+    │   │   ├── case-tab.routes.ts
+    │   │   ├── case-tab.schema.ts
+    │   │   └── case-tab.service.ts
+    │   ├── course/
+    │   │   ├── course.routes.ts
+    │   │   ├── course.schema.ts
+    │   │   └── course.service.ts
+    │   ├── course-case/
+    │   │   ├── course-case.routes.ts
+    │   │   ├── course-case.schema.ts
+    │   │   └── course-case.service.ts
+    │   ├── curriculum/
+    │   │   ├── curriculum.routes.ts
+    │   │   ├── curriculum.schema.ts
+    │   │   └── curriculum.service.ts
+    │   ├── exam/
+    │   │   ├── exam.routes.ts
+    │   │   ├── exam.schema.ts
+    │   │   └── exam.service.ts
+    │   ├── instructor/
+    │   │   ├── instructor.routes.ts
+    │   │   ├── instructor.schema.ts
+    │   │   └── instructor.service.ts
+    │   ├── marking-domain/
+    │   │   ├── marking-domain.routes.ts
+    │   │   ├── marking-domain.schema.ts
+    │   │   └── marking-domain.service.ts
+    │   ├── payment/
+    │   │   ├── payment.routes.ts
+    │   │   ├── payment.schema.ts
+    │   │   └── payment.service.ts
+    │   ├── simulation/
+    │   │   ├── simulation.routes.ts
+    │   │   ├── simulation.schema.ts
+    │   │   └── simulation.service.ts
+    │   ├── simulation-attempt/
+    │   │   ├── simulation-attempt.routes.ts
+    │   │   ├── simulation-attempt.schema.ts
+    │   │   └── simulation-attempt.service.ts
+    │   ├── specialty/
+    │   │   ├── specialty.routes.ts
+    │   │   ├── specialty.schema.ts
+    │   │   └── specialty.service.ts
+    │   ├── student/
+    │   │   ├── student.routes.ts
+    │   │   ├── student.schema.ts
+    │   │   └── student.service.ts
+    │   └── subscription/
+    │       ├── subscription.routes.ts
+    │       ├── subscription.schema.ts
+    │       └── subscription.service.ts
+    ├── middleware/
+    │   └── auth.middleware.ts
+    └── shared/
+        ├── junction-tables.schema.ts
+        └── types.ts
 
 ================================================
-File: README.md
-================================================
-MVP-BACKEND
-
-
-# 1. Link to your Railway project (if not already linked)
-railway link
-
-# 2. Set your database connection
-railway variables --set DATABASE_URL="postgresql://postgres:IBdHmFwKDoDzMYEyVyhuYBwgdaWayUiJ@caboose.proxy.rlwy.net:55655/railway"
-
-# 3. Set environment
-railway variables --set NODE_ENV="production"
-
-# 4. Deploy your app
-railway up
-
-
-
-# Run migrations on Railway
-railway run npx prisma migrate deploy
-
-# Or if that doesn't work, try:
-railway run npx prisma db push
-
-
-# Check your variables are set
-railway variables
-
-# Check deployment logs
-railway logs
-
-Reset Database:
-Local: Stop prisma dev and restart
-Production:
-railway run npx prisma migrate reset
-railway run npx prisma migrate deploy
-
-
-View Database:
-Local: npx prisma studio
-Production: railway run npx prisma studio
-
-
-npx prisma migrate dev --name add-curriculum
-
-
-
-
-
-================================================
-File: package.json
-================================================
-{
-  "name": "mvp-backend",
-  "version": "1.0.0",
-  "description": "MVP-BACKEND",
-  "main": "index.js",
-  "scripts": {
-    "dev": "nodemon --exec ts-node src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "postinstall": "prisma generate",
-    "db:migrate": "npx prisma migrate deploy",
-    "db:generate": "npx prisma generate"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/MHGanainy/mvp-backend.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/MHGanainy/mvp-backend/issues"
-  },
-  "homepage": "https://github.com/MHGanainy/mvp-backend#readme",
-  "dependencies": {
-    "@fastify/cors": "^11.0.1",
-    "@fastify/helmet": "^13.0.1",
-    "@fastify/jwt": "^9.1.0",
-    "@fastify/rate-limit": "^10.3.0",
-    "@fastify/swagger": "^9.5.1",
-    "@fastify/swagger-ui": "^5.2.3",
-    "@prisma/client": "^6.11.1",
-    "bcryptjs": "^3.0.2",
-    "fastify": "^5.4.0",
-    "fastify-type-provider-zod": "^5.0.2",
-    "pino-pretty": "^13.0.0",
-    "zod": "^3.25.76"
-  },
-  "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^24.0.10",
-    "nodemon": "^3.1.10",
-    "prisma": "^6.11.1",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
-  }
-}
-
-
-
-================================================
-File: tsconfig.json
-================================================
-{
-    "compilerOptions": {
-      "target": "ES2020",
-      "module": "commonjs",
-      "lib": ["ES2020"],
-      "outDir": "./dist",
-      "rootDir": "./src",
-      "strict": true,
-      "esModuleInterop": true,
-      "skipLibCheck": true,
-      "forceConsistentCasingInFileNames": true
-    },
-    "include": ["src/**/*"],
-    "exclude": ["node_modules", "dist"]
-  }
-
-
-================================================
-File: prisma/schema.prisma
-================================================
-// schema.prisma
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model User {
-  id                 Int       @id @default(autoincrement())
-  email              String    @unique
-  name               String?
-  passwordHash       String?   @map("password_hash")
-  emailVerified      Boolean   @default(true) @map("email_verified") // Always true in simplified flow
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
-  
-  // Relationships (one-to-one)
-  instructor Instructor?
-  student    Student?
-  
-  @@map("users")
-}
-
-model Instructor {
-  id        String   @id @default(uuid())
-  userId    Int      @unique @map("user_id")
-  firstName String   @map("first_name")
-  lastName  String   @map("last_name")
-  bio       String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  
-  // Relationships
-  user    User     @relation(fields: [userId], references: [id])
-  exams   Exam[]   // One instructor can create many exams
-  courses Course[] // One instructor can create many courses
-  
-  @@map("instructors")
-}
-
-model Student {
-  id               String              @id @default(uuid())
-  userId           Int                 @unique @map("user_id")
-  firstName        String              @map("first_name")
-  lastName         String              @map("last_name")
-  dateOfBirth      DateTime            @map("date_of_birth") @db.Date
-  creditBalance    Int                 @default(0) @map("credit_balance")
-  createdAt        DateTime            @default(now()) @map("created_at")
-  updatedAt        DateTime            @updatedAt @map("updated_at")
-  
-  // Relationships
-  user               User                @relation(fields: [userId], references: [id])
-  simulationAttempts SimulationAttempt[] // One student has many attempts
-  subscriptions      Subscription[]      // One student has many subscriptions
-  payments           Payment[]           // One student has many payments
-  creditTransactions CreditTransaction[] // One student has many credit transactions
-  
-  @@map("students")
-}
-
-model Exam {
-  id           String   @id @default(uuid())
-  instructorId String   @map("instructor_id")
-  title        String
-  slug         String   @unique
-  description  String?
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  
-  // Relationships
-  instructor        Instructor        @relation(fields: [instructorId], references: [id])
-  courses           Course[]          // One exam can have many courses
-  examSpecialties   ExamSpecialty[]   // Many-to-many with Specialty
-  examCurriculums   ExamCurriculum[]  // Many-to-many with Curriculum
-  examMarkingDomains ExamMarkingDomain[] // Many-to-many with MarkingDomain
-  
-  @@map("exams")
-}
-
-model Course {
-  id              String      @id @default(uuid())
-  examId          String      @map("exam_id")
-  instructorId    String      @map("instructor_id")
-  title           String
-  description     String?
-  style           CourseStyle @default(RANDOM)
-  price3Months    Decimal     @map("price_3_months") @db.Decimal(10,2)
-  price6Months    Decimal     @map("price_6_months") @db.Decimal(10,2)
-  price12Months   Decimal     @map("price_12_months") @db.Decimal(10,2)
-  credits3Months  Int         @map("credits_3_months")
-  credits6Months  Int         @map("credits_6_months")
-  credits12Months Int         @map("credits_12_months")
-  infoPoints      String[]    @map("info_points") @default([])  // NEW FIELD
-  isPublished     Boolean     @default(false) @map("is_published")
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
-  
-  // Relationships
-  exam          Exam           @relation(fields: [examId], references: [id])
-  instructor    Instructor     @relation(fields: [instructorId], references: [id])
-  courseCases   CourseCase[]   // One course has many cases
-  subscriptions Subscription[] // One course has many subscriptions
-  
-  @@map("courses")
-}
-
-model CourseCase {
-  id           String        @id @default(uuid())
-  courseId     String        @map("course_id")
-  title        String
-  diagnosis    String
-  patientName  String        @map("patient_name")
-  patientAge   Int           @map("patient_age")
-  patientGender PatientGender @map("patient_gender")
-  description  String
-  isFree       Boolean       @default(false) @map("is_free")
-  displayOrder Int           @map("display_order")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
-  
-  // Relationships
-  course          Course          @relation(fields: [courseId], references: [id])
-  simulation      Simulation?     // One CourseCase has one optional Simulation
-  caseTabs        CaseTab[]       // One CourseCase has many case tabs
-  caseSpecialties CaseSpecialty[] // Many-to-many with Specialty
-  caseCurriculums CaseCurriculum[] // Many-to-many with Curriculum
-  
-  @@map("course_cases")
-}
-
-// NEW: CaseTab Model for the 4 content tabs
-model CaseTab {
-  id           String      @id @default(uuid())
-  courseCaseId String      @map("course_case_id")
-  tabType      CaseTabType @map("tab_type")
-  content      String[]    @default([])  // Changed from String to String[]
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
-  
-  // Relationships
-  courseCase CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
-  
-  // Ensure each case has only one tab of each type
-  @@unique([courseCaseId, tabType])
-  @@map("case_tabs")
-}
-
-model Simulation {
-  id                  String   @id @default(uuid())
-  courseCaseId        String   @unique @map("course_case_id")
-  casePrompt          String   @map("case_prompt") @db.Text
-  openingLine         String   @map("opening_line")
-  timeLimitMinutes    Int      @map("time_limit_minutes")
-  voiceModel          VoiceModel @map("voice_model")
-  warningTimeMinutes  Int?     @map("warning_time_minutes")
-  creditCost          Int      @default(1) @map("credit_cost")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  
-  // Relationships
-  courseCase         CourseCase         @relation(fields: [courseCaseId], references: [id])
-  simulationAttempts SimulationAttempt[] // One simulation can have many attempts
-  
-  @@map("simulations")
-}
-
-model SimulationAttempt {
-  id              String    @id @default(uuid())
-  studentId       String    @map("student_id")
-  simulationId    String    @map("simulation_id")
-  startedAt       DateTime  @map("started_at")
-  endedAt         DateTime? @map("ended_at")
-  durationSeconds Int?      @map("duration_seconds")
-  isCompleted     Boolean   @default(false) @map("is_completed")
-  score           Decimal?  @db.Decimal(5,2)
-  aiFeedback      Json?     @map("ai_feedback")
-  transcript      Json?
-  createdAt       DateTime  @default(now()) @map("created_at")
-  
-  // Relationships
-  student    Student    @relation(fields: [studentId], references: [id])
-  simulation Simulation @relation(fields: [simulationId], references: [id])
-  
-  @@map("simulation_attempts")
-}
-
-// NEW: Payment Model for Stripe integration
-model Payment {
-  id                   String        @id @default(uuid())
-  studentId            String        @map("student_id")
-  stripePaymentId      String        @unique @map("stripe_payment_id")
-  amount               Decimal       @db.Decimal(10,2)
-  currency             String        @default("USD")
-  paymentType          PaymentType   @map("payment_type")
-  paymentStatus        PaymentStatus @map("payment_status")
-  courseId             String?       @map("course_id") // For subscription payments
-  subscriptionDuration Int?          @map("subscription_duration") // 3, 6, or 12 months
-  creditsAmount        Int?          @map("credits_amount") // For credit purchases
-  createdAt            DateTime      @default(now()) @map("created_at")
-  
-  // Relationships
-  student      Student       @relation(fields: [studentId], references: [id])
-  subscription Subscription? // One payment can create one subscription
-  
-  @@map("payments")
-}
-
-// NEW: Subscription Model for course access
-model Subscription {
-  id             String   @id @default(uuid())
-  studentId      String   @map("student_id")
-  courseId       String   @map("course_id")
-  paymentId      String   @unique @map("payment_id")
-  durationMonths Int      @map("duration_months") // 3, 6, or 12
-  startDate      DateTime @map("start_date") @db.Date
-  endDate        DateTime @map("end_date") @db.Date
-  isActive       Boolean  @map("is_active") // Computed from dates
-  createdAt      DateTime @default(now()) @map("created_at")
-  
-  // Relationships
-  student   Student   @relation(fields: [studentId], references: [id])
-  course    Course    @relation(fields: [courseId], references: [id])
-  payment   Payment   @relation(fields: [paymentId], references: [id])
-  
-  @@map("subscriptions")
-}
-
-// NEW: CreditTransaction Model for tracking credit usage
-model CreditTransaction {
-  id              String                    @id @default(uuid())
-  studentId       String                    @map("student_id")
-  transactionType CreditTransactionType     @map("transaction_type")
-  amount          Int                       // Credits added/deducted
-  balanceAfter    Int                       @map("balance_after")
-  sourceType      CreditTransactionSource   @map("source_type")
-  sourceId        String?                   @map("source_id") // Reference to source record
-  description     String?                   // Optional description
-  expiresAt       DateTime?                 @map("expires_at") // Only for complimentary credits
-  createdAt       DateTime                  @default(now()) @map("created_at")
-  
-  // Relationships
-  student Student @relation(fields: [studentId], references: [id])
-  
-  @@map("credit_transactions")
-}
-
-model Specialty {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relationships
-  examSpecialties ExamSpecialty[] // Many-to-many with Exam
-  caseSpecialties CaseSpecialty[] // Many-to-many with CourseCase
-
-  @@map("specialties")
-}
-
-model Curriculum {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relationships
-  examCurriculums ExamCurriculum[] // Many-to-many with Exam
-  caseCurriculums CaseCurriculum[] // Many-to-many with CourseCase
-
-  @@map("curriculums")
-}
-
-model MarkingDomain {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relationships
-  examMarkingDomains ExamMarkingDomain[] // Many-to-many with Exam
-
-  @@map("marking_domains")
-}
-
-// Junction Tables for Many-to-Many Relationships
-
-model ExamSpecialty {
-  examId      String   @map("exam_id")
-  specialtyId String   @map("specialty_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  
-  // Relationships
-  exam      Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
-  specialty Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
-  
-  @@id([examId, specialtyId])
-  @@map("exam_specialties")
-}
-
-model ExamCurriculum {
-  examId         String     @map("exam_id")
-  curriculumId   String     @map("curriculum_id")
-  createdAt      DateTime   @default(now()) @map("created_at")
-  
-  // Relationships
-  exam       Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
-  curriculum Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
-  
-  @@id([examId, curriculumId])
-  @@map("exam_curriculums")
-}
-
-model ExamMarkingDomain {
-  examId          String        @map("exam_id")
-  markingDomainId String        @map("marking_domain_id")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  
-  // Relationships
-  exam          Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
-  markingDomain MarkingDomain @relation(fields: [markingDomainId], references: [id], onDelete: Cascade)
-  
-  @@id([examId, markingDomainId])
-  @@map("exam_marking_domains")
-}
-
-model CaseSpecialty {
-  courseCaseId String    @map("course_case_id")
-  specialtyId  String    @map("specialty_id")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  
-  // Relationships
-  courseCase CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
-  specialty  Specialty  @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
-  
-  @@id([courseCaseId, specialtyId])
-  @@map("case_specialties")
-}
-
-model CaseCurriculum {
-  courseCaseId String     @map("course_case_id")
-  curriculumId String     @map("curriculum_id")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  
-  // Relationships
-  courseCase CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
-  curriculum Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
-  
-  @@id([courseCaseId, curriculumId])
-  @@map("case_curriculums")
-}
-
-// Enums
-enum CourseStyle {
-  RANDOM
-  STRUCTURED
-}
-
-enum PatientGender {
-  MALE
-  FEMALE
-  OTHER
-}
-
-enum VoiceModel {
-  VOICE_1
-  VOICE_2
-}
-
-enum CaseTabType {
-  DOCTORS_NOTE
-  PATIENT_SCRIPT
-  MARKING_CRITERIA
-  MEDICAL_NOTES
-}
-
-enum PaymentType {
-  SUBSCRIPTION
-  CREDITS
-}
-
-enum PaymentStatus {
-  PENDING
-  COMPLETED
-  FAILED
-}
-
-enum CreditTransactionType {
-  CREDIT  // Adding credits
-  DEBIT   // Deducting credits
-}
-
-enum CreditTransactionSource {
-  SUBSCRIPTION  // Credits from subscription
-  PURCHASE     // Credits from direct purchase
-  SIMULATION   // Credits used for simulation
-  MANUAL       // Manual adjustment
-}
-
-
-================================================
-File: prisma/migrations/migration_lock.toml
-================================================
-# Please do not edit this file manually
-# It should be added in your version-control system (e.g., Git)
-provider = "postgresql"
-
-
-
-================================================
-File: prisma/migrations/20250708140016_init/migration.sql
-================================================
--- CreateTable
-CREATE TABLE "User" (
-    "id" SERIAL NOT NULL,
-    "email" TEXT NOT NULL,
-    "name" TEXT,
-
-    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "Post" (
-    "id" SERIAL NOT NULL,
-    "title" TEXT NOT NULL,
-    "content" TEXT,
-    "published" BOOLEAN NOT NULL DEFAULT false,
-    "authorId" INTEGER NOT NULL,
-
-    CONSTRAINT "Post_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
-
--- AddForeignKey
-ALTER TABLE "Post" ADD CONSTRAINT "Post_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250708144233_add_specialty/migration.sql
-================================================
--- CreateTable
-CREATE TABLE "specialties" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "specialties_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "specialties_name_key" ON "specialties"("name");
-
-
-
-================================================
-File: prisma/migrations/20250708150007_add_curriculum/migration.sql
-================================================
--- CreateTable
-CREATE TABLE "curriculums" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "curriculums_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "curriculums_name_key" ON "curriculums"("name");
-
-
-
-================================================
-File: prisma/migrations/20250708160421_add_instructor/migration.sql
-================================================
-/*
-  Warnings:
-
-  - You are about to drop the `Post` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `User` table. If the table is not empty, all the data it contains will be lost.
-
-*/
--- DropForeignKey
-ALTER TABLE "Post" DROP CONSTRAINT "Post_authorId_fkey";
-
--- DropTable
-DROP TABLE "Post";
-
--- DropTable
-DROP TABLE "User";
-
--- CreateTable
-CREATE TABLE "users" (
-    "id" SERIAL NOT NULL,
-    "email" TEXT NOT NULL,
-    "name" TEXT,
-
-    CONSTRAINT "users_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "instructors" (
-    "id" TEXT NOT NULL,
-    "user_id" INTEGER NOT NULL,
-    "first_name" TEXT NOT NULL,
-    "last_name" TEXT NOT NULL,
-    "bio" TEXT,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "instructors_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
-
--- CreateIndex
-CREATE UNIQUE INDEX "instructors_user_id_key" ON "instructors"("user_id");
-
--- AddForeignKey
-ALTER TABLE "instructors" ADD CONSTRAINT "instructors_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250708214917_add_student/migration.sql
-================================================
--- CreateTable
-CREATE TABLE "students" (
-    "id" TEXT NOT NULL,
-    "user_id" INTEGER NOT NULL,
-    "first_name" TEXT NOT NULL,
-    "last_name" TEXT NOT NULL,
-    "date_of_birth" DATE NOT NULL,
-    "credit_balance" INTEGER NOT NULL DEFAULT 0,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "students_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "students_user_id_key" ON "students"("user_id");
-
--- AddForeignKey
-ALTER TABLE "students" ADD CONSTRAINT "students_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250708230514_add_marking_domain/migration.sql
-================================================
--- CreateTable
-CREATE TABLE "marking_domains" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "marking_domains_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "marking_domains_name_key" ON "marking_domains"("name");
-
-
-
-================================================
-File: prisma/migrations/20250708231354_add_exam/migration.sql
-================================================
--- CreateTable
-CREATE TABLE "exams" (
-    "id" TEXT NOT NULL,
-    "instructor_id" TEXT NOT NULL,
-    "title" TEXT NOT NULL,
-    "slug" TEXT NOT NULL,
-    "description" TEXT,
-    "is_active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "exams_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "exams_slug_key" ON "exams"("slug");
-
--- AddForeignKey
-ALTER TABLE "exams" ADD CONSTRAINT "exams_instructor_id_fkey" FOREIGN KEY ("instructor_id") REFERENCES "instructors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250708232445_add_course/migration.sql
-================================================
--- CreateEnum
-CREATE TYPE "CourseStyle" AS ENUM ('RANDOM', 'STRUCTURED');
-
--- CreateTable
-CREATE TABLE "courses" (
-    "id" TEXT NOT NULL,
-    "exam_id" TEXT NOT NULL,
-    "instructor_id" TEXT NOT NULL,
-    "title" TEXT NOT NULL,
-    "description" TEXT,
-    "style" "CourseStyle" NOT NULL DEFAULT 'RANDOM',
-    "price_3_months" DECIMAL(10,2) NOT NULL,
-    "price_6_months" DECIMAL(10,2) NOT NULL,
-    "price_12_months" DECIMAL(10,2) NOT NULL,
-    "credits_3_months" INTEGER NOT NULL,
-    "credits_6_months" INTEGER NOT NULL,
-    "credits_12_months" INTEGER NOT NULL,
-    "is_published" BOOLEAN NOT NULL DEFAULT false,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "courses_pkey" PRIMARY KEY ("id")
-);
-
--- AddForeignKey
-ALTER TABLE "courses" ADD CONSTRAINT "courses_exam_id_fkey" FOREIGN KEY ("exam_id") REFERENCES "exams"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "courses" ADD CONSTRAINT "courses_instructor_id_fkey" FOREIGN KEY ("instructor_id") REFERENCES "instructors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250708233701_add_course_case/migration.sql
-================================================
--- CreateEnum
-CREATE TYPE "PatientGender" AS ENUM ('MALE', 'FEMALE', 'OTHER');
-
--- CreateTable
-CREATE TABLE "course_cases" (
-    "id" TEXT NOT NULL,
-    "course_id" TEXT NOT NULL,
-    "title" TEXT NOT NULL,
-    "diagnosis" TEXT NOT NULL,
-    "patient_name" TEXT NOT NULL,
-    "patient_age" INTEGER NOT NULL,
-    "patient_gender" "PatientGender" NOT NULL,
-    "description" TEXT NOT NULL,
-    "is_free" BOOLEAN NOT NULL DEFAULT false,
-    "display_order" INTEGER NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "course_cases_pkey" PRIMARY KEY ("id")
-);
-
--- AddForeignKey
-ALTER TABLE "course_cases" ADD CONSTRAINT "course_cases_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250708235709_add_simulation_system/migration.sql
-================================================
--- CreateEnum
-CREATE TYPE "VoiceModel" AS ENUM ('VOICE_1', 'VOICE_2');
-
--- CreateTable
-CREATE TABLE "simulations" (
-    "id" TEXT NOT NULL,
-    "course_case_id" TEXT NOT NULL,
-    "case_prompt" TEXT NOT NULL,
-    "opening_line" TEXT NOT NULL,
-    "time_limit_minutes" INTEGER NOT NULL,
-    "voice_model" "VoiceModel" NOT NULL,
-    "warning_time_minutes" INTEGER,
-    "credit_cost" INTEGER NOT NULL DEFAULT 1,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "simulations_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "simulation_attempts" (
-    "id" TEXT NOT NULL,
-    "student_id" TEXT NOT NULL,
-    "simulation_id" TEXT NOT NULL,
-    "started_at" TIMESTAMP(3) NOT NULL,
-    "ended_at" TIMESTAMP(3),
-    "duration_seconds" INTEGER,
-    "is_completed" BOOLEAN NOT NULL DEFAULT false,
-    "score" DECIMAL(5,2),
-    "ai_feedback" JSONB,
-    "transcript" JSONB,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "simulation_attempts_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "simulations_course_case_id_key" ON "simulations"("course_case_id");
-
--- AddForeignKey
-ALTER TABLE "simulations" ADD CONSTRAINT "simulations_course_case_id_fkey" FOREIGN KEY ("course_case_id") REFERENCES "course_cases"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "simulation_attempts" ADD CONSTRAINT "simulation_attempts_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "students"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "simulation_attempts" ADD CONSTRAINT "simulation_attempts_simulation_id_fkey" FOREIGN KEY ("simulation_id") REFERENCES "simulations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250709125700_complete_random_workflow/migration.sql
-================================================
--- CreateEnum
-CREATE TYPE "CaseTabType" AS ENUM ('DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES');
-
--- CreateEnum
-CREATE TYPE "PaymentType" AS ENUM ('SUBSCRIPTION', 'CREDITS');
-
--- CreateEnum
-CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'COMPLETED', 'FAILED');
-
--- CreateEnum
-CREATE TYPE "CreditTransactionType" AS ENUM ('CREDIT', 'DEBIT');
-
--- CreateEnum
-CREATE TYPE "CreditTransactionSource" AS ENUM ('SUBSCRIPTION', 'PURCHASE', 'SIMULATION', 'MANUAL');
-
--- CreateTable
-CREATE TABLE "case_tabs" (
-    "id" TEXT NOT NULL,
-    "course_case_id" TEXT NOT NULL,
-    "tab_type" "CaseTabType" NOT NULL,
-    "content" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "case_tabs_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "payments" (
-    "id" TEXT NOT NULL,
-    "student_id" TEXT NOT NULL,
-    "stripe_payment_id" TEXT NOT NULL,
-    "amount" DECIMAL(10,2) NOT NULL,
-    "currency" TEXT NOT NULL DEFAULT 'USD',
-    "payment_type" "PaymentType" NOT NULL,
-    "payment_status" "PaymentStatus" NOT NULL,
-    "course_id" TEXT,
-    "subscription_duration" INTEGER,
-    "credits_amount" INTEGER,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "payments_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "subscriptions" (
-    "id" TEXT NOT NULL,
-    "student_id" TEXT NOT NULL,
-    "course_id" TEXT NOT NULL,
-    "payment_id" TEXT NOT NULL,
-    "duration_months" INTEGER NOT NULL,
-    "start_date" DATE NOT NULL,
-    "end_date" DATE NOT NULL,
-    "is_active" BOOLEAN NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "subscriptions_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "credit_transactions" (
-    "id" TEXT NOT NULL,
-    "student_id" TEXT NOT NULL,
-    "transaction_type" "CreditTransactionType" NOT NULL,
-    "amount" INTEGER NOT NULL,
-    "balance_after" INTEGER NOT NULL,
-    "source_type" "CreditTransactionSource" NOT NULL,
-    "source_id" TEXT,
-    "description" TEXT,
-    "expires_at" TIMESTAMP(3),
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "credit_transactions_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "exam_specialties" (
-    "exam_id" TEXT NOT NULL,
-    "specialty_id" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "exam_specialties_pkey" PRIMARY KEY ("exam_id","specialty_id")
-);
-
--- CreateTable
-CREATE TABLE "exam_curriculums" (
-    "exam_id" TEXT NOT NULL,
-    "curriculum_id" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "exam_curriculums_pkey" PRIMARY KEY ("exam_id","curriculum_id")
-);
-
--- CreateTable
-CREATE TABLE "exam_marking_domains" (
-    "exam_id" TEXT NOT NULL,
-    "marking_domain_id" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "exam_marking_domains_pkey" PRIMARY KEY ("exam_id","marking_domain_id")
-);
-
--- CreateTable
-CREATE TABLE "case_specialties" (
-    "course_case_id" TEXT NOT NULL,
-    "specialty_id" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "case_specialties_pkey" PRIMARY KEY ("course_case_id","specialty_id")
-);
-
--- CreateTable
-CREATE TABLE "case_curriculums" (
-    "course_case_id" TEXT NOT NULL,
-    "curriculum_id" TEXT NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "case_curriculums_pkey" PRIMARY KEY ("course_case_id","curriculum_id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "case_tabs_course_case_id_tab_type_key" ON "case_tabs"("course_case_id", "tab_type");
-
--- CreateIndex
-CREATE UNIQUE INDEX "payments_stripe_payment_id_key" ON "payments"("stripe_payment_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "subscriptions_payment_id_key" ON "subscriptions"("payment_id");
-
--- AddForeignKey
-ALTER TABLE "case_tabs" ADD CONSTRAINT "case_tabs_course_case_id_fkey" FOREIGN KEY ("course_case_id") REFERENCES "course_cases"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "payments" ADD CONSTRAINT "payments_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "students"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "students"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_payment_id_fkey" FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "credit_transactions" ADD CONSTRAINT "credit_transactions_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "students"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "exam_specialties" ADD CONSTRAINT "exam_specialties_exam_id_fkey" FOREIGN KEY ("exam_id") REFERENCES "exams"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "exam_specialties" ADD CONSTRAINT "exam_specialties_specialty_id_fkey" FOREIGN KEY ("specialty_id") REFERENCES "specialties"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "exam_curriculums" ADD CONSTRAINT "exam_curriculums_exam_id_fkey" FOREIGN KEY ("exam_id") REFERENCES "exams"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "exam_curriculums" ADD CONSTRAINT "exam_curriculums_curriculum_id_fkey" FOREIGN KEY ("curriculum_id") REFERENCES "curriculums"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "exam_marking_domains" ADD CONSTRAINT "exam_marking_domains_exam_id_fkey" FOREIGN KEY ("exam_id") REFERENCES "exams"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "exam_marking_domains" ADD CONSTRAINT "exam_marking_domains_marking_domain_id_fkey" FOREIGN KEY ("marking_domain_id") REFERENCES "marking_domains"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "case_specialties" ADD CONSTRAINT "case_specialties_course_case_id_fkey" FOREIGN KEY ("course_case_id") REFERENCES "course_cases"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "case_specialties" ADD CONSTRAINT "case_specialties_specialty_id_fkey" FOREIGN KEY ("specialty_id") REFERENCES "specialties"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "case_curriculums" ADD CONSTRAINT "case_curriculums_course_case_id_fkey" FOREIGN KEY ("course_case_id") REFERENCES "course_cases"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "case_curriculums" ADD CONSTRAINT "case_curriculums_curriculum_id_fkey" FOREIGN KEY ("curriculum_id") REFERENCES "curriculums"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
-
-
-================================================
-File: prisma/migrations/20250713134451_add_password_hash/migration.sql
-================================================
-/*
-  Warnings:
-
-  - Added the required column `updated_at` to the `users` table without a default value. This is not possible if the table is not empty.
-
-*/
--- AlterTable
-ALTER TABLE "users" ADD COLUMN     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-ADD COLUMN     "email_verified" BOOLEAN NOT NULL DEFAULT true,
-ADD COLUMN     "password_hash" TEXT,
-ADD COLUMN     "updated_at" TIMESTAMP(3) NOT NULL;
-
-
-
-================================================
-File: prisma/migrations/20250713140149_add_course_info_points/migration.sql
-================================================
--- AlterTable
-ALTER TABLE "courses" ADD COLUMN     "info_points" TEXT[] DEFAULT ARRAY[]::TEXT[];
-
-
-
-================================================
-File: prisma/migrations/20250720165744_update_case_tab_content_to_array/migration.sql
-================================================
-/*
-  Warnings:
-
-  - The `content` column on the `case_tabs` table would be dropped and recreated. This will lead to data loss if there is data in the column.
-
-*/
--- AlterTable
-ALTER TABLE "case_tabs" DROP COLUMN "content",
-ADD COLUMN     "content" TEXT[] DEFAULT ARRAY[]::TEXT[];
-
-
-
-================================================
-File: src/server.ts
+File: server.ts
 ================================================
 import Fastify from 'fastify'
 import { PrismaClient } from '@prisma/client'
@@ -1178,6 +87,7 @@ import courseCaseRoutes from './entities/course-case/course-case.routes'
 import caseTabRoutes from './entities/case-tab/case-tab.routes'  
 import simulationRoutes from './entities/simulation/simulation.routes'
 import simulationAttemptRoutes from './entities/simulation-attempt/simulation-attempt.routes'
+import paymentRoutes from './entities/payment/payment.routes'
 
 const fastify = Fastify({ logger: true })
 const prisma = new PrismaClient()
@@ -1265,7 +175,7 @@ const start = async () => {
       await fastify.register(caseTabRoutes, { prefix: '/api' })  
       await fastify.register(simulationRoutes, { prefix: '/api' })
       await fastify.register(simulationAttemptRoutes, { prefix: '/api' })
-      
+      await fastify.register(paymentRoutes, { prefix: '/api' })
       const port = Number(process.env.PORT) || 3000
       const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost'
       
@@ -1283,7 +193,7 @@ const start = async () => {
 
 
 ================================================
-File: src/entities/auth/auth.routes.ts
+File: entities/auth/auth.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { AuthService } from './auth.service'
@@ -1442,7 +352,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/auth/auth.schema.ts
+File: entities/auth/auth.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -1545,7 +455,7 @@ export type AuthResponse = z.infer<typeof authResponseSchema>
 
 
 ================================================
-File: src/entities/auth/auth.service.ts
+File: entities/auth/auth.service.ts
 ================================================
 import { PrismaClient, Prisma } from '@prisma/client'
 import * as bcrypt from 'bcryptjs'
@@ -1839,7 +749,7 @@ export class AuthService {
 
 
 ================================================
-File: src/entities/case-tab/case-tab.routes.ts
+File: entities/case-tab/case-tab.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { CaseTabService } from './case-tab.service'
@@ -2140,7 +1050,7 @@ export default async function caseTabRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/case-tab/case-tab.schema.ts
+File: entities/case-tab/case-tab.schema.ts
 ================================================
 import { z } from 'zod'
 import { PatientGenderEnum } from '../course-case/course-case.schema'
@@ -2270,7 +1180,7 @@ export type CaseTabType = z.infer<typeof CaseTabTypeEnum>
 
 
 ================================================
-File: src/entities/case-tab/case-tab.service.ts
+File: entities/case-tab/case-tab.service.ts
 ================================================
 import { PrismaClient } from '@prisma/client'
 import { CreateCaseTabInput, UpdateCaseTabInput, CaseTabType } from './case-tab.schema'
@@ -2768,7 +1678,7 @@ export class CaseTabService {
 
 
 ================================================
-File: src/entities/course/course.routes.ts
+File: entities/course/course.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -3028,7 +1938,7 @@ export default async function courseRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/course/course.schema.ts
+File: entities/course/course.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -3217,7 +2127,7 @@ export type CourseStyle = z.infer<typeof CourseStyleEnum>
 
 
 ================================================
-File: src/entities/course/course.service.ts
+File: entities/course/course.service.ts
 ================================================
 import { PrismaClient } from '@prisma/client'
 import { CreateCourseInput, UpdateCourseInput, CourseStyle } from './course.schema'
@@ -3659,7 +2569,7 @@ export class CourseService {
 
 
 ================================================
-File: src/entities/course-case/course-case.routes.ts
+File: entities/course-case/course-case.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -4247,7 +3157,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/course-case/course-case.schema.ts
+File: entities/course-case/course-case.schema.ts
 ================================================
 import { z } from 'zod'
 import { VoiceModelEnum } from '../simulation/simulation.schema'
@@ -4264,7 +3174,7 @@ export const createCourseCaseSchema = z.object({
     .trim(),
   diagnosis: z.string()
     .min(1, 'Diagnosis is required')
-    .max(200, 'Diagnosis must be less than 200 characters')
+    .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
     .trim(),
   patientName: z.string()
     .min(1, 'Patient name is required')
@@ -4277,7 +3187,7 @@ export const createCourseCaseSchema = z.object({
   patientGender: PatientGenderEnum,
   description: z.string()
     .min(1, 'Description is required')
-    .max(2000, 'Description must be less than 2000 characters')
+    .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
     .trim(),
   isFree: z.boolean().default(false).optional(),
   displayOrder: z.number()
@@ -4295,7 +3205,7 @@ export const updateCourseCaseSchema = z.object({
     .optional(),
   diagnosis: z.string()
     .min(1, 'Diagnosis is required')
-    .max(200, 'Diagnosis must be less than 200 characters')
+    .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
     .trim()
     .optional(),
   patientName: z.string()
@@ -4311,7 +3221,7 @@ export const updateCourseCaseSchema = z.object({
   patientGender: PatientGenderEnum.optional(),
   description: z.string()
     .min(1, 'Description is required')
-    .max(2000, 'Description must be less than 2000 characters')
+    .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
     .trim()
     .optional(),
   isFree: z.boolean().optional(),
@@ -4377,7 +3287,7 @@ export const createCompleteCourseCaseSchema = z.object({
       .trim(),
     diagnosis: z.string()
       .min(1, 'Diagnosis is required')
-      .max(200, 'Diagnosis must be less than 200 characters')
+      .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
       .trim(),
     patientName: z.string()
       .min(1, 'Patient name is required')
@@ -4390,7 +3300,7 @@ export const createCompleteCourseCaseSchema = z.object({
     patientGender: PatientGenderEnum,
     description: z.string()
       .min(1, 'Description is required')
-      .max(2000, 'Description must be less than 2000 characters')
+      .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim(),
     isFree: z.boolean().default(false).optional(),
     displayOrder: z.number()
@@ -4399,12 +3309,24 @@ export const createCompleteCourseCaseSchema = z.object({
       .optional()
   }),
   
-  // Tabs content
+  // Tabs content - Accept either string or array of strings for flexibility
   tabs: z.object({
-    DOCTORS_NOTE: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
-    PATIENT_SCRIPT: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
-    MARKING_CRITERIA: z.string().max(10000, 'Content must be less than 10,000 characters').default(''),
-    MEDICAL_NOTES: z.string().max(10000, 'Content must be less than 10,000 characters').default('')
+    DOCTORS_NOTE: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    PATIENT_SCRIPT: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    MARKING_CRITERIA: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    MEDICAL_NOTES: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).default('').transform(val => Array.isArray(val) ? val : [val])
   }).optional(),
   
   // Existing entities (by ID)
@@ -4427,7 +3349,7 @@ export const createCompleteCourseCaseSchema = z.object({
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
-      .max(2000, 'Case prompt must be less than 2000 characters')
+      .max(100000, 'Case prompt must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim(),
     openingLine: z.string()
       .min(5, 'Opening line must be at least 5 characters')
@@ -4464,7 +3386,7 @@ export const updateCompleteCourseCaseSchema = z.object({
       .optional(),
     diagnosis: z.string()
       .min(1, 'Diagnosis is required')
-      .max(200, 'Diagnosis must be less than 200 characters')
+      .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
       .trim()
       .optional(),
     patientName: z.string()
@@ -4480,7 +3402,7 @@ export const updateCompleteCourseCaseSchema = z.object({
     patientGender: PatientGenderEnum.optional(),
     description: z.string()
       .min(1, 'Description is required')
-      .max(2000, 'Description must be less than 2000 characters')
+      .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim()
       .optional(),
     isFree: z.boolean().optional(),
@@ -4490,12 +3412,24 @@ export const updateCompleteCourseCaseSchema = z.object({
       .optional()
   }).optional(),
   
-  // Tabs content (optional)
+  // Tabs content (optional) - Accept either string or array of strings
   tabs: z.object({
-    DOCTORS_NOTE: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
-    PATIENT_SCRIPT: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
-    MARKING_CRITERIA: z.string().max(10000, 'Content must be less than 10,000 characters').optional(),
-    MEDICAL_NOTES: z.string().max(10000, 'Content must be less than 10,000 characters').optional()
+    DOCTORS_NOTE: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
+    PATIENT_SCRIPT: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
+    MARKING_CRITERIA: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
+    MEDICAL_NOTES: z.union([
+      z.string(),
+      z.array(z.string())
+    ]).transform(val => Array.isArray(val) ? val : [val]).optional()
   }).optional(),
   
   // Relations update
@@ -4517,7 +3451,7 @@ export const updateCompleteCourseCaseSchema = z.object({
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
-      .max(2000, 'Case prompt must be less than 2000 characters')
+      .max(100000, 'Case prompt must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
       .trim()
       .optional(),
     openingLine: z.string()
@@ -4560,22 +3494,22 @@ export const completeCourseCaseResponseSchema = z.object({
   tabs: z.object({
     DOCTORS_NOTE: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     }),
     PATIENT_SCRIPT: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     }),
     MARKING_CRITERIA: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     }),
     MEDICAL_NOTES: z.object({
       id: z.string(),
-      content: z.string(),
+      content: z.array(z.string()),  // Changed to array
       hasContent: z.boolean()
     })
   }),
@@ -4634,7 +3568,7 @@ export type CompleteCourseCaseResponse = z.infer<typeof completeCourseCaseRespon
 
 
 ================================================
-File: src/entities/course-case/course-case.service.ts
+File: entities/course-case/course-case.service.ts
 ================================================
 // course-case.service.ts
 import { PrismaClient, PatientGender } from '@prisma/client'
@@ -5270,18 +4204,10 @@ export class CourseCaseService {
       curriculumDistribution: enrichedCurriculumDistribution
     }
   }
+
   // ===== COMPLETE COURSE CASE OPERATIONS =====
 
   async createCompleteCourseCase(data: CreateCompleteCourseCaseInput) {
-    // Helper function to ensure tab content is always an array
-    const getTabContent = (tabs: any, tabType: string): string[] => {
-      if (!tabs || !tabs[tabType]) return []
-      const content = tabs[tabType]
-      if (Array.isArray(content)) return content
-      if (typeof content === 'string') return [content] // Handle legacy
-      return []
-    }
-  
     // Use transaction to ensure atomicity
     return await this.prisma.$transaction(async (tx) => {
       // Step 1: Verify course exists and get course data
@@ -5339,8 +4265,9 @@ export class CourseCaseService {
       const createdTabs: any = {}
       
       for (const tabType of tabTypes) {
-        // Use helper function to ensure content is always an array
-        const content = getTabContent(data.tabs, tabType)
+        // Content is already an array thanks to Zod transform
+        const content = data.tabs?.[tabType] || []
+        
         const tab = await tx.caseTab.create({
           data: {
             courseCaseId: courseCase.id,
@@ -5348,6 +4275,7 @@ export class CourseCaseService {
             content
           }
         })
+        
         createdTabs[tabType] = {
           id: tab.id,
           content: tab.content,
@@ -5528,18 +4456,7 @@ export class CourseCaseService {
     })
   }
   
-  // 2. updateCompleteCourseCase method for course-case.service.ts
-  
   async updateCompleteCourseCase(data: UpdateCompleteCourseCaseInput) {
-    // Helper function to ensure tab content is always an array
-    const getTabContent = (tabs: any, tabType: string): string[] => {
-      if (!tabs || !tabs[tabType]) return []
-      const content = tabs[tabType]
-      if (Array.isArray(content)) return content
-      if (typeof content === 'string') return [content] // Handle legacy
-      return []
-    }
-  
     // Use transaction to ensure atomicity
     return await this.prisma.$transaction(async (tx) => {
       // Step 1: Verify course case exists
@@ -5598,11 +4515,10 @@ export class CourseCaseService {
           
           if (data.tabs[tabType] !== undefined) {
             if (existingTab) {
-              // Update existing tab
-              const contentArray = getTabContent(data.tabs, tabType)
+              // Content is already an array thanks to Zod transform
               const updatedTab = await tx.caseTab.update({
                 where: { id: existingTab.id },
-                data: { content: contentArray }
+                data: { content: data.tabs[tabType] }
               })
               tabsResponse[tabType] = {
                 id: updatedTab.id,
@@ -5612,12 +4528,11 @@ export class CourseCaseService {
               tabsUpdated++
             } else {
               // Create new tab if doesn't exist
-              const contentArray = getTabContent(data.tabs, tabType)
               const newTab = await tx.caseTab.create({
                 data: {
                   courseCaseId: data.courseCaseId,
                   tabType,
-                  content: contentArray
+                  content: data.tabs[tabType]
                 }
               })
               tabsResponse[tabType] = {
@@ -5631,7 +4546,7 @@ export class CourseCaseService {
             tabsResponse[tabType] = {
               id: existingTab.id,
               content: existingTab.content,
-              hasContent: existingTab.content.length > 0 // Changed from existingTab.content.trim().length > 0
+              hasContent: existingTab.content.length > 0
             }
           }
         }
@@ -5641,7 +4556,7 @@ export class CourseCaseService {
           tabsResponse[tab.tabType] = {
             id: tab.id,
             content: tab.content,
-            hasContent: tab.content.length > 0 // Changed from tab.content.trim().length > 0
+            hasContent: tab.content.length > 0
           }
         }
       }
@@ -5824,12 +4739,11 @@ export class CourseCaseService {
       }
     })
   }
-  
 }
 
 
 ================================================
-File: src/entities/curriculum/curriculum.routes.ts
+File: entities/curriculum/curriculum.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { CurriculumService } from './curriculum.service'
@@ -5912,7 +4826,7 @@ export default async function curriculumRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/curriculum/curriculum.schema.ts
+File: entities/curriculum/curriculum.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -5953,7 +4867,7 @@ export type CurriculumResponse = z.infer<typeof curriculumResponseSchema>
 
 
 ================================================
-File: src/entities/curriculum/curriculum.service.ts
+File: entities/curriculum/curriculum.service.ts
 ================================================
 import { PrismaClient } from '@prisma/client'
 import { CreateCurriculumInput, UpdateCurriculumInput } from './curriculum.schema'
@@ -6011,7 +4925,7 @@ export class CurriculumService {
 
 
 ================================================
-File: src/entities/exam/exam.routes.ts
+File: entities/exam/exam.routes.ts
 ================================================
 // exam.routes.ts
 import { FastifyInstance } from 'fastify'
@@ -6021,7 +4935,8 @@ import {
   updateExamSchema, 
   examParamsSchema,
   examInstructorParamsSchema,
-  createCompleteExamSchema
+  createCompleteExamSchema,
+  updateCompleteExamSchema
 } from './exam.schema'
 import {
   assignExamSpecialtiesSchema,
@@ -6175,6 +5090,34 @@ export default async function examRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Exam with this slug already exists' })
         } else {
           reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // PUT /exams/update-complete - Update exam with all relations in one request (examId in body)
+  fastify.put('/exams/update-complete', async (request, reply) => {
+    try {
+      const data = updateCompleteExamSchema.parse(request.body)
+      const { examId, ...updateData } = data
+      const result = await examService.updateCompleteExam(examId, updateData)
+      
+      reply.send({
+        message: 'Exam updated and configured successfully',
+        ...result
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Exam not found') {
+          reply.status(404).send({ error: 'Exam not found' })
+        } else if (error.message === 'Exam with this slug already exists') {
+          reply.status(400).send({ error: 'Exam with this slug already exists' })
+        } else if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else {
+          reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
         reply.status(500).send({ error: 'Internal server error' })
@@ -6512,7 +5455,7 @@ export default async function examRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/exam/exam.schema.ts
+File: entities/exam/exam.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -6672,6 +5615,50 @@ export const createCompleteExamSchema = z.object({
   }).optional()
 })
 
+// Schema for updating complete exam with all relations - NOW INCLUDES examId
+export const updateCompleteExamSchema = z.object({
+  // Exam ID to update
+  examId: z.string().uuid('Invalid exam ID'),
+  
+  // Basic exam info updates
+  exam: z.object({
+    title: z.string()
+      .min(1, 'Title is required')
+      .max(200, 'Title must be less than 200 characters')
+      .trim()
+      .optional(),
+    slug: z.string()
+      .min(1, 'Slug is required')
+      .max(200, 'Slug must be less than 200 characters')
+      .regex(/^[a-z0-9-]+$/, 'Slug must contain only lowercase letters, numbers, and hyphens')
+      .optional(),
+    description: z.string()
+      .max(1000, 'Description must be less than 1000 characters')
+      .optional(),
+    isActive: z.boolean().optional()
+  }).optional(),
+  
+  // Existing entities (by ID) - these will replace current assignments
+  existing: z.object({
+    specialtyIds: z.array(z.string().uuid('Invalid specialty ID')).default([]),
+    curriculumIds: z.array(z.string().uuid('Invalid curriculum ID')).default([]),
+    markingDomainIds: z.array(z.string().uuid('Invalid marking domain ID')).default([])
+  }).optional(),
+  
+  // New entities to create
+  new: z.object({
+    specialties: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([]),
+    curriculums: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([]),
+    markingDomains: z.array(z.object({
+      name: z.string().min(1).max(100).trim()
+    })).default([])
+  }).optional()
+})
+
 // Response schema for complete exam creation
 export const completeExamResponseSchema = z.object({
   exam: z.object({
@@ -6726,15 +5713,16 @@ export type ExamInstructorParams = z.infer<typeof examInstructorParamsSchema>
 export type ExamResponse = z.infer<typeof examResponseSchema>
 export type ExamWithRelationsResponse = z.infer<typeof examWithRelationsResponseSchema>
 export type CreateCompleteExamInput = z.infer<typeof createCompleteExamSchema>
+export type UpdateCompleteExamInput = z.infer<typeof updateCompleteExamSchema>
 export type CompleteExamResponse = z.infer<typeof completeExamResponseSchema>
 
 
 ================================================
-File: src/entities/exam/exam.service.ts
+File: entities/exam/exam.service.ts
 ================================================
 // exam.service.ts
 import { PrismaClient } from '@prisma/client'
-import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput } from './exam.schema'
+import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput, UpdateCompleteExamInput } from './exam.schema'
 
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
@@ -7621,6 +6609,263 @@ export class ExamService {
     })
   }
 
+  // ===== COMPLETE EXAM UPDATE =====
+
+  async updateCompleteExam(examId: string, data: Omit<UpdateCompleteExamInput, 'examId'>) {
+    // Use transaction to ensure atomicity
+    return await this.prisma.$transaction(async (tx) => {
+      // Step 1: Verify exam exists
+      const existingExam = await tx.exam.findUnique({
+        where: { id: examId }
+      })
+
+      if (!existingExam) {
+        throw new Error('Exam not found')
+      }
+
+      // Step 2: Update exam basic info if provided
+      let updatedExam = existingExam
+      if (data.exam && Object.keys(data.exam).length > 0) {
+        // If updating slug, check it's unique
+        if (data.exam.slug) {
+          const examWithSlug = await tx.exam.findUnique({
+            where: { slug: data.exam.slug }
+          })
+
+          if (examWithSlug && examWithSlug.id !== examId) {
+            throw new Error('Exam with this slug already exists')
+          }
+        }
+
+        updatedExam = await tx.exam.update({
+          where: { id: examId },
+          data: data.exam
+        })
+      }
+
+      // Step 3: Create new entities
+      const createdEntities = {
+        specialties: [] as any[],
+        curriculums: [] as any[],
+        markingDomains: [] as any[]
+      }
+
+      // Create new specialties
+      if (data.new?.specialties && data.new.specialties.length > 0) {
+        for (const specialty of data.new.specialties) {
+          // Check if already exists (case-insensitive)
+          const existing = await tx.specialty.findFirst({
+            where: { 
+              name: {
+                equals: specialty.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.specialties.push(existing)
+          } else {
+            const created = await tx.specialty.create({
+              data: { name: specialty.name }
+            })
+            createdEntities.specialties.push(created)
+          }
+        }
+      }
+
+      // Create new curriculums
+      if (data.new?.curriculums && data.new.curriculums.length > 0) {
+        for (const curriculum of data.new.curriculums) {
+          const existing = await tx.curriculum.findFirst({
+            where: { 
+              name: {
+                equals: curriculum.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.curriculums.push(existing)
+          } else {
+            const created = await tx.curriculum.create({
+              data: { name: curriculum.name }
+            })
+            createdEntities.curriculums.push(created)
+          }
+        }
+      }
+
+      // Create new marking domains
+      if (data.new?.markingDomains && data.new.markingDomains.length > 0) {
+        for (const markingDomain of data.new.markingDomains) {
+          const existing = await tx.markingDomain.findFirst({
+            where: { 
+              name: {
+                equals: markingDomain.name,
+                mode: 'insensitive'
+              }
+            }
+          })
+          
+          if (existing) {
+            createdEntities.markingDomains.push(existing)
+          } else {
+            const created = await tx.markingDomain.create({
+              data: { name: markingDomain.name }
+            })
+            createdEntities.markingDomains.push(created)
+          }
+        }
+      }
+
+      // Step 4: Collect all IDs (existing + newly created)
+      const allSpecialtyIds = [
+        ...(data.existing?.specialtyIds || []),
+        ...createdEntities.specialties.map(s => s.id)
+      ]
+
+      const allCurriculumIds = [
+        ...(data.existing?.curriculumIds || []),
+        ...createdEntities.curriculums.map(c => c.id)
+      ]
+
+      const allMarkingDomainIds = [
+        ...(data.existing?.markingDomainIds || []),
+        ...createdEntities.markingDomains.map(md => md.id)
+      ]
+
+      // Step 5: Verify existing entities exist
+      if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
+        const count = await tx.specialty.count({
+          where: { id: { in: data.existing.specialtyIds } }
+        })
+        if (count !== data.existing.specialtyIds.length) {
+          throw new Error('One or more specialties not found')
+        }
+      }
+
+      if (data.existing?.curriculumIds && data.existing.curriculumIds.length > 0) {
+        const count = await tx.curriculum.count({
+          where: { id: { in: data.existing.curriculumIds } }
+        })
+        if (count !== data.existing.curriculumIds.length) {
+          throw new Error('One or more curriculums not found')
+        }
+      }
+
+      if (data.existing?.markingDomainIds && data.existing.markingDomainIds.length > 0) {
+        const count = await tx.markingDomain.count({
+          where: { id: { in: data.existing.markingDomainIds } }
+        })
+        if (count !== data.existing.markingDomainIds.length) {
+          throw new Error('One or more marking domains not found')
+        }
+      }
+
+      // Step 6: Clear existing assignments and create new ones
+      // Only update if new assignments are provided
+      if (data.existing || data.new) {
+        // Clear and reassign specialties
+        if (allSpecialtyIds.length > 0 || (data.existing && 'specialtyIds' in data.existing)) {
+          await tx.examSpecialty.deleteMany({ where: { examId } })
+          if (allSpecialtyIds.length > 0) {
+            await tx.examSpecialty.createMany({
+              data: allSpecialtyIds.map(specialtyId => ({
+                examId,
+                specialtyId
+              }))
+            })
+          }
+        }
+
+        // Clear and reassign curriculums
+        if (allCurriculumIds.length > 0 || (data.existing && 'curriculumIds' in data.existing)) {
+          await tx.examCurriculum.deleteMany({ where: { examId } })
+          if (allCurriculumIds.length > 0) {
+            await tx.examCurriculum.createMany({
+              data: allCurriculumIds.map(curriculumId => ({
+                examId,
+                curriculumId
+              }))
+            })
+          }
+        }
+
+        // Clear and reassign marking domains
+        if (allMarkingDomainIds.length > 0 || (data.existing && 'markingDomainIds' in data.existing)) {
+          await tx.examMarkingDomain.deleteMany({ where: { examId } })
+          if (allMarkingDomainIds.length > 0) {
+            await tx.examMarkingDomain.createMany({
+              data: allMarkingDomainIds.map(markingDomainId => ({
+                examId,
+                markingDomainId
+              }))
+            })
+          }
+        }
+      }
+
+      // Step 7: Fetch all assigned entities for response
+      const assignedSpecialties = await tx.specialty.findMany({
+        where: { id: { in: allSpecialtyIds } }
+      })
+
+      const assignedCurriculums = await tx.curriculum.findMany({
+        where: { id: { in: allCurriculumIds } }
+      })
+
+      const assignedMarkingDomains = await tx.markingDomain.findMany({
+        where: { id: { in: allMarkingDomainIds } }
+      })
+
+      // Count truly new entities created (not including existing ones that were found)
+      const newSpecialtiesCount = createdEntities.specialties.filter(s => 
+        !data.existing?.specialtyIds?.includes(s.id) &&
+        data.new?.specialties?.some(ns => ns.name === s.name)
+      ).length
+
+      const newCurriculumsCount = createdEntities.curriculums.filter(c => 
+        !data.existing?.curriculumIds?.includes(c.id) &&
+        data.new?.curriculums?.some(nc => nc.name === c.name)
+      ).length
+
+      const newMarkingDomainsCount = createdEntities.markingDomains.filter(md => 
+        !data.existing?.markingDomainIds?.includes(md.id) &&
+        data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+      ).length
+
+      // Return comprehensive response
+      return {
+        exam: updatedExam,
+        created: {
+          specialties: createdEntities.specialties.filter(s => 
+            data.new?.specialties?.some(ns => ns.name === s.name)
+          ),
+          curriculums: createdEntities.curriculums.filter(c => 
+            data.new?.curriculums?.some(nc => nc.name === c.name)
+          ),
+          markingDomains: createdEntities.markingDomains.filter(md => 
+            data.new?.markingDomains?.some(nmd => nmd.name === md.name)
+          )
+        },
+        assigned: {
+          specialties: assignedSpecialties,
+          curriculums: assignedCurriculums,
+          markingDomains: assignedMarkingDomains
+        },
+        summary: {
+          totalSpecialties: assignedSpecialties.length,
+          totalCurriculums: assignedCurriculums.length,
+          totalMarkingDomains: assignedMarkingDomains.length,
+          newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount + newMarkingDomainsCount,
+          examUpdated: data.exam && Object.keys(data.exam).length > 0
+        }
+      }
+    })
+  }
+
   // Helper method
   private generateSlug(title: string): string {
     return title
@@ -7632,7 +6877,7 @@ export class ExamService {
 
 
 ================================================
-File: src/entities/instructor/instructor.routes.ts
+File: entities/instructor/instructor.routes.ts
 ================================================
 import { z } from 'zod'
 import { FastifyInstance } from 'fastify'
@@ -7730,7 +6975,7 @@ export default async function instructorRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/instructor/instructor.schema.ts
+File: entities/instructor/instructor.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -7800,7 +7045,7 @@ export type InstructorResponse = z.infer<typeof instructorResponseSchema>
 
 
 ================================================
-File: src/entities/instructor/instructor.service.ts
+File: entities/instructor/instructor.service.ts
 ================================================
 import { PrismaClient, Prisma } from '@prisma/client'
 import { CreateInstructorInput, UpdateInstructorInput } from './instructor.schema'
@@ -7909,7 +7154,7 @@ export class InstructorService {
 
 
 ================================================
-File: src/entities/marking-domain/marking-domain.routes.ts
+File: entities/marking-domain/marking-domain.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { MarkingDomainService } from './marking-domain.service'
@@ -7992,7 +7237,7 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/marking-domain/marking-domain.schema.ts
+File: entities/marking-domain/marking-domain.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -8033,7 +7278,7 @@ export type MarkingDomainResponse = z.infer<typeof markingDomainResponseSchema>
 
 
 ================================================
-File: src/entities/marking-domain/marking-domain.service.ts
+File: entities/marking-domain/marking-domain.service.ts
 ================================================
 import { PrismaClient } from '@prisma/client'
 import { CreateMarkingDomainInput, UpdateMarkingDomainInput } from './marking-domain.schema'
@@ -8091,7 +7336,347 @@ export class MarkingDomainService {
 
 
 ================================================
-File: src/entities/simulation/simulation.routes.ts
+File: entities/payment/payment.routes.ts
+================================================
+import { FastifyInstance } from 'fastify'
+import { PaymentService } from './payment.service'
+import { 
+  initiatePaymentSchema, 
+  confirmPaymentSchema,
+  paymentParamsSchema 
+} from './payment.schema'
+import { requireAuth, getCurrentStudentId } from '../../middleware/auth.middleware'
+
+export default async function paymentRoutes(fastify: FastifyInstance) {
+  const paymentService = new PaymentService(fastify.prisma)
+
+  // POST /payments/initiate - Initiate a payment (student only)
+  fastify.post('/payments/initiate', {
+    preHandler: requireAuth('student')
+  }, async (request, reply) => {
+    try {
+      const studentId = getCurrentStudentId(request)!
+      const data = initiatePaymentSchema.parse(request.body)
+      
+      // Ensure student is initiating payment for themselves
+      if (data.studentId !== studentId) {
+        reply.status(403).send({ error: 'You can only initiate payments for yourself' })
+        return
+      }
+      
+      const paymentSession = await paymentService.initiatePayment(data)
+      
+      reply.status(200).send({
+        message: 'Payment initiated successfully',
+        ...paymentSession
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Student not found') {
+          reply.status(404).send({ error: 'Student not found' })
+        } else if (error.message === 'Course not found') {
+          reply.status(404).send({ error: 'Course not found' })
+        } else if (error.message === 'Course is not published') {
+          reply.status(400).send({ error: 'Course is not published' })
+        } else if (error.message === 'Active subscription already exists') {
+          reply.status(400).send({ error: 'You already have an active subscription to this course' })
+        } else {
+          reply.status(400).send({ error: error.message })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // POST /payments/confirm - Confirm a payment (mock Stripe webhook)
+  fastify.post('/payments/confirm', async (request, reply) => {
+    try {
+      const data = confirmPaymentSchema.parse(request.body)
+      const payment = await paymentService.confirmPayment(data)
+      
+      reply.send({
+        message: 'Payment confirmed successfully',
+        payment
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Payment not found') {
+          reply.status(404).send({ error: 'Payment not found' })
+        } else if (error.message === 'Payment is not in pending status') {
+          reply.status(400).send({ error: 'Payment is not in pending status' })
+        } else if (error.message === 'Invalid payment intent ID') {
+          reply.status(400).send({ error: 'Invalid payment intent ID' })
+        } else {
+          reply.status(400).send({ error: error.message })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // GET /payments/:id - Get payment details
+  fastify.get('/payments/:id', {
+    preHandler: requireAuth()
+  }, async (request, reply) => {
+    try {
+      const { id } = paymentParamsSchema.parse(request.params)
+      const payment = await paymentService.findById(id)
+      
+      // Check authorization - students can only see their own payments
+      const user = request.user as any;
+      if (user?.role === 'student' && payment.studentId !== getCurrentStudentId(request)) {
+        reply.status(403).send({ error: 'Access denied' })
+        return
+      }
+      
+      reply.send(payment)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Payment not found') {
+        reply.status(404).send({ error: 'Payment not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // GET /payments/mock-checkout - Mock Stripe checkout page (for testing)
+  fastify.get('/payments/mock-checkout', async (request, reply) => {
+    const { payment_intent } = request.query as { payment_intent: string }
+    
+    if (!payment_intent) {
+      reply.status(400).send({ error: 'Missing payment_intent parameter' })
+      return
+    }
+    
+    // In real implementation, this would redirect to Stripe
+    // For mock, we'll return a simple HTML form
+    reply.type('text/html').send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Mock Stripe Checkout</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; }
+          .form-group { margin-bottom: 15px; }
+          label { display: block; margin-bottom: 5px; }
+          input { width: 100%; padding: 8px; }
+          button { background: #5469d4; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+          button:hover { background: #4259c3; }
+        </style>
+      </head>
+      <body>
+        <h2>Mock Stripe Payment</h2>
+        <p>Payment Intent: ${payment_intent}</p>
+        <form id="paymentForm">
+          <div class="form-group">
+            <label>Card Number</label>
+            <input type="text" value="4242 4242 4242 4242" readonly>
+          </div>
+          <div class="form-group">
+            <label>Expiry</label>
+            <input type="text" value="12/25" readonly>
+          </div>
+          <div class="form-group">
+            <label>CVC</label>
+            <input type="text" value="123" readonly>
+          </div>
+          <button type="submit">Complete Payment</button>
+        </form>
+        <script>
+          document.getElementById('paymentForm').onsubmit = async (e) => {
+            e.preventDefault();
+            alert('Payment completed! This is a mock payment.');
+            // In real implementation, this would handle Stripe payment
+            // and redirect back to your application
+            window.close();
+          };
+        </script>
+      </body>
+      </html>
+    `)
+  })
+}
+
+
+================================================
+File: entities/payment/payment.schema.ts
+================================================
+import { z } from 'zod'
+
+// Initiate Payment Schema (for subscriptions)
+export const initiatePaymentSchema = z.object({
+  studentId: z.string().uuid('Invalid student ID'),
+  courseId: z.string().uuid('Invalid course ID'),
+  durationMonths: z.enum(['3', '6', '12']).transform(val => parseInt(val)),
+  paymentType: z.literal('SUBSCRIPTION')
+})
+
+// Confirm Payment Schema (mock Stripe webhook)
+export const confirmPaymentSchema = z.object({
+  paymentId: z.string().uuid('Invalid payment ID'),
+  stripePaymentIntentId: z.string() // Mock Stripe payment intent
+})
+
+// URL Params Schema
+export const paymentParamsSchema = z.object({
+  id: z.string().uuid('Invalid payment ID')
+})
+
+// Type exports
+export type InitiatePaymentInput = z.infer<typeof initiatePaymentSchema>
+export type ConfirmPaymentInput = z.infer<typeof confirmPaymentSchema>
+export type PaymentParams = z.infer<typeof paymentParamsSchema>
+
+
+================================================
+File: entities/payment/payment.service.ts
+================================================
+import { PrismaClient, PaymentStatus, PaymentType } from '@prisma/client'
+import { InitiatePaymentInput, ConfirmPaymentInput } from './payment.schema'
+
+export class PaymentService {
+  constructor(private prisma: PrismaClient) {}
+
+  // Initiate a payment (creates pending payment record)
+  async initiatePayment(data: InitiatePaymentInput) {
+    // Verify student exists
+    const student = await this.prisma.student.findUnique({
+      where: { id: data.studentId }
+    })
+
+    if (!student) {
+      throw new Error('Student not found')
+    }
+
+    // Verify course exists and get pricing
+    const course = await this.prisma.course.findUnique({
+      where: { id: data.courseId }
+    })
+
+    if (!course) {
+      throw new Error('Course not found')
+    }
+
+    if (!course.isPublished) {
+      throw new Error('Course is not published')
+    }
+
+    // Check if student already has active subscription
+    const existingSubscription = await this.prisma.subscription.findFirst({
+      where: {
+        studentId: data.studentId,
+        courseId: data.courseId,
+        endDate: { gte: new Date() }
+      }
+    })
+
+    if (existingSubscription) {
+      throw new Error('Active subscription already exists')
+    }
+
+    // Get pricing based on duration
+    const amount = this.getSubscriptionPrice(course, data.durationMonths)
+    
+    // Generate mock Stripe payment intent ID
+    const mockStripePaymentId = `pi_mock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+
+    // Create pending payment
+    const payment = await this.prisma.payment.create({
+      data: {
+        studentId: data.studentId,
+        stripePaymentId: mockStripePaymentId,
+        amount,
+        currency: 'USD',
+        paymentType: PaymentType.SUBSCRIPTION,
+        paymentStatus: PaymentStatus.PENDING,
+        courseId: data.courseId,
+        subscriptionDuration: data.durationMonths
+      }
+    })
+
+    // Return payment info with mock Stripe session
+    return {
+      paymentId: payment.id,
+      stripePaymentIntentId: mockStripePaymentId,
+      amount: payment.amount,
+      currency: payment.currency,
+      // Mock Stripe checkout URL
+      checkoutUrl: `/mock-stripe-checkout?payment_intent=${mockStripePaymentId}`
+    }
+  }
+
+  // Confirm a payment (mock Stripe webhook)
+  async confirmPayment(data: ConfirmPaymentInput) {
+    // Find the pending payment
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: data.paymentId }
+    })
+
+    if (!payment) {
+      throw new Error('Payment not found')
+    }
+
+    if (payment.paymentStatus !== PaymentStatus.PENDING) {
+      throw new Error('Payment is not in pending status')
+    }
+
+    if (payment.stripePaymentId !== data.stripePaymentIntentId) {
+      throw new Error('Invalid payment intent ID')
+    }
+
+    // Update payment to completed
+    const updatedPayment = await this.prisma.payment.update({
+      where: { id: data.paymentId },
+      data: {
+        paymentStatus: PaymentStatus.COMPLETED
+      }
+    })
+
+    return updatedPayment
+  }
+
+  // Get payment by ID
+  async findById(id: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: {
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      }
+    })
+
+    if (!payment) {
+      throw new Error('Payment not found')
+    }
+
+    return payment
+  }
+
+  // Helper method to get subscription price
+  private getSubscriptionPrice(course: any, durationMonths: number): number {
+    switch (durationMonths) {
+      case 3:
+        return Number(course.price3Months)
+      case 6:
+        return Number(course.price6Months)
+      case 12:
+        return Number(course.price12Months)
+      default:
+        throw new Error('Invalid subscription duration')
+    }
+  }
+}
+
+
+================================================
+File: entities/simulation/simulation.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -8340,7 +7925,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/simulation/simulation.schema.ts
+File: entities/simulation/simulation.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -8352,7 +7937,7 @@ export const createSimulationSchema = z.object({
   courseCaseId: z.string().uuid('Invalid course case ID'),
   casePrompt: z.string()
     .min(10, 'Case prompt must be at least 10 characters')
-    .max(2000, 'Case prompt must be less than 2000 characters')
+    .max(100000, 'Case prompt must be less than 100,000 characters') // Increased to 100k characters
     .trim(),
   openingLine: z.string()
     .min(5, 'Opening line must be at least 5 characters')
@@ -8387,7 +7972,7 @@ export const createSimulationSchema = z.object({
 export const updateSimulationSchema = z.object({
   casePrompt: z.string()
     .min(10, 'Case prompt must be at least 10 characters')
-    .max(2000, 'Case prompt must be less than 2000 characters')
+    .max(100000, 'Case prompt must be less than 100,000 characters') // Increased to 100k characters
     .trim()
     .optional(),
   openingLine: z.string()
@@ -8463,7 +8048,7 @@ export type VoiceModel = z.infer<typeof VoiceModelEnum>
 
 
 ================================================
-File: src/entities/simulation/simulation.service.ts
+File: entities/simulation/simulation.service.ts
 ================================================
 import { PrismaClient } from '@prisma/client'
 import { CreateSimulationInput, UpdateSimulationInput, VoiceModel } from './simulation.schema'
@@ -8865,7 +8450,7 @@ export class SimulationService {
 
 
 ================================================
-File: src/entities/simulation-attempt/simulation-attempt.routes.ts
+File: entities/simulation-attempt/simulation-attempt.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { SimulationAttemptService } from './simulation-attempt.service'
@@ -9131,7 +8716,7 @@ export default async function simulationAttemptRoutes(fastify: FastifyInstance) 
 
 
 ================================================
-File: src/entities/simulation-attempt/simulation-attempt.schema.ts
+File: entities/simulation-attempt/simulation-attempt.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -9268,7 +8853,7 @@ export type SimulationAttemptResponse = z.infer<typeof simulationAttemptResponse
 
 
 ================================================
-File: src/entities/simulation-attempt/simulation-attempt.service.ts
+File: entities/simulation-attempt/simulation-attempt.service.ts
 ================================================
 import { PrismaClient, Prisma } from '@prisma/client'
 import { CreateSimulationAttemptInput, CompleteSimulationAttemptInput, UpdateSimulationAttemptInput } from './simulation-attempt.schema'
@@ -9762,7 +9347,7 @@ export class SimulationAttemptService {
 
 
 ================================================
-File: src/entities/specialty/specialty.routes.ts
+File: entities/specialty/specialty.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { SpecialtyService } from './specialty.service'
@@ -9845,7 +9430,7 @@ export default async function specialtyRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/specialty/specialty.schema.ts
+File: entities/specialty/specialty.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -9886,7 +9471,7 @@ export type SpecialtyResponse = z.infer<typeof specialtyResponseSchema>
 
 
 ================================================
-File: src/entities/specialty/specialty.service.ts
+File: entities/specialty/specialty.service.ts
 ================================================
 import { PrismaClient } from '@prisma/client'
 import { CreateSpecialtyInput, UpdateSpecialtyInput } from './specialty.schema'
@@ -9944,7 +9529,7 @@ export class SpecialtyService {
 
 
 ================================================
-File: src/entities/student/student.routes.ts
+File: entities/student/student.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -10142,7 +9727,7 @@ export default async function studentRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/student/student.schema.ts
+File: entities/student/student.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -10229,7 +9814,7 @@ export { studentUserParamsSchema }
 
 
 ================================================
-File: src/entities/student/student.service.ts
+File: entities/student/student.service.ts
 ================================================
 import { PrismaClient, Prisma } from '@prisma/client'
 import { CreateStudentInput, UpdateStudentInput } from './student.schema'
@@ -10391,7 +9976,7 @@ export class StudentService {
 
 
 ================================================
-File: src/entities/subscription/subscription.routes.ts
+File: entities/subscription/subscription.routes.ts
 ================================================
 import { FastifyInstance } from 'fastify'
 import { SubscriptionService } from './subscription.service'
@@ -10670,7 +10255,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
 
 
 ================================================
-File: src/entities/subscription/subscription.schema.ts
+File: entities/subscription/subscription.schema.ts
 ================================================
 import { z } from 'zod'
 
@@ -10776,7 +10361,7 @@ export type SubscriptionStatsResponse = z.infer<typeof subscriptionStatsResponse
 
 
 ================================================
-File: src/entities/subscription/subscription.service.ts
+File: entities/subscription/subscription.service.ts
 ================================================
 import { PrismaClient, Prisma, PaymentStatus, CreditTransactionType, CreditTransactionSource } from '@prisma/client'
 import { CreateSubscriptionInput } from './subscription.schema'
@@ -11261,7 +10846,7 @@ export class SubscriptionService {
 
 
 ================================================
-File: src/middleware/auth.middleware.ts
+File: middleware/auth.middleware.ts
 ================================================
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { JWTPayload } from '../entities/auth/auth.schema'
@@ -11362,7 +10947,7 @@ export function getCurrentInstructorId(request: FastifyRequest): string | null {
 
 
 ================================================
-File: src/shared/junction-tables.schema.ts
+File: shared/junction-tables.schema.ts
 ================================================
 // junction-tables.schema.ts
 import { z } from 'zod'
@@ -11636,7 +11221,7 @@ export type ExamUsageStatsResponse = z.infer<typeof examUsageStatsResponseSchema
 
 
 ================================================
-File: src/shared/types.ts
+File: shared/types.ts
 ================================================
 import { PrismaClient } from '@prisma/client'
 

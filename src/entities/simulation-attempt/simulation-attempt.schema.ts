@@ -95,7 +95,9 @@ export const simulationAttemptResponseSchema = z.object({
   isCompleted: z.boolean(),
   score: z.number().nullable(),
   aiFeedback: z.any().nullable(), // JSON field
+  aiPrompt: z.any().nullable(), 
   transcript: z.any().nullable(), // JSON field
+  correlationToken: z.string().nullable(),
   createdAt: z.date(),
   student: z.object({
     id: z.string(),
@@ -121,6 +123,19 @@ export const simulationAttemptResponseSchema = z.object({
   })
 })
 
+export const simulationAttemptWithTokenResponseSchema = simulationAttemptResponseSchema.extend({
+  voiceAssistantConfig: z.object({
+    correlationToken: z.string(),
+    wsEndpoint: z.string(),
+    sessionConfig: z.object({
+      stt_provider: z.string().optional(),
+      llm_provider: z.string().optional(),
+      tts_provider: z.string().optional(),
+      system_prompt: z.string().optional()
+    }).optional()
+  }).optional()
+})
+
 // Type exports
 export type CreateSimulationAttemptInput = z.infer<typeof createSimulationAttemptSchema>
 export type CompleteSimulationAttemptInput = z.infer<typeof completeSimulationAttemptSchema>
@@ -130,3 +145,4 @@ export type SimulationAttemptStudentParams = z.infer<typeof simulationAttemptStu
 export type SimulationAttemptSimulationParams = z.infer<typeof simulationAttemptSimulationParamsSchema>
 export type SimulationAttemptQuery = z.infer<typeof simulationAttemptQuerySchema>
 export type SimulationAttemptResponse = z.infer<typeof simulationAttemptResponseSchema>
+export type SimulationAttemptWithTokenResponse = z.infer<typeof simulationAttemptWithTokenResponseSchema>

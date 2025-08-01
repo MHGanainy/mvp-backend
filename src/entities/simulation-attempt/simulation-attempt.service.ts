@@ -1,8 +1,19 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { CreateSimulationAttemptInput, CompleteSimulationAttemptInput, UpdateSimulationAttemptInput } from './simulation-attempt.schema'
+import { randomBytes } from 'crypto'
+import {
+  VoiceAssistantTranscriptApi,
+  TranscriptClean,
+} from '../../shared/types';
+import { aiFeedbackService } from './ai-feedback.service' 
 
 export class SimulationAttemptService {
   constructor(private prisma: PrismaClient) {}
+
+  private generateCorrelationToken(): string {
+    // Generate a URL-safe token
+    return `sim_${randomBytes(16).toString('hex')}_${Date.now()}`
+  }
 
   async create(data: CreateSimulationAttemptInput) {
     // Verify the student exists
@@ -35,6 +46,8 @@ export class SimulationAttemptService {
       throw new Error(`Insufficient credits. Required: ${simulation.creditCost}, Available: ${student.creditBalance}`)
     }
 
+    const correlationToken = this.generateCorrelationToken()
+
     // Start transaction to deduct credits and create attempt
     return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Deduct credits from student
@@ -50,7 +63,8 @@ export class SimulationAttemptService {
         data: {
           studentId: data.studentId,
           simulationId: data.simulationId,
-          startedAt: new Date()
+          startedAt: new Date(),
+          correlationToken: correlationToken
         },
         include: {
           student: {
@@ -182,6 +196,42 @@ export class SimulationAttemptService {
   async findById(id: string) {
     const attempt = await this.prisma.simulationAttempt.findUnique({
       where: { id },
+      include: {
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            creditBalance: true
+          }
+        },
+        simulation: {
+          include: {
+            courseCase: {
+              include: {
+                course: {
+                  select: {
+                    id: true,
+                    title: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+
+    if (!attempt) {
+      throw new Error('Simulation attempt not found')
+    }
+
+    return attempt
+  }
+
+  async findByCorrelationToken(correlationToken: string) {
+    const attempt = await this.prisma.simulationAttempt.findUnique({
+      where: { correlationToken },
       include: {
         student: {
           select: {
@@ -485,5 +535,188 @@ export class SimulationAttemptService {
         maximum: scoreStats._max.score ? Number(scoreStats._max.score) : null
       }
     }
+  }
+  private transformTranscript = (
+    api: VoiceAssistantTranscriptApi,
+  ): TranscriptClean => ({
+    messages: api.messages.map(({ timestamp, speaker, message }) => ({
+      timestamp,
+      speaker,
+      message,
+    })),
+    duration: api.duration_seconds ?? 0,
+    totalMessages: api.total_messages,
+  });
+  
+
+  async completeWithTranscript(
+    id: string,
+    correlationToken: string,
+  ) {
+    // 1️⃣ Fetch attempt and guard rails
+    const attempt = await this.prisma.simulationAttempt.findUnique({
+      where: { id },
+      include: { 
+        simulation: {
+          include: {
+            courseCase: true
+          }
+        }
+      },
+    });
+  
+    if (!attempt) throw new Error('Simulation attempt not found');
+    if (attempt.isCompleted) throw new Error('Simulation attempt is already completed');
+  
+    /* ------------------------------------------------------------------ */
+    /* 2️⃣ STEP 1: Retrieve transcript from Voice Assistant API           */
+    /* ------------------------------------------------------------------ */
+    let transcript: TranscriptClean | null = null;
+  
+    if (correlationToken) {
+      try {
+        const voiceAssistantUrl =
+          process.env.VOICE_ASSISTANT_API_URL ?? 'http://localhost:8000';
+  
+        console.log(`Fetching transcript for correlation token: ${correlationToken}`);
+        
+        const res = await fetch(
+          `${voiceAssistantUrl}/api/transcripts/correlation/${correlationToken}`,
+          { headers: { Accept: 'application/json' } },
+        );
+  
+        if (res.ok) {
+          const apiData = (await res.json()) as VoiceAssistantTranscriptApi;
+          transcript = this.transformTranscript(apiData);
+          console.log(`Successfully retrieved transcript with ${transcript.messages.length} messages`);
+        } else {
+          console.warn(`Failed to fetch transcript: ${res.status} ${res.statusText}`);
+          throw new Error(`Failed to fetch transcript: ${res.status}`);
+        }
+      } catch (err) {
+        console.error('Error fetching transcript from voice assistant:', err);
+        throw new Error('Failed to retrieve transcript from voice assistant');
+      }
+    } else {
+      throw new Error('Correlation token is required for transcript retrieval');
+    }
+  
+    /* ------------------------------------------------------------------ */
+    /* 3️⃣ STEP 2: Call AI Service to generate feedback                   */
+    /* ------------------------------------------------------------------ */
+    let aiFeedback: any = null;
+    let calculatedScore: number | null = null;
+    let aiPrompts: any = null;
+  
+    if (transcript) {
+      try {
+        console.log(`Calling AI feedback service to generate feedback...`);
+        
+        // Prepare case info for AI analysis
+        const caseInfo = {
+          patientName: attempt.simulation.courseCase.patientName,
+          diagnosis: attempt.simulation.courseCase.diagnosis,
+          caseTitle: attempt.simulation.courseCase.title,
+          patientAge: attempt.simulation.courseCase.patientAge,
+          patientGender: attempt.simulation.courseCase.patientGender,
+        };
+  
+        const aiResult = await aiFeedbackService.generateFeedback(
+          transcript,
+          caseInfo,
+          Math.floor((new Date().getTime() - attempt.startedAt.getTime()) / 1000)
+        );
+  
+        aiFeedback = aiResult.feedback;
+        calculatedScore = aiResult.score;
+        aiPrompts = aiResult.prompts;
+        console.log(`AI service generated feedback with score: ${calculatedScore}`);
+  
+      } catch (err) {
+        console.error('Error calling AI feedback service:', err);
+        // Fall back to placeholder feedback if AI service fails
+        aiFeedback = this.generateFallbackFeedback();
+        calculatedScore = null;
+        aiPrompts = null;
+      }
+    }
+  
+    /* ------------------------------------------------------------------ */
+    /* 4️⃣ Calculate duration and complete the attempt                    */
+    /* ------------------------------------------------------------------ */
+    const endTime = new Date();
+    const durationSeconds = Math.floor(
+      (endTime.getTime() - attempt.startedAt.getTime()) / 1000,
+    );
+  
+    const completedAttempt = await this.prisma.simulationAttempt.update({
+      where: { id },
+      data: {
+        endedAt: endTime,
+        durationSeconds,
+        isCompleted: true,
+        score: calculatedScore,
+        aiFeedback: aiFeedback as unknown as Prisma.InputJsonValue,
+        aiPrompt: aiPrompts as unknown as Prisma.InputJsonValue,
+        transcript: transcript as unknown as Prisma.InputJsonValue,
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            creditBalance: true,
+          },
+        },
+        simulation: {
+          include: {
+            courseCase: {
+              include: {
+                course: { select: { id: true, title: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+  
+    console.log(`Simulation attempt ${id} completed with transcript and AI-generated feedback`);
+    
+    return completedAttempt;
+  }
+  
+  // Helper method for fallback feedback when AI model fails
+  private generateFallbackFeedback() {
+    return {
+      overallFeedback: "Technical issue occurred during AI analysis. Please contact support for manual review.",
+      strengths: [
+        "Session completed successfully",
+        "Transcript captured for review"
+      ],
+      improvements: [
+        "AI analysis temporarily unavailable",
+        "Manual review may be provided"
+      ],
+      score: null,
+      markingDomains: [
+        {
+          domain: "Communication Skills",
+          score: 0,
+          feedback: "Analysis pending due to technical issue"
+        },
+        {
+          domain: "Clinical Assessment", 
+          score: 0,
+          feedback: "Analysis pending due to technical issue"
+        },
+        {
+          domain: "Professionalism",
+          score: 0,
+          feedback: "Analysis pending due to technical issue"
+        }
+      ],
+      analysisStatus: "failed" // Flag to indicate AI analysis failed
+    };
   }
 }
