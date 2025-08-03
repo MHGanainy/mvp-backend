@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
-import { TranscriptClean } from '../../shared/types'; // Import the existing type
+import { TranscriptClean } from '../../shared/types';
 
-// Types for the AI feedback system
+// Enhanced types for the AI feedback system
 interface CaseInfo {
   patientName: string;
   diagnosis: string;
@@ -16,12 +16,32 @@ interface MarkingDomain {
   feedback: string;
 }
 
+interface CaseSpecificCriterion {
+  criteria: string;
+  score: number;
+  feedback: string;
+}
+
+interface MarkingDomainCriteria {
+  id: string;
+  name: string;
+  description?: string;
+  weight?: number; // Weight percentage for this domain
+}
+
+interface CaseMarkingCriteria {
+  criteria: string;
+  points?: number;
+  description?: string;
+}
+
 interface AIFeedbackResponse {
   overallFeedback: string;
   strengths: string[];
   improvements: string[];
   score: number;
   markingDomains: MarkingDomain[];
+  caseSpecificCriteria: CaseSpecificCriterion[]; // Changed to structured array
 }
 
 export class AIFeedbackService {
@@ -36,14 +56,16 @@ export class AIFeedbackService {
   async generateFeedback(
     transcript: TranscriptClean,
     caseInfo: CaseInfo,
-    sessionDuration: number
+    sessionDuration: number,
+    examMarkingDomains: MarkingDomainCriteria[] = [],
+    caseMarkingCriteria: CaseMarkingCriteria[] = []
   ): Promise<{ 
     feedback: AIFeedbackResponse; 
     score: number; 
     prompts: { systemPrompt: string; userPrompt: string; }
   }> {
   
-    const systemPrompt = this.buildSystemPrompt(caseInfo);
+    const systemPrompt = this.buildSystemPrompt(caseInfo, examMarkingDomains, caseMarkingCriteria);
     const userPrompt = this.buildUserPrompt(transcript, caseInfo, sessionDuration);
   
     try {
@@ -54,7 +76,7 @@ export class AIFeedbackService {
           { role: "user", content: userPrompt }
         ],
         temperature: 0.3,
-        max_tokens: 2000,
+        max_tokens: 3000, // Increased for more detailed feedback
         response_format: { type: "json_object" }
       });
   
@@ -83,7 +105,45 @@ export class AIFeedbackService {
     }
   }
 
-  private buildSystemPrompt(caseInfo: CaseInfo): string {
+  private buildSystemPrompt(
+    caseInfo: CaseInfo, 
+    examMarkingDomains: MarkingDomainCriteria[],
+    caseMarkingCriteria: CaseMarkingCriteria[]
+  ): string {
+    
+    // Build marking domains section
+    let markingDomainsSection = '';
+    if (examMarkingDomains.length > 0) {
+      markingDomainsSection = `
+EXAM MARKING DOMAINS:
+${examMarkingDomains.map((domain, index) => 
+  `${index + 1}. **${domain.name}** ${domain.weight ? `(${domain.weight}%)` : ''}
+   ${domain.description ? `   Description: ${domain.description}` : ''}`
+).join('\n')}`;
+    } else {
+      // Fallback to default domains if none provided
+      markingDomainsSection = `
+EXAM MARKING DOMAINS:
+1. **Communication Skills** (25%): Active listening, empathy, clear explanations, appropriate tone
+2. **Clinical Assessment** (35%): History taking, physical examination approach, diagnostic reasoning  
+3. **Professionalism** (20%): Respect, confidentiality, ethical considerations, time management
+4. **Patient Safety** (20%): Risk assessment, appropriate follow-up, safety considerations`;
+    }
+
+    // Build case-specific criteria section
+    let caseSpecificSection = '';
+    if (caseMarkingCriteria.length > 0) {
+      caseSpecificSection = `
+
+CASE-SPECIFIC MARKING CRITERIA:
+${caseMarkingCriteria.map((criteria, index) => 
+  `${index + 1}. ${criteria.criteria}${criteria.points ? ` (${criteria.points} points)` : ''}
+   ${criteria.description ? `   Detail: ${criteria.description}` : ''}`
+).join('\n')}
+
+The student should be evaluated against each case-specific criterion individually with separate scores and feedback.`;
+    }
+
     return `You are an expert medical examiner evaluating a medical student's performance during a simulated patient consultation for the SCA (Structured Clinical Assessment) exam.
 
 PATIENT CASE CONTEXT:
@@ -93,12 +153,8 @@ PATIENT CASE CONTEXT:
 ${caseInfo.patientAge ? `- Patient Age: ${caseInfo.patientAge}` : ''}
 ${caseInfo.patientGender ? `- Patient Gender: ${caseInfo.patientGender}` : ''}
 
-EVALUATION CRITERIA:
-You must evaluate the student across these key marking domains:
-1. **Communication Skills** (25%): Active listening, empathy, clear explanations, appropriate tone
-2. **Clinical Assessment** (35%): History taking, physical examination approach, diagnostic reasoning
-3. **Professionalism** (20%): Respect, confidentiality, ethical considerations, time management
-4. **Patient Safety** (20%): Risk assessment, appropriate follow-up, safety considerations
+${markingDomainsSection}
+${caseSpecificSection}
 
 SCORING GUIDELINES:
 - 90-100: Exceptional performance, exceeds expectations
@@ -107,15 +163,26 @@ SCORING GUIDELINES:
 - 60-69: Below expectations, significant areas for improvement
 - 0-59: Unsatisfactory, major deficiencies
 
+EVALUATION APPROACH:
+1. First evaluate against the general marking domains
+2. Then assess performance against each case-specific criterion individually
+3. Provide separate scores and feedback for each case criterion
+4. Combine both assessments for the overall score and feedback
+5. Provide specific examples from the transcript to support your evaluation
+
 RESPONSE FORMAT:
 You must respond with a valid JSON object containing:
 {
-  "overallFeedback": "Comprehensive overall assessment (2-3 sentences)",
+  "overallFeedback": "Comprehensive overall assessment considering both general domains and case-specific criteria (2-3 sentences)",
   "strengths": ["List of 2-4 specific strengths observed"],
   "improvements": ["List of 2-4 specific areas for improvement"],
   "score": numeric_score_0_to_100,
   "markingDomains": [
-    {
+    ${examMarkingDomains.map(domain => `{
+      "domain": "${domain.name}",
+      "score": numeric_score_0_to_100,
+      "feedback": "Specific feedback for this domain with examples from transcript"
+    }`).join(',\n    ') || `{
       "domain": "Communication Skills",
       "score": numeric_score_0_to_100,
       "feedback": "Specific feedback for this domain"
@@ -134,11 +201,18 @@ You must respond with a valid JSON object containing:
       "domain": "Patient Safety",
       "score": numeric_score_0_to_100,
       "feedback": "Specific feedback for this domain"
-    }
-  ]
+    }`}
+  ]${caseMarkingCriteria.length > 0 ? `,
+  "caseSpecificCriteria": [
+    ${caseMarkingCriteria.map(criteria => `{
+      "criteria": "${criteria.criteria}",
+      "score": numeric_score_0_to_${criteria.points || 10},
+      "feedback": "Specific assessment of how well the student met this criterion"
+    }`).join(',\n    ')}
+  ]` : ''}
 }
 
-Be constructive, specific, and educational in your feedback. Focus on actionable improvements.`;
+Be constructive, specific, and educational in your feedback. Focus on actionable improvements and cite specific examples from the consultation.`;
   }
 
   private buildUserPrompt(
@@ -149,7 +223,6 @@ Be constructive, specific, and educational in your feedback. Focus on actionable
     
     const conversationText = transcript.messages
       .map(msg => {
-        // Map speaker names to expected format
         const speaker = msg.speaker.toLowerCase().includes('student') || msg.speaker.toLowerCase().includes('doctor') 
           ? 'STUDENT' 
           : 'AI_PATIENT';
@@ -168,11 +241,11 @@ SESSION DETAILS:
 - Case: ${caseInfo.caseTitle}
 
 EVALUATION INSTRUCTIONS:
-1. Analyze the student's communication approach, clinical questioning, and professionalism
-2. Consider how well they gathered relevant history and assessed the patient's concerns
-3. Evaluate their diagnostic reasoning and patient safety considerations
-4. Provide specific, constructive feedback with examples from the transcript
-5. Score each marking domain and calculate an overall weighted score
+1. Analyze the student's performance against each marking domain
+2. Evaluate how well they met the case-specific marking criteria
+3. Provide specific examples from the transcript to support your scores
+4. Consider the flow and quality of the consultation
+5. Assess diagnostic reasoning and patient safety considerations
 6. Ensure all feedback is educational and actionable
 
 Please provide your evaluation in the required JSON format.`;

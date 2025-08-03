@@ -368,6 +368,7 @@ fastify.patch('/simulation-attempts/:id/complete-with-transcript', async (reques
   }
 })
 
+
 // POST /simulation-attempts/test-ai-feedback - Test AI feedback generation
 fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => {
   try {
@@ -398,41 +399,128 @@ fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => 
           timestamp: "00:00:50",
           speaker: "student" as const,
           message: "That must be uncomfortable. Have you noticed if anything specific triggers the pain, like physical activity or certain movements?"
+        },
+        {
+          timestamp: "00:01:05",
+          speaker: "ai_patient" as const,
+          message: "Yes, it definitely gets worse when I move around or cough. I also feel short of breath sometimes."
+        },
+        {
+          timestamp: "00:01:20",
+          speaker: "student" as const,
+          message: "I see. Have you had any recent injuries, surgeries, or traveled on long flights recently?"
+        },
+        {
+          timestamp: "00:01:30",
+          speaker: "ai_patient" as const,
+          message: "No recent injuries or surgeries. I did take a long flight from Europe about a week ago for work."
+        },
+        {
+          timestamp: "00:01:45",
+          speaker: "student" as const,
+          message: "That's important information. Given your symptoms and recent travel, I'd like to examine you and possibly run some tests to rule out any serious conditions."
         }
       ],
-      duration: 120,
-      totalMessages: 5
+      duration: 180,
+      totalMessages: 9
     };
 
     const testCaseInfo = {
       patientName: "Sarah Johnson",
-      diagnosis: "Pleuritic chest pain",
-      caseTitle: "Young adult with acute chest pain",
+      diagnosis: "Pleuritic chest pain - possible pulmonary embolism",
+      caseTitle: "Young adult with acute chest pain post-travel",
       patientAge: 28,
       patientGender: "Female"
     };
 
+    // Sample exam marking domains (these would come from your database)
+    const testExamMarkingDomains = [
+      {
+        id: "domain-1",
+        name: "Communication Skills",
+        description: "Ability to communicate effectively with patients, showing empathy and active listening",
+        weight: 25
+      },
+      {
+        id: "domain-2", 
+        name: "Clinical History Taking",
+        description: "Systematic approach to gathering relevant medical history",
+        weight: 30
+      },
+      {
+        id: "domain-3",
+        name: "Risk Assessment", 
+        description: "Ability to identify and assess potential risks and red flags",
+        weight: 25
+      },
+      {
+        id: "domain-4",
+        name: "Professional Behavior",
+        description: "Demonstrates professional conduct and appropriate bedside manner",
+        weight: 20
+      }
+    ];
+
+    // Sample case-specific marking criteria (these would come from the MARKING_CRITERIA case tab)
+    const testCaseMarkingCriteria = [
+      {
+        criteria: "Asks about recent travel history (essential for PE risk assessment)",
+        points: 10,
+        description: "Student must inquire about recent long-distance travel"
+      },
+      {
+        criteria: "Identifies chest pain characteristics (sharp, pleuritic)",
+        points: 8,
+        description: "Student should explore pain quality and triggers"
+      },
+      {
+        criteria: "Assesses shortness of breath symptoms",
+        points: 8,
+        description: "Important symptom for pulmonary embolism assessment"
+      },
+      {
+        criteria: "Demonstrates appropriate concern for serious pathology",
+        points: 10,
+        description: "Student should recognize potential for serious condition"
+      },
+      {
+        criteria: "Plans appropriate further investigation",
+        points: 12,
+        description: "Should mention need for tests/examination given symptoms"
+      }
+    ];
+
     const result = await aiFeedbackService.generateFeedback(
       testTranscript,
       testCaseInfo,
-      120
+      180,
+      testExamMarkingDomains,
+      testCaseMarkingCriteria
     );
 
     reply.send({
-      message: 'AI feedback generated successfully',
+      message: 'Enhanced AI feedback generated successfully',
       result: result,
       testData: {
         transcript: testTranscript,
-        caseInfo: testCaseInfo
+        caseInfo: testCaseInfo,
+        examMarkingDomains: testExamMarkingDomains,
+        caseMarkingCriteria: testCaseMarkingCriteria,
+        enhancedFeatures: {
+          examDomainsUsed: testExamMarkingDomains.length,
+          caseSpecificCriteriaUsed: testCaseMarkingCriteria.length,
+          totalPossiblePoints: testCaseMarkingCriteria.reduce((sum, criteria) => sum + (criteria.points || 0), 0),
+          structureImprovement: "Case-specific criteria now structured like marking domains"
+        }
       }
     });
 
   } catch (error) {
-    console.error('Error testing AI feedback:', error);
+    console.error('Error testing enhanced AI feedback:', error);
     reply.status(500).send({ 
       error: 'Failed to generate test AI feedback',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
-})
+});
 }

@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto'
 import {
   VoiceAssistantTranscriptApi,
   TranscriptClean,
-} from '../../shared/types';
+  } from '../../shared/types';
 import { aiFeedbackService } from './ai-feedback.service' 
 
 export class SimulationAttemptService {
@@ -541,7 +541,7 @@ export class SimulationAttemptService {
   ): TranscriptClean => ({
     messages: api.messages.map(({ timestamp, speaker, message }) => ({
       timestamp,
-      speaker,
+      speaker: speaker === 'participant' ? 'student' : 'ai_patient', // Map speakers properly
       message,
     })),
     duration: api.duration_seconds ?? 0,
@@ -550,140 +550,171 @@ export class SimulationAttemptService {
   
 
   async completeWithTranscript(
-    id: string,
-    correlationToken: string,
-  ) {
-    // 1️⃣ Fetch attempt and guard rails
-    const attempt = await this.prisma.simulationAttempt.findUnique({
-      where: { id },
-      include: { 
-        simulation: {
-          include: {
-            courseCase: true
-          }
-        }
-      },
-    });
-  
-    if (!attempt) throw new Error('Simulation attempt not found');
-    if (attempt.isCompleted) throw new Error('Simulation attempt is already completed');
-  
-    /* ------------------------------------------------------------------ */
-    /* 2️⃣ STEP 1: Retrieve transcript from Voice Assistant API           */
-    /* ------------------------------------------------------------------ */
-    let transcript: TranscriptClean | null = null;
-  
-    if (correlationToken) {
-      try {
-        const voiceAssistantUrl =
-          process.env.VOICE_ASSISTANT_API_URL ?? 'http://localhost:8000';
-  
-        console.log(`Fetching transcript for correlation token: ${correlationToken}`);
-        
-        const res = await fetch(
-          `${voiceAssistantUrl}/api/transcripts/correlation/${correlationToken}`,
-          { headers: { Accept: 'application/json' } },
-        );
-  
-        if (res.ok) {
-          const apiData = (await res.json()) as VoiceAssistantTranscriptApi;
-          transcript = this.transformTranscript(apiData);
-          console.log(`Successfully retrieved transcript with ${transcript.messages.length} messages`);
-        } else {
-          console.warn(`Failed to fetch transcript: ${res.status} ${res.statusText}`);
-          throw new Error(`Failed to fetch transcript: ${res.status}`);
-        }
-      } catch (err) {
-        console.error('Error fetching transcript from voice assistant:', err);
-        throw new Error('Failed to retrieve transcript from voice assistant');
-      }
-    } else {
-      throw new Error('Correlation token is required for transcript retrieval');
-    }
-  
-    /* ------------------------------------------------------------------ */
-    /* 3️⃣ STEP 2: Call AI Service to generate feedback                   */
-    /* ------------------------------------------------------------------ */
-    let aiFeedback: any = null;
-    let calculatedScore: number | null = null;
-    let aiPrompts: any = null;
-  
-    if (transcript) {
-      try {
-        console.log(`Calling AI feedback service to generate feedback...`);
-        
-        // Prepare case info for AI analysis
-        const caseInfo = {
-          patientName: attempt.simulation.courseCase.patientName,
-          diagnosis: attempt.simulation.courseCase.diagnosis,
-          caseTitle: attempt.simulation.courseCase.title,
-          patientAge: attempt.simulation.courseCase.patientAge,
-          patientGender: attempt.simulation.courseCase.patientGender,
-        };
-  
-        const aiResult = await aiFeedbackService.generateFeedback(
-          transcript,
-          caseInfo,
-          Math.floor((new Date().getTime() - attempt.startedAt.getTime()) / 1000)
-        );
-  
-        aiFeedback = aiResult.feedback;
-        calculatedScore = aiResult.score;
-        aiPrompts = aiResult.prompts;
-        console.log(`AI service generated feedback with score: ${calculatedScore}`);
-  
-      } catch (err) {
-        console.error('Error calling AI feedback service:', err);
-        // Fall back to placeholder feedback if AI service fails
-        aiFeedback = this.generateFallbackFeedback();
-        calculatedScore = null;
-        aiPrompts = null;
-      }
-    }
-  
-    /* ------------------------------------------------------------------ */
-    /* 4️⃣ Calculate duration and complete the attempt                    */
-    /* ------------------------------------------------------------------ */
-    const endTime = new Date();
-    const durationSeconds = Math.floor(
-      (endTime.getTime() - attempt.startedAt.getTime()) / 1000,
-    );
-  
-    const completedAttempt = await this.prisma.simulationAttempt.update({
-      where: { id },
-      data: {
-        endedAt: endTime,
-        durationSeconds,
-        isCompleted: true,
-        score: calculatedScore,
-        aiFeedback: aiFeedback as unknown as Prisma.InputJsonValue,
-        aiPrompt: aiPrompts as unknown as Prisma.InputJsonValue,
-        transcript: transcript as unknown as Prisma.InputJsonValue,
-      },
+    attemptId: string, 
+    correlationToken: string
+  ): Promise<any> {
+    // Check if attempt exists and is not completed
+    const existingAttempt = await this.prisma.simulationAttempt.findUnique({
+      where: { id: attemptId },
       include: {
-        student: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            creditBalance: true,
-          },
-        },
+        student: true,
         simulation: {
           include: {
             courseCase: {
               include: {
-                course: { select: { id: true, title: true } },
-              },
-            },
-          },
-        },
-      },
+                course: {
+                  include: {
+                    exam: {
+                      include: {
+                        // Include marking domains for the exam
+                        examMarkingDomains: {
+                          include: {
+                            markingDomain: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                // Include case-specific marking criteria
+                caseTabs: {
+                  where: {
+                    tabType: 'MARKING_CRITERIA'
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     });
   
-    console.log(`Simulation attempt ${id} completed with transcript and AI-generated feedback`);
-    
-    return completedAttempt;
+    if (!existingAttempt) {
+      throw new Error('Simulation attempt not found');
+    }
+  
+    if (existingAttempt.isCompleted) {
+      throw new Error('Simulation attempt is already completed');
+    }
+  
+    try {
+      // 1. Fetch transcript from voice assistant API
+      const transcriptResponse = await fetch(
+        `${process.env.VOICE_ASSISTANT_API_URL}/api/conversations/${correlationToken}/transcript`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.VOICE_ASSISTANT_API_KEY}`
+          }
+        }
+      );
+  
+      if (!transcriptResponse.ok) {
+        throw new Error(`Failed to retrieve transcript: ${transcriptResponse.statusText}`);
+      }
+  
+      const apiResponse = await transcriptResponse.json() as VoiceAssistantTranscriptApi;
+      
+      // Transform API response to our internal format using your existing transform method
+      const transcriptData: TranscriptClean = this.transformTranscript(apiResponse);
+      
+      // Calculate duration
+      const startTime = new Date(existingAttempt.startedAt);
+      const endTime = new Date();
+      const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+  
+      // 2. Prepare marking domains data
+      const examMarkingDomains = existingAttempt.simulation.courseCase.course.exam.examMarkingDomains.map(emd => ({
+        id: emd.markingDomain.id,
+        name: emd.markingDomain.name,
+        // You can add weight and description fields to your MarkingDomain model if needed
+      }));
+  
+      // 3. Prepare case-specific marking criteria
+      const caseMarkingCriteria = existingAttempt.simulation.courseCase.caseTabs
+        .filter(tab => tab.tabType === 'MARKING_CRITERIA')
+        .flatMap(tab => 
+          tab.content.map(criterion => ({
+            criteria: criterion,
+            // You can parse additional data if you store it in a structured format
+          }))
+        );
+  
+      // 4. Generate AI feedback with marking domains and criteria
+      const caseInfo = {
+        patientName: existingAttempt.simulation.courseCase.patientName,
+        diagnosis: existingAttempt.simulation.courseCase.diagnosis,
+        caseTitle: existingAttempt.simulation.courseCase.title,
+        patientAge: existingAttempt.simulation.courseCase.patientAge,
+        patientGender: existingAttempt.simulation.courseCase.patientGender
+      };
+  
+      let aiFeedback: Prisma.InputJsonValue | null = null;
+      let score: number | null = null;
+      let aiPrompt: Prisma.InputJsonValue | null = null;
+  
+      try {
+        const { feedback, score: calculatedScore, prompts } = await aiFeedbackService.generateFeedback(
+          transcriptData,
+          caseInfo,
+          durationSeconds,
+          examMarkingDomains, // Pass exam marking domains
+          caseMarkingCriteria // Pass case-specific criteria
+        );
+  
+        aiFeedback = {
+          ...feedback,
+          analysisStatus: 'success',
+          generatedAt: new Date().toISOString(),
+          examMarkingDomains: examMarkingDomains.map(domain => domain.name),
+          caseMarkingCriteriaCount: caseMarkingCriteria.length
+        } as unknown as Prisma.InputJsonValue;
+        
+        score = calculatedScore;
+        aiPrompt = prompts as unknown as Prisma.InputJsonValue;
+        
+      } catch (aiError) {
+        console.error('AI feedback generation failed:', aiError);
+        aiFeedback = {
+          analysisStatus: 'failed',
+          error: aiError instanceof Error ? aiError.message : 'Unknown AI error',
+          generatedAt: new Date().toISOString()
+        } as unknown as Prisma.InputJsonValue;
+      }
+  
+      // 5. Update the simulation attempt
+      const updatedAttempt = await this.prisma.simulationAttempt.update({
+        where: { id: attemptId },
+        data: {
+          endedAt: endTime,
+          durationSeconds,
+          isCompleted: true,
+          transcript: transcriptData as unknown as Prisma.InputJsonValue,
+          aiFeedback,
+          aiPrompt: aiPrompt || undefined,
+          score
+        },
+        include: {
+          student: true,
+          simulation: {
+            include: {
+              courseCase: {
+                include: {
+                  course: true
+                }
+              }
+            }
+          }
+        }
+      });
+  
+      return updatedAttempt;
+  
+    } catch (error) {
+      console.error('Error in completeWithTranscript:', error);
+      throw error;
+    }
   }
   
   // Helper method for fallback feedback when AI model fails

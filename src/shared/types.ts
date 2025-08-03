@@ -6,6 +6,19 @@ declare module 'fastify' {
   }
 }
 
+export interface TranscriptMessage {
+  timestamp: string;
+  speaker: 'student' | 'ai_patient' | 'doctor' | 'patient' | 'participant' | 'assistant';
+  message: string;
+}
+
+export interface TranscriptClean {
+  messages: TranscriptMessage[];
+  duration: number;
+  totalMessages: number;
+}
+
+// Use your existing VoiceAssistantTranscriptApi type
 export interface VoiceAssistantTranscriptApi {
   correlation_token: string;
   session_id: string;
@@ -24,14 +37,4 @@ export interface VoiceAssistantTranscriptApi {
     simulation_attempt_id: string;
     connected_at: string;
   };
-}
-
-export interface TranscriptClean {
-  messages: {
-    timestamp: string;   // keep as ISO string; convert to Date later if needed
-    speaker: string;
-    message: string;
-  }[];
-  duration: number;      // seconds – never null
-  totalMessages: number;
 }
