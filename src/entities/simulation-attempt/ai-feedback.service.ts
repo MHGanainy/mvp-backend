@@ -18,7 +18,6 @@ interface CaseTabs {
 interface MarkingCriterionResult {
   criterionId: string;
   criterionText: string;
-  points: number;
   met: boolean;
   transcriptReferences: string[];
   feedback: string;
@@ -27,9 +26,6 @@ interface MarkingCriterionResult {
 interface MarkingDomainResult {
   domainId: string;
   domainName: string;
-  totalPossiblePoints: number;
-  achievedPoints: number;
-  percentageScore: number;
   criteria: MarkingCriterionResult[];
 }
 
@@ -53,13 +49,8 @@ interface OverallResult {
 
 interface AIFeedbackResponse {
   overallFeedback: string;
-  overallScore: number;
   overallResult: OverallResult;
   markingDomains: MarkingDomainResult[];
-  strengths: string[];
-  improvements: string[];
-  totalPossiblePoints: number;
-  totalAchievedPoints: number;
 }
 
 interface MarkingDomainWithCriteria {
@@ -146,37 +137,65 @@ export class AIFeedbackService {
         throw new Error('No response content from OpenAI');
       }
   
-      const aiResponse = JSON.parse(responseContent) as AIFeedbackResponse;
+      const rawResponse = JSON.parse(responseContent);
       
-      // Calculate overall statistics
+      // Calculate overall statistics from the raw response
       let totalCriteria = 0;
       let criteriaMet = 0;
+      let totalPossiblePoints = 0;
+      let totalAchievedPoints = 0;
       
-      aiResponse.markingDomains.forEach(domain => {
-        domain.criteria.forEach(criterion => {
+      // Clean the response and calculate statistics
+      const cleanedDomains: MarkingDomainResult[] = rawResponse.markingDomains.map((domain: any) => {
+        const cleanedCriteria: MarkingCriterionResult[] = domain.criteria.map((criterion: any) => {
           totalCriteria++;
+          totalPossiblePoints += criterion.points;
+          
           if (criterion.met) {
             criteriaMet++;
+            totalAchievedPoints += criterion.points;
           }
+          
+          // Remove points field from criterion
+          return {
+            criterionId: criterion.criterionId,
+            criterionText: criterion.criterionText,
+            met: criterion.met,
+            transcriptReferences: criterion.transcriptReferences,
+            feedback: criterion.feedback
+          };
         });
+        
+        // Return cleaned domain without scoring fields
+        return {
+          domainId: domain.domainId,
+          domainName: domain.domainName,
+          criteria: cleanedCriteria
+        };
       });
       
       const percentageMet = totalCriteria > 0 ? (criteriaMet / totalCriteria) * 100 : 0;
       const classification = this.calculatePerformanceClassification(percentageMet);
       
-      // Add overall result to response
-      aiResponse.overallResult = {
-        classification: classification.classification,
-        classificationLabel: classification.label,
-        percentageMet: Math.round(percentageMet * 10) / 10, // Round to 1 decimal place
-        totalCriteria,
-        criteriaMet,
-        criteriaNotMet: totalCriteria - criteriaMet,
-        description: classification.description
+      // Build the cleaned response
+      const aiResponse: AIFeedbackResponse = {
+        overallFeedback: rawResponse.overallFeedback,
+        overallResult: {
+          classification: classification.classification,
+          classificationLabel: classification.label,
+          percentageMet: Math.round(percentageMet * 10) / 10,
+          totalCriteria,
+          criteriaMet,
+          criteriaNotMet: totalCriteria - criteriaMet,
+          description: classification.description
+        },
+        markingDomains: cleanedDomains
       };
       
-      // Calculate overall score from achieved/possible points
-      const score = Math.round((aiResponse.totalAchievedPoints / aiResponse.totalPossiblePoints) * 100);
+      // Calculate score separately (not included in feedback)
+      const score = totalPossiblePoints > 0 
+        ? Math.round((totalAchievedPoints / totalPossiblePoints) * 100)
+        : 0;
   
       return {
         feedback: aiResponse,
@@ -275,10 +294,7 @@ EVALUATION INSTRUCTIONS:
 RESPONSE FORMAT:
 You must respond with a valid JSON object in this exact structure:
 {
-  "overallFeedback": "2-3 sentence summary comparing performance to case expectations and noting the overall classification",
-  "overallScore": calculated_percentage_score_based_on_points,
-  "totalPossiblePoints": ${totalPossiblePoints},
-  "totalAchievedPoints": sum_of_achieved_points,
+  "overallFeedback": "2-3 sentence summary comparing performance to case expectations",
   "markingDomains": [
 ${markingDomainsWithCriteria.map(domain => {
   const domainPoints = domain.criteria.reduce((sum, c) => sum + c.points, 0);
@@ -299,12 +315,8 @@ ${domain.criteria.map(criterion => `        {
         }`).join(',\n')}
       ]
     }`}).join(',\n')}
-  ],
-  "strengths": ["specific strength 1", "specific strength 2"],
-  "improvements": ["specific improvement 1", "specific improvement 2"]
-}
-
-Note: The overall classification will be calculated automatically based on the percentage of criteria met.`;
+  ]
+}`;
   }
 
   private buildUserPrompt(
