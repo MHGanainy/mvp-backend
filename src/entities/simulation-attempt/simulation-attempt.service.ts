@@ -553,7 +553,7 @@ export class SimulationAttemptService {
     attemptId: string, 
     correlationToken: string
   ): Promise<any> {
-    // Check if attempt exists and is not completed
+    // Fetch attempt with all necessary relations
     const existingAttempt = await this.prisma.simulationAttempt.findUnique({
       where: { id: attemptId },
       include: {
@@ -564,23 +564,20 @@ export class SimulationAttemptService {
               include: {
                 course: {
                   include: {
-                    exam: {
-                      include: {
-                        // Include marking domains for the exam
-                        examMarkingDomains: {
-                          include: {
-                            markingDomain: true
-                          }
-                        }
-                      }
-                    }
+                    exam: true
                   }
                 },
-                // Include case-specific marking criteria
-                caseTabs: {
-                  where: {
-                    tabType: 'MARKING_CRITERIA'
-                  }
+                // Include ALL case tabs (not just MARKING_CRITERIA)
+                caseTabs: true,
+                // Include the new separate marking criteria
+                markingCriteria: {
+                  include: {
+                    markingDomain: true
+                  },
+                  orderBy: [
+                    { markingDomain: { name: 'asc' } },
+                    { displayOrder: 'asc' }
+                  ]
                 }
               }
             }
@@ -615,33 +612,74 @@ export class SimulationAttemptService {
       }
   
       const apiResponse = await transcriptResponse.json() as VoiceAssistantTranscriptApi;
-      
-      // Transform API response to our internal format using your existing transform method
       const transcriptData: TranscriptClean = this.transformTranscript(apiResponse);
       
-      // Calculate duration
-      const startTime = new Date(existingAttempt.startedAt);
       const endTime = new Date();
-      const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+      const durationSeconds = Math.floor((endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
   
-      // 2. Prepare marking domains data
-      const examMarkingDomains = existingAttempt.simulation.courseCase.course.exam.examMarkingDomains.map(emd => ({
-        id: emd.markingDomain.id,
-        name: emd.markingDomain.name,
-        // You can add weight and description fields to your MarkingDomain model if needed
-      }));
+      // 2. Extract case tabs (doctor's notes, patient script, medical notes)
+      interface CaseTabs {
+        doctorsNote: string[];
+        patientScript: string[];
+        medicalNotes: string[];
+      }
   
-      // 3. Prepare case-specific marking criteria
-      const caseMarkingCriteria = existingAttempt.simulation.courseCase.caseTabs
-        .filter(tab => tab.tabType === 'MARKING_CRITERIA')
-        .flatMap(tab => 
-          tab.content.map(criterion => ({
-            criteria: criterion,
-            // You can parse additional data if you store it in a structured format
-          }))
-        );
+      const caseTabs: CaseTabs = {
+        doctorsNote: [],
+        patientScript: [],
+        medicalNotes: []
+      };
   
-      // 4. Generate AI feedback with marking domains and criteria
+      existingAttempt.simulation.courseCase.caseTabs.forEach(tab => {
+        switch(tab.tabType) {
+          case 'DOCTORS_NOTE':
+            caseTabs.doctorsNote = tab.content;
+            break;
+          case 'PATIENT_SCRIPT':
+            caseTabs.patientScript = tab.content;
+            break;
+          case 'MEDICAL_NOTES':
+            caseTabs.medicalNotes = tab.content;
+            break;
+        }
+      });
+  
+      // 3. Group marking criteria by domain
+      interface MarkingDomainWithCriteria {
+        domainId: string;
+        domainName: string;
+        criteria: {
+          id: string;
+          text: string;
+          points: number;
+          displayOrder: number;
+        }[];
+      }
+  
+      const domainsMap = new Map<string, MarkingDomainWithCriteria>();
+      
+      existingAttempt.simulation.courseCase.markingCriteria.forEach(criterion => {
+        const domainId = criterion.markingDomain.id;
+        
+        if (!domainsMap.has(domainId)) {
+          domainsMap.set(domainId, {
+            domainId: criterion.markingDomain.id,
+            domainName: criterion.markingDomain.name,
+            criteria: []
+          });
+        }
+        
+        domainsMap.get(domainId)!.criteria.push({
+          id: criterion.id,
+          text: criterion.text,
+          points: criterion.points,
+          displayOrder: criterion.displayOrder
+        });
+      });
+  
+      const markingDomainsWithCriteria = Array.from(domainsMap.values());
+  
+      // 4. Prepare case info
       const caseInfo = {
         patientName: existingAttempt.simulation.courseCase.patientName,
         diagnosis: existingAttempt.simulation.courseCase.diagnosis,
@@ -655,20 +693,26 @@ export class SimulationAttemptService {
       let aiPrompt: Prisma.InputJsonValue | null = null;
   
       try {
+        // 5. Generate AI feedback with the new structure
         const { feedback, score: calculatedScore, prompts } = await aiFeedbackService.generateFeedback(
           transcriptData,
           caseInfo,
+          caseTabs, // Pass all three case tabs
           durationSeconds,
-          examMarkingDomains, // Pass exam marking domains
-          caseMarkingCriteria // Pass case-specific criteria
+          markingDomainsWithCriteria // Pass structured marking criteria
         );
   
         aiFeedback = {
           ...feedback,
           analysisStatus: 'success',
           generatedAt: new Date().toISOString(),
-          examMarkingDomains: examMarkingDomains.map(domain => domain.name),
-          caseMarkingCriteriaCount: caseMarkingCriteria.length
+          caseTabsProvided: {
+            doctorsNote: caseTabs.doctorsNote.length > 0,
+            patientScript: caseTabs.patientScript.length > 0,
+            medicalNotes: caseTabs.medicalNotes.length > 0
+          },
+          totalMarkingCriteria: existingAttempt.simulation.courseCase.markingCriteria.length,
+          markingDomains: markingDomainsWithCriteria.length
         } as unknown as Prisma.InputJsonValue;
         
         score = calculatedScore;
@@ -683,7 +727,7 @@ export class SimulationAttemptService {
         } as unknown as Prisma.InputJsonValue;
       }
   
-      // 5. Update the simulation attempt
+      // 6. Update the simulation attempt
       const updatedAttempt = await this.prisma.simulationAttempt.update({
         where: { id: attemptId },
         data: {

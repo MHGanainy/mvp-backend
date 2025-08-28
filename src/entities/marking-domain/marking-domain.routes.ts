@@ -34,6 +34,36 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // GET /marking-domains/:id/marking-criteria - Get all marking criteria for a domain
+  fastify.get('/marking-domains/:id/marking-criteria', async (request, reply) => {
+    try {
+      const { id } = markingDomainParamsSchema.parse(request.params)
+      const markingCriteria = await markingDomainService.getMarkingCriteria(id)
+      reply.send(markingCriteria)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MarkingDomain not found') {
+        reply.status(404).send({ error: 'MarkingDomain not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // GET /marking-domains/:id/usage-stats - Get usage statistics for a marking domain
+  fastify.get('/marking-domains/:id/usage-stats', async (request, reply) => {
+    try {
+      const { id } = markingDomainParamsSchema.parse(request.params)
+      const stats = await markingDomainService.getUsageStats(id)
+      reply.send(stats)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MarkingDomain not found') {
+        reply.status(404).send({ error: 'MarkingDomain not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
   // POST /marking-domains - Create new marking domain
   fastify.post('/marking-domains', async (request, reply) => {
     try {
@@ -41,7 +71,11 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
       const markingDomain = await markingDomainService.create(data)
       reply.status(201).send(markingDomain)
     } catch (error) {
-      reply.status(400).send({ error: 'Invalid data or marking domain already exists' })
+      if (error instanceof Error && error.message.includes('already exists')) {
+        reply.status(409).send({ error: 'Marking domain with this name already exists' })
+      } else {
+        reply.status(400).send({ error: 'Invalid data' })
+      }
     }
   })
 
@@ -55,6 +89,8 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     } catch (error) {
       if (error instanceof Error && error.message === 'MarkingDomain not found') {
         reply.status(404).send({ error: 'MarkingDomain not found' })
+      } else if (error instanceof Error && error.message.includes('already exists')) {
+        reply.status(409).send({ error: 'Marking domain with this name already exists' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
       }
@@ -70,6 +106,8 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     } catch (error) {
       if (error instanceof Error && error.message === 'MarkingDomain not found') {
         reply.status(404).send({ error: 'MarkingDomain not found' })
+      } else if (error instanceof Error && error.message.includes('Cannot delete')) {
+        reply.status(409).send({ error: error.message })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
       }

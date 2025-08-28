@@ -1,9 +1,9 @@
 // course-case.service.ts
-import { PrismaClient, PatientGender } from '@prisma/client'
+import { PrismaClient, PatientGender, Prisma } from '@prisma/client'
 import { CreateCourseCaseInput, UpdateCourseCaseInput, CreateCompleteCourseCaseInput, UpdateCompleteCourseCaseInput } from './course-case.schema'
 
 // Define CaseTabType - should match your Prisma schema enum
-type CaseTabType = 'DOCTORS_NOTE' | 'PATIENT_SCRIPT' | 'MARKING_CRITERIA' | 'MEDICAL_NOTES'
+type CaseTabType = 'DOCTORS_NOTE' | 'PATIENT_SCRIPT' | 'MEDICAL_NOTES'
 
 // Filter input interface
 interface FilterInput {
@@ -18,6 +18,33 @@ interface BulkAssignmentInput {
   courseCaseId: string
   specialtyIds?: string[]
   curriculumIds?: string[]
+}
+
+// Add type for marking criterion with domain
+interface MarkingCriterionWithDomain {
+  id: string
+  courseCaseId: string
+  markingDomainId: string
+  text: string
+  points: number
+  displayOrder: number
+  createdAt: Date
+  markingDomain: {
+    id: string
+    name: string
+  }
+}
+
+// Add type for grouped criteria
+interface GroupedCriteria {
+  domainId: string
+  domainName: string
+  criteria: {
+    id: string
+    text: string
+    points: number
+    displayOrder: number
+  }[]
 }
 
 export class CourseCaseService {
@@ -39,6 +66,15 @@ export class CourseCaseService {
       },
       simulation: true,
       caseTabs: true,
+      markingCriteria: {
+        include: {
+          markingDomain: true
+        },
+        orderBy: [
+          { markingDomain: { name: Prisma.SortOrder.asc } },
+          { displayOrder: Prisma.SortOrder.asc }
+        ]
+      },
       caseSpecialties: {
         include: {
           specialty: true
@@ -316,9 +352,8 @@ export class CourseCaseService {
     }
   }
 
-  // ===== JUNCTION TABLE OPERATIONS (User Stories #4, #42, #43) =====
+  // ===== JUNCTION TABLE OPERATIONS =====
 
-  // Filter cases by specialties, curriculums, gender, and free status (User Story #4)
   async findByFilters(courseId: string, filters: FilterInput) {
     // Verify course exists
     const course = await this.prisma.course.findUnique({
@@ -392,7 +427,6 @@ export class CourseCaseService {
     }))
   }
 
-  // Assign specialties to a course case (User Story #42)
   async assignSpecialties(courseCaseId: string, specialtyIds: string[]) {
     // Verify course case exists
     const courseCase = await this.prisma.courseCase.findUnique({
@@ -428,7 +462,6 @@ export class CourseCaseService {
     return assignments
   }
 
-  // Assign curriculum items to a course case (User Story #43)
   async assignCurriculums(courseCaseId: string, curriculumIds: string[]) {
     // Verify course case exists
     const courseCase = await this.prisma.courseCase.findUnique({
@@ -464,7 +497,6 @@ export class CourseCaseService {
     return assignments
   }
 
-  // Bulk assign filters to multiple course cases
   async bulkAssignFilters(assignments: BulkAssignmentInput[]) {
     const results = []
 
@@ -498,7 +530,6 @@ export class CourseCaseService {
 
   // ===== RETRIEVAL OPERATIONS =====
 
-  // Get specialties assigned to a course case
   async getCaseSpecialties(courseCaseId: string) {
     // Verify course case exists
     await this.findById(courseCaseId)
@@ -513,7 +544,6 @@ export class CourseCaseService {
     return caseSpecialties.map((cs:any) => cs.specialty)
   }
 
-  // Get curriculum items assigned to a course case
   async getCaseCurriculums(courseCaseId: string) {
     // Verify course case exists
     await this.findById(courseCaseId)
@@ -530,7 +560,6 @@ export class CourseCaseService {
 
   // ===== REMOVAL OPERATIONS =====
 
-  // Remove specialty from course case
   async removeSpecialty(courseCaseId: string, specialtyId: string) {
     // Verify course case exists
     await this.findById(courseCaseId)
@@ -546,7 +575,6 @@ export class CourseCaseService {
     return { message: 'Specialty removed successfully' }
   }
 
-  // Remove curriculum from course case
   async removeCurriculum(courseCaseId: string, curriculumId: string) {
     // Verify course case exists
     await this.findById(courseCaseId)
@@ -564,7 +592,6 @@ export class CourseCaseService {
 
   // ===== FILTERING STATISTICS =====
 
-  // Get filtering statistics for a course
   async getFilteringStats(courseId: string) {
     const totalCases = await this.prisma.courseCase.count({
       where: { courseId }
@@ -636,7 +663,6 @@ export class CourseCaseService {
   // ===== COMPLETE COURSE CASE OPERATIONS =====
 
   async createCompleteCourseCase(data: CreateCompleteCourseCaseInput) {
-    // Use transaction to ensure atomicity
     return await this.prisma.$transaction(async (tx) => {
       // Step 1: Verify course exists and get course data
       const course = await tx.course.findUnique({
@@ -647,12 +673,10 @@ export class CourseCaseService {
         throw new Error('Course not found')
       }
   
-      // Check if course style allows adding cases
       if (course.style !== 'RANDOM') {
         throw new Error('Cases can only be added to RANDOM style courses')
       }
   
-      // Auto-assign display order if not provided
       if (!data.courseCase.displayOrder) {
         const maxOrder = await tx.courseCase.aggregate({
           where: { courseId: data.courseCase.courseId },
@@ -660,7 +684,6 @@ export class CourseCaseService {
         })
         data.courseCase.displayOrder = (maxOrder._max.displayOrder || 0) + 1
       } else {
-        // Check if display order is already taken
         const existingCase = await tx.courseCase.findFirst({
           where: {
             courseId: data.courseCase.courseId,
@@ -688,12 +711,11 @@ export class CourseCaseService {
         }
       })
   
-      // Step 3: Create all 4 tabs
-      const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
+      // Step 3: Create only 3 tabs
+      const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MEDICAL_NOTES']
       const createdTabs: any = {}
       
       for (const tabType of tabTypes) {
-        // Content is already an array thanks to Zod transform
         const content = data.tabs?.[tabType] || []
         
         const tab = await tx.caseTab.create({
@@ -711,16 +733,56 @@ export class CourseCaseService {
         }
       }
   
-      // Step 4: Create new entities
+      // Step 4: Create marking criteria if provided
+      let markingCriteriaResponse: GroupedCriteria[] = []
+      if (data.markingCriteria && data.markingCriteria.length > 0) {
+        const createdCriteria = await Promise.all(
+          data.markingCriteria.map(criterion =>
+            tx.markingCriterion.create({
+              data: {
+                courseCaseId: courseCase.id,
+                markingDomainId: criterion.markingDomainId,
+                text: criterion.text,
+                points: criterion.points,
+                displayOrder: criterion.displayOrder
+              },
+              include: {
+                markingDomain: true
+              }
+            })
+          )
+        ) as MarkingCriterionWithDomain[]
+        
+        // Group by domain for response with proper typing
+        markingCriteriaResponse = createdCriteria.reduce((acc: GroupedCriteria[], criterion: MarkingCriterionWithDomain) => {
+          const domainId = criterion.markingDomain.id
+          const domainName = criterion.markingDomain.name
+          
+          let group = acc.find(g => g.domainId === domainId)
+          if (!group) {
+            group = { domainId, domainName, criteria: [] }
+            acc.push(group)
+          }
+          
+          group.criteria.push({
+            id: criterion.id,
+            text: criterion.text,
+            points: criterion.points,
+            displayOrder: criterion.displayOrder
+          })
+          
+          return acc
+        }, [])
+      }
+  
+      // Step 5: Create new entities
       const createdEntities = {
         specialties: [] as any[],
         curriculums: [] as any[]
       }
   
-      // Create new specialties
       if (data.new?.specialties && data.new.specialties.length > 0) {
         for (const specialty of data.new.specialties) {
-          // Check if already exists (case-insensitive)
           const existing = await tx.specialty.findFirst({
             where: { 
               name: {
@@ -741,7 +803,6 @@ export class CourseCaseService {
         }
       }
   
-      // Create new curriculums
       if (data.new?.curriculums && data.new.curriculums.length > 0) {
         for (const curriculum of data.new.curriculums) {
           const existing = await tx.curriculum.findFirst({
@@ -764,7 +825,7 @@ export class CourseCaseService {
         }
       }
   
-      // Step 5: Collect all IDs (existing + newly created)
+      // Step 6: Collect all IDs
       const allSpecialtyIds = [
         ...(data.existing?.specialtyIds || []),
         ...createdEntities.specialties.map(s => s.id)
@@ -775,7 +836,7 @@ export class CourseCaseService {
         ...createdEntities.curriculums.map(c => c.id)
       ]
   
-      // Step 6: Verify existing entities exist
+      // Step 7: Verify existing entities
       if (data.existing?.specialtyIds && data.existing.specialtyIds.length > 0) {
         const count = await tx.specialty.count({
           where: { id: { in: data.existing.specialtyIds } }
@@ -794,7 +855,7 @@ export class CourseCaseService {
         }
       }
   
-      // Step 7: Create all junction table entries
+      // Step 8: Create junction table entries
       if (allSpecialtyIds.length > 0) {
         await tx.caseSpecialty.createMany({
           data: allSpecialtyIds.map(specialtyId => ({
@@ -813,10 +874,9 @@ export class CourseCaseService {
         })
       }
   
-      // Step 8: Create simulation if provided
+      // Step 9: Create simulation if provided
       let simulation = null
       if (data.simulation) {
-        // Validate warning time
         if (data.simulation.warningTimeMinutes && 
             data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
           throw new Error('Warning time must be less than time limit')
@@ -835,7 +895,7 @@ export class CourseCaseService {
         })
       }
   
-      // Step 9: Fetch all assigned entities for response
+      // Step 10: Fetch all assigned entities for response
       const assignedSpecialties = await tx.specialty.findMany({
         where: { id: { in: allSpecialtyIds } }
       })
@@ -844,7 +904,6 @@ export class CourseCaseService {
         where: { id: { in: allCurriculumIds } }
       })
   
-      // Count truly new entities created
       const newSpecialtiesCount = createdEntities.specialties.filter(s => 
         !data.existing?.specialtyIds?.includes(s.id) &&
         data.new?.specialties?.some(ns => ns.name === s.name)
@@ -855,10 +914,10 @@ export class CourseCaseService {
         data.new?.curriculums?.some(nc => nc.name === c.name)
       ).length
   
-      // Return comprehensive response
       return {
         courseCase,
         tabs: createdTabs,
+        markingCriteria: markingCriteriaResponse,
         created: {
           specialties: createdEntities.specialties.filter(s => 
             data.new?.specialties?.some(ns => ns.name === s.name)
@@ -877,15 +936,15 @@ export class CourseCaseService {
           totalCurriculums: assignedCurriculums.length,
           newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
           simulationCreated: !!simulation,
-          tabsCreated: 4,
-          tabsUpdated: 0
+          tabsCreated: 3,
+          tabsUpdated: 0,
+          markingCriteriaCreated: data.markingCriteria?.length || 0
         }
       }
     })
   }
   
   async updateCompleteCourseCase(data: UpdateCompleteCourseCaseInput) {
-    // Use transaction to ensure atomicity
     return await this.prisma.$transaction(async (tx) => {
       // Step 1: Verify course case exists
       const existingCourseCase = await tx.courseCase.findUnique({
@@ -904,7 +963,6 @@ export class CourseCaseService {
       // Step 2: Update course case if data provided
       let updatedCourseCase = existingCourseCase
       if (data.courseCase) {
-        // Check display order if updating
         if (data.courseCase.displayOrder && 
             data.courseCase.displayOrder !== existingCourseCase.displayOrder) {
           const conflictingCase = await tx.courseCase.findFirst({
@@ -936,14 +994,13 @@ export class CourseCaseService {
       let tabsUpdated = 0
       
       if (data.tabs) {
-        const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
+        const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MEDICAL_NOTES']
         
         for (const tabType of tabTypes) {
           const existingTab = existingCourseCase.caseTabs.find(t => t.tabType === tabType)
           
           if (data.tabs[tabType] !== undefined) {
             if (existingTab) {
-              // Content is already an array thanks to Zod transform
               const updatedTab = await tx.caseTab.update({
                 where: { id: existingTab.id },
                 data: { content: data.tabs[tabType] }
@@ -955,12 +1012,11 @@ export class CourseCaseService {
               }
               tabsUpdated++
             } else {
-              // Create new tab if doesn't exist
               const newTab = await tx.caseTab.create({
                 data: {
                   courseCaseId: data.courseCaseId,
                   tabType,
-                  content: data.tabs[tabType]
+                  content: data.tabs[tabType]!
                 }
               })
               tabsResponse[tabType] = {
@@ -970,7 +1026,6 @@ export class CourseCaseService {
               }
             }
           } else if (existingTab) {
-            // Include existing tab in response
             tabsResponse[tabType] = {
               id: existingTab.id,
               content: existingTab.content,
@@ -979,7 +1034,6 @@ export class CourseCaseService {
           }
         }
       } else {
-        // Include all existing tabs in response
         for (const tab of existingCourseCase.caseTabs) {
           tabsResponse[tab.tabType] = {
             id: tab.id,
@@ -989,13 +1043,111 @@ export class CourseCaseService {
         }
       }
   
-      // Step 4: Handle specialties and curriculums
+      // Step 4: Handle marking criteria updates
+      let markingCriteriaResponse: GroupedCriteria[] = []
+      if (data.markingCriteria) {
+        const existingCriteria = await tx.markingCriterion.findMany({
+          where: { courseCaseId: data.courseCaseId }
+        })
+        const existingIds = existingCriteria.map(c => c.id)
+        const incomingIds = data.markingCriteria.map((c: any) => c.id).filter(Boolean) as string[]
+        
+        // Delete removed criteria
+        const idsToDelete = existingIds.filter(id => !incomingIds.includes(id))
+        if (idsToDelete.length > 0) {
+          await tx.markingCriterion.deleteMany({
+            where: { id: { in: idsToDelete } }
+          })
+        }
+        
+        // Update/create criteria
+        const updatedCriteria: MarkingCriterionWithDomain[] = []
+        for (const item of data.markingCriteria) {
+          if (item.id && existingIds.includes(item.id)) {
+            const updated = await tx.markingCriterion.update({
+              where: { id: item.id },
+              data: {
+                markingDomainId: item.markingDomainId,
+                text: item.text,
+                points: item.points,
+                displayOrder: item.displayOrder
+              },
+              include: {
+                markingDomain: true
+              }
+            }) as MarkingCriterionWithDomain
+            updatedCriteria.push(updated)
+          } else {
+            const created = await tx.markingCriterion.create({
+              data: {
+                courseCaseId: data.courseCaseId,
+                markingDomainId: item.markingDomainId,
+                text: item.text,
+                points: item.points,
+                displayOrder: item.displayOrder
+              },
+              include: {
+                markingDomain: true
+              }
+            }) as MarkingCriterionWithDomain
+            updatedCriteria.push(created)
+          }
+        }
+        
+        // Group by domain for response with proper typing
+        markingCriteriaResponse = updatedCriteria.reduce((acc: GroupedCriteria[], criterion: MarkingCriterionWithDomain) => {
+          const domainId = criterion.markingDomain.id
+          const domainName = criterion.markingDomain.name
+          
+          let group = acc.find(g => g.domainId === domainId)
+          if (!group) {
+            group = { domainId, domainName, criteria: [] }
+            acc.push(group)
+          }
+          
+          group.criteria.push({
+            id: criterion.id,
+            text: criterion.text,
+            points: criterion.points,
+            displayOrder: criterion.displayOrder
+          })
+          
+          return acc
+        }, [])
+      } else {
+        // Fetch existing marking criteria
+        const existingCriteria = await tx.markingCriterion.findMany({
+          where: { courseCaseId: data.courseCaseId },
+          include: { markingDomain: true }
+        }) as MarkingCriterionWithDomain[]
+        
+        markingCriteriaResponse = existingCriteria.reduce((acc: GroupedCriteria[], criterion: MarkingCriterionWithDomain) => {
+          const domainId = criterion.markingDomain.id
+          const domainName = criterion.markingDomain.name
+          
+          let group = acc.find(g => g.domainId === domainId)
+          if (!group) {
+            group = { domainId, domainName, criteria: [] }
+            acc.push(group)
+          }
+          
+          group.criteria.push({
+            id: criterion.id,
+            text: criterion.text,
+            points: criterion.points,
+            displayOrder: criterion.displayOrder
+          })
+          
+          return acc
+        }, [])
+      }
+  
+      // Step 5: Handle specialties and curriculums
       const createdEntities = {
         specialties: [] as any[],
         curriculums: [] as any[]
       }
   
-      // Create new specialties
       if (data.new?.specialties && data.new.specialties.length > 0) {
         for (const specialty of data.new.specialties) {
           const existing = await tx.specialty.findFirst({
@@ -1018,7 +1170,6 @@ export class CourseCaseService {
         }
       }
   
-      // Create new curriculums
       if (data.new?.curriculums && data.new.curriculums.length > 0) {
         for (const curriculum of data.new.curriculums) {
           const existing = await tx.curriculum.findFirst({
@@ -1041,14 +1192,11 @@ export class CourseCaseService {
         }
       }
   
-      // Update specialties if provided
       if (data.existing?.specialtyIds !== undefined || createdEntities.specialties.length > 0) {
-        // Remove existing assignments
         await tx.caseSpecialty.deleteMany({
           where: { courseCaseId: data.courseCaseId }
         })
   
-        // Create new assignments
         const allSpecialtyIds = [
           ...(data.existing?.specialtyIds || []),
           ...createdEntities.specialties.map(s => s.id)
@@ -1064,14 +1212,11 @@ export class CourseCaseService {
         }
       }
   
-      // Update curriculums if provided
       if (data.existing?.curriculumIds !== undefined || createdEntities.curriculums.length > 0) {
-        // Remove existing assignments
         await tx.caseCurriculum.deleteMany({
           where: { courseCaseId: data.courseCaseId }
         })
   
-        // Create new assignments
         const allCurriculumIds = [
           ...(data.existing?.curriculumIds || []),
           ...createdEntities.curriculums.map(c => c.id)
@@ -1087,10 +1232,9 @@ export class CourseCaseService {
         }
       }
   
-      // Step 5: Update or create simulation
+      // Step 6: Update or create simulation
       let simulation = existingCourseCase.simulation
       if (data.simulation) {
-        // Validate warning time
         if (data.simulation.warningTimeMinutes && 
             data.simulation.timeLimitMinutes &&
             data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
@@ -1098,13 +1242,11 @@ export class CourseCaseService {
         }
   
         if (simulation) {
-          // Update existing simulation
           simulation = await tx.simulation.update({
             where: { id: simulation.id },
             data: data.simulation
           })
         } else {
-          // Create new simulation
           simulation = await tx.simulation.create({
             data: {
               courseCaseId: data.courseCaseId,
@@ -1119,7 +1261,7 @@ export class CourseCaseService {
         }
       }
   
-      // Step 6: Fetch all current relations for response
+      // Step 7: Fetch all current relations for response
       const currentSpecialties = await tx.caseSpecialty.findMany({
         where: { courseCaseId: data.courseCaseId },
         include: { specialty: true }
@@ -1130,7 +1272,6 @@ export class CourseCaseService {
         include: { curriculum: true }
       })
   
-      // Count new entities created
       const newSpecialtiesCount = createdEntities.specialties.filter(s => 
         data.new?.specialties?.some(ns => ns.name === s.name)
       ).length
@@ -1139,10 +1280,10 @@ export class CourseCaseService {
         data.new?.curriculums?.some(nc => nc.name === c.name)
       ).length
   
-      // Return comprehensive response
       return {
         courseCase: updatedCourseCase,
         tabs: tabsResponse,
+        markingCriteria: markingCriteriaResponse,
         created: {
           specialties: createdEntities.specialties.filter(s => 
             data.new?.specialties?.some(ns => ns.name === s.name)
@@ -1162,7 +1303,8 @@ export class CourseCaseService {
           newEntitiesCreated: newSpecialtiesCount + newCurriculumsCount,
           simulationCreated: !existingCourseCase.simulation && !!simulation,
           tabsCreated: 0,
-          tabsUpdated
+          tabsUpdated,
+          markingCriteriaCreated: data.markingCriteria?.filter((c: any) => !c.id).length || 0
         }
       }
     })

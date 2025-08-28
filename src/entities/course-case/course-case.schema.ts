@@ -13,7 +13,7 @@ export const createCourseCaseSchema = z.object({
     .trim(),
   diagnosis: z.string()
     .min(1, 'Diagnosis is required')
-    .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
+    .max(100000, 'Diagnosis must be less than 100000 characters')
     .trim(),
   patientName: z.string()
     .min(1, 'Patient name is required')
@@ -26,13 +26,13 @@ export const createCourseCaseSchema = z.object({
   patientGender: PatientGenderEnum,
   description: z.string()
     .min(1, 'Description is required')
-    .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
+    .max(100000, 'Description must be less than 100000 characters')
     .trim(),
   isFree: z.boolean().default(false).optional(),
   displayOrder: z.number()
     .int('Display order must be a whole number')
     .min(1, 'Display order must be positive')
-    .optional() // Will be auto-assigned if not provided
+    .optional()
 })
 
 // Update CourseCase Schema
@@ -44,7 +44,7 @@ export const updateCourseCaseSchema = z.object({
     .optional(),
   diagnosis: z.string()
     .min(1, 'Diagnosis is required')
-    .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
+    .max(100000, 'Diagnosis must be less than 100000 characters')
     .trim()
     .optional(),
   patientName: z.string()
@@ -60,7 +60,7 @@ export const updateCourseCaseSchema = z.object({
   patientGender: PatientGenderEnum.optional(),
   description: z.string()
     .min(1, 'Description is required')
-    .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
+    .max(100000, 'Description must be less than 100000 characters')
     .trim()
     .optional(),
   isFree: z.boolean().optional(),
@@ -113,9 +113,7 @@ export const courseCaseResponseSchema = z.object({
   })
 })
 
-// ===== COMPLETE COURSE CASE SCHEMAS =====
-
-// Schema for creating/updating complete course case with all relations
+// Complete Course Case Schemas
 export const createCompleteCourseCaseSchema = z.object({
   // Basic course case info
   courseCase: z.object({
@@ -126,7 +124,7 @@ export const createCompleteCourseCaseSchema = z.object({
       .trim(),
     diagnosis: z.string()
       .min(1, 'Diagnosis is required')
-      .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
+      .max(100000, 'Diagnosis must be less than 100000 characters')
       .trim(),
     patientName: z.string()
       .min(1, 'Patient name is required')
@@ -139,7 +137,7 @@ export const createCompleteCourseCaseSchema = z.object({
     patientGender: PatientGenderEnum,
     description: z.string()
       .min(1, 'Description is required')
-      .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
+      .max(100000, 'Description must be less than 100000 characters')
       .trim(),
     isFree: z.boolean().default(false).optional(),
     displayOrder: z.number()
@@ -148,25 +146,29 @@ export const createCompleteCourseCaseSchema = z.object({
       .optional()
   }),
   
-  // Tabs content - Accept either string or array of strings for flexibility
+  // Tabs content - only 3 types now
   tabs: z.object({
     DOCTORS_NOTE: z.union([
       z.string(),
       z.array(z.string())
-    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]).optional(),
     PATIENT_SCRIPT: z.union([
       z.string(),
       z.array(z.string())
-    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
-    MARKING_CRITERIA: z.union([
-      z.string(),
-      z.array(z.string())
-    ]).default('').transform(val => Array.isArray(val) ? val : [val]),
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]).optional(),
     MEDICAL_NOTES: z.union([
       z.string(),
       z.array(z.string())
-    ]).default('').transform(val => Array.isArray(val) ? val : [val])
+    ]).default('').transform(val => Array.isArray(val) ? val : [val]).optional()
   }).optional(),
+  
+  // Marking criteria as separate entities
+  markingCriteria: z.array(z.object({
+    markingDomainId: z.string().uuid('Invalid marking domain ID'),
+    text: z.string().min(1).max(500),
+    points: z.number().int().min(0),
+    displayOrder: z.number().int().min(0)
+  })).optional(),
   
   // Existing entities (by ID)
   existing: z.object({
@@ -184,11 +186,11 @@ export const createCompleteCourseCaseSchema = z.object({
     })).default([])
   }).optional(),
   
-  // Simulation configuration (optional)
+  // Simulation configuration
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
-      .max(100000, 'Case prompt must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
+      .max(100000, 'Case prompt must be less than 100000 characters')
       .trim(),
     openingLine: z.string()
       .min(5, 'Opening line must be at least 5 characters')
@@ -213,10 +215,8 @@ export const createCompleteCourseCaseSchema = z.object({
 
 // Update complete course case schema
 export const updateCompleteCourseCaseSchema = z.object({
-  // Course case ID for update
   courseCaseId: z.string().uuid('Invalid course case ID'),
   
-  // Basic course case info (all optional for update)
   courseCase: z.object({
     title: z.string()
       .min(1, 'Title is required')
@@ -225,7 +225,7 @@ export const updateCompleteCourseCaseSchema = z.object({
       .optional(),
     diagnosis: z.string()
       .min(1, 'Diagnosis is required')
-      .max(100000, 'Diagnosis must be less than 100000 characters')  // CHANGED FROM 200 TO 100000
+      .max(100000, 'Diagnosis must be less than 100000 characters')
       .trim()
       .optional(),
     patientName: z.string()
@@ -241,7 +241,7 @@ export const updateCompleteCourseCaseSchema = z.object({
     patientGender: PatientGenderEnum.optional(),
     description: z.string()
       .min(1, 'Description is required')
-      .max(100000, 'Description must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
+      .max(100000, 'Description must be less than 100000 characters')
       .trim()
       .optional(),
     isFree: z.boolean().optional(),
@@ -251,7 +251,7 @@ export const updateCompleteCourseCaseSchema = z.object({
       .optional()
   }).optional(),
   
-  // Tabs content (optional) - Accept either string or array of strings
+  // Tabs content - only 3 types
   tabs: z.object({
     DOCTORS_NOTE: z.union([
       z.string(),
@@ -261,17 +261,21 @@ export const updateCompleteCourseCaseSchema = z.object({
       z.string(),
       z.array(z.string())
     ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
-    MARKING_CRITERIA: z.union([
-      z.string(),
-      z.array(z.string())
-    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
     MEDICAL_NOTES: z.union([
       z.string(),
       z.array(z.string())
     ]).transform(val => Array.isArray(val) ? val : [val]).optional()
   }).optional(),
   
-  // Relations update
+  // Marking criteria
+  markingCriteria: z.array(z.object({
+    id: z.string().uuid().optional(),
+    markingDomainId: z.string().uuid(),
+    text: z.string().min(1).max(500),
+    points: z.number().int().min(0),
+    displayOrder: z.number().int().min(0)
+  })).optional(),
+  
   existing: z.object({
     specialtyIds: z.array(z.string().uuid('Invalid specialty ID')).optional(),
     curriculumIds: z.array(z.string().uuid('Invalid curriculum ID')).optional()
@@ -286,11 +290,10 @@ export const updateCompleteCourseCaseSchema = z.object({
     })).optional()
   }).optional(),
   
-  // Simulation update (optional)
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
-      .max(100000, 'Case prompt must be less than 100000 characters')  // CHANGED FROM 2000 TO 100000
+      .max(100000, 'Case prompt must be less than 100000 characters')
       .trim()
       .optional(),
     openingLine: z.string()
@@ -316,7 +319,7 @@ export const updateCompleteCourseCaseSchema = z.object({
   }).optional()
 })
 
-// Response schema for complete course case creation/update
+// Response schema for complete course case
 export const completeCourseCaseResponseSchema = z.object({
   courseCase: z.object({
     id: z.string(),
@@ -333,25 +336,30 @@ export const completeCourseCaseResponseSchema = z.object({
   tabs: z.object({
     DOCTORS_NOTE: z.object({
       id: z.string(),
-      content: z.array(z.string()),  // Changed to array
+      content: z.array(z.string()),
       hasContent: z.boolean()
-    }),
+    }).optional(),
     PATIENT_SCRIPT: z.object({
       id: z.string(),
-      content: z.array(z.string()),  // Changed to array
+      content: z.array(z.string()),
       hasContent: z.boolean()
-    }),
-    MARKING_CRITERIA: z.object({
-      id: z.string(),
-      content: z.array(z.string()),  // Changed to array
-      hasContent: z.boolean()
-    }),
+    }).optional(),
     MEDICAL_NOTES: z.object({
       id: z.string(),
-      content: z.array(z.string()),  // Changed to array
+      content: z.array(z.string()),
       hasContent: z.boolean()
-    })
+    }).optional()
   }),
+  markingCriteria: z.array(z.object({
+    domainId: z.string(),
+    domainName: z.string(),
+    criteria: z.array(z.object({
+      id: z.string(),
+      text: z.string(),
+      points: z.number(),
+      displayOrder: z.number()
+    }))
+  })),
   created: z.object({
     specialties: z.array(z.object({
       id: z.string(),
@@ -387,7 +395,8 @@ export const completeCourseCaseResponseSchema = z.object({
     newEntitiesCreated: z.number(),
     simulationCreated: z.boolean(),
     tabsCreated: z.number(),
-    tabsUpdated: z.number()
+    tabsUpdated: z.number(),
+    markingCriteriaCreated: z.number()
   })
 })
 
@@ -399,8 +408,6 @@ export type CourseCaseCourseParams = z.infer<typeof courseCaseCourseParamsSchema
 export type ReorderCourseCaseInput = z.infer<typeof reorderCourseCaseSchema>
 export type CourseCaseResponse = z.infer<typeof courseCaseResponseSchema>
 export type PatientGender = z.infer<typeof PatientGenderEnum>
-
-// Complete course case type exports
 export type CreateCompleteCourseCaseInput = z.infer<typeof createCompleteCourseCaseSchema>
 export type UpdateCompleteCourseCaseInput = z.infer<typeof updateCompleteCourseCaseSchema>
 export type CompleteCourseCaseResponse = z.infer<typeof completeCourseCaseResponseSchema>

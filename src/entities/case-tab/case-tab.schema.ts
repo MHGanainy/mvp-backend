@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { PatientGenderEnum } from '../course-case/course-case.schema'
 
-// CaseTabType enum
-export const CaseTabTypeEnum = z.enum(['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES'])
+// CaseTabType enum - ADJUSTED: 'MARKING_CRITERIA' has been removed.
+export const CaseTabTypeEnum = z.enum(['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MEDICAL_NOTES'])
+export type CaseTabType = z.infer<typeof CaseTabTypeEnum>
 
 // Create CaseTab Schema
 export const createCaseTabSchema = z.object({
@@ -40,14 +41,14 @@ export const courseParamsSchema = z.object({
   courseId: z.string().uuid('Invalid course ID')
 })
 
-// Bulk update schema
+// Bulk update schema - ADJUSTED: Max tabs is now 3
 export const bulkUpdateCaseTabSchema = z.object({
   tabUpdates: z.array(z.object({
     tabType: CaseTabTypeEnum,
     content: z.array(z.string())
       .refine(arr => arr.every(item => item.length <= 10000), 
         'Each content item must be less than 10,000 characters')
-  })).min(1, 'At least one tab update is required').max(4, 'Cannot update more than 4 tabs')
+  })).min(1, 'At least one tab update is required').max(3, 'Cannot update more than 3 tabs')
 })
 
 // Create all tabs schema
@@ -122,4 +123,3 @@ export type CreateAllTabsInput = z.infer<typeof createAllTabsSchema>
 export type CaseTabResponse = z.infer<typeof caseTabResponseSchema>
 export type CaseTabStatsResponse = z.infer<typeof caseTabStatsResponseSchema>
 export type CourseTabsOverviewResponse = z.infer<typeof courseTabsOverviewResponseSchema>
-export type CaseTabType = z.infer<typeof CaseTabTypeEnum>

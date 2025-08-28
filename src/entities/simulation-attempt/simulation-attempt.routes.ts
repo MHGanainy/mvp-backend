@@ -370,6 +370,7 @@ fastify.patch('/simulation-attempts/:id/complete-with-transcript', async (reques
 
 
 // POST /simulation-attempts/test-ai-feedback - Test AI feedback generation
+// POST /simulation-attempts/test-ai-feedback - Test AI feedback generation
 fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => {
   try {
     // Sample test data
@@ -385,41 +386,7 @@ fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => 
           speaker: "ai_patient" as const,
           message: "Hello doctor. I've been having chest pain for the past few days and I'm quite worried about it."
         },
-        {
-          timestamp: "00:00:25",
-          speaker: "student" as const,
-          message: "I understand your concern. Can you tell me more about when this chest pain started and what it feels like?"
-        },
-        {
-          timestamp: "00:00:35",
-          speaker: "ai_patient" as const,
-          message: "It started about 3 days ago. It's a sharp pain on the left side of my chest, and it gets worse when I take deep breaths."
-        },
-        {
-          timestamp: "00:00:50",
-          speaker: "student" as const,
-          message: "That must be uncomfortable. Have you noticed if anything specific triggers the pain, like physical activity or certain movements?"
-        },
-        {
-          timestamp: "00:01:05",
-          speaker: "ai_patient" as const,
-          message: "Yes, it definitely gets worse when I move around or cough. I also feel short of breath sometimes."
-        },
-        {
-          timestamp: "00:01:20",
-          speaker: "student" as const,
-          message: "I see. Have you had any recent injuries, surgeries, or traveled on long flights recently?"
-        },
-        {
-          timestamp: "00:01:30",
-          speaker: "ai_patient" as const,
-          message: "No recent injuries or surgeries. I did take a long flight from Europe about a week ago for work."
-        },
-        {
-          timestamp: "00:01:45",
-          speaker: "student" as const,
-          message: "That's important information. Given your symptoms and recent travel, I'd like to examine you and possibly run some tests to rule out any serious conditions."
-        }
+        // ... rest of messages
       ],
       duration: 180,
       totalMessages: 9
@@ -433,69 +400,72 @@ fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => 
       patientGender: "Female"
     };
 
-    // Sample exam marking domains (these would come from your database)
-    const testExamMarkingDomains = [
+    // Sample case tabs
+    const testCaseTabs = {
+      doctorsNote: [
+        "Patient presents with acute chest pain",
+        "Recent long-haul flight history",
+        "Consider PE in differential"
+      ],
+      patientScript: [
+        "I have sharp chest pain that started 3 days ago",
+        "The pain gets worse when I breathe deeply",
+        "I flew from Europe last week"
+      ],
+      medicalNotes: [
+        "Risk factors: Recent travel, OCP use",
+        "Wells criteria assessment indicated",
+        "Consider D-dimer and CTPA if indicated"
+      ]
+    };
+
+    // Sample marking domains with criteria
+    const testMarkingDomainsWithCriteria = [
       {
-        id: "domain-1",
-        name: "Communication Skills",
-        description: "Ability to communicate effectively with patients, showing empathy and active listening",
-        weight: 25
+        domainId: "domain-1",
+        domainName: "Communication Skills",
+        criteria: [
+          {
+            id: "crit-1",
+            text: "Introduces self appropriately",
+            points: 5,
+            displayOrder: 1
+          },
+          {
+            id: "crit-2",
+            text: "Uses open-ended questions",
+            points: 5,
+            displayOrder: 2
+          }
+        ]
       },
       {
-        id: "domain-2", 
-        name: "Clinical History Taking",
-        description: "Systematic approach to gathering relevant medical history",
-        weight: 30
-      },
-      {
-        id: "domain-3",
-        name: "Risk Assessment", 
-        description: "Ability to identify and assess potential risks and red flags",
-        weight: 25
-      },
-      {
-        id: "domain-4",
-        name: "Professional Behavior",
-        description: "Demonstrates professional conduct and appropriate bedside manner",
-        weight: 20
+        domainId: "domain-2",
+        domainName: "Clinical History Taking",
+        criteria: [
+          {
+            id: "crit-3",
+            text: "Asks about recent travel history",
+            points: 10,
+            displayOrder: 1
+          },
+          {
+            id: "crit-4",
+            text: "Explores pain characteristics",
+            points: 8,
+            displayOrder: 2
+          }
+        ]
       }
     ];
 
-    // Sample case-specific marking criteria (these would come from the MARKING_CRITERIA case tab)
-    const testCaseMarkingCriteria = [
-      {
-        criteria: "Asks about recent travel history (essential for PE risk assessment)",
-        points: 10,
-        description: "Student must inquire about recent long-distance travel"
-      },
-      {
-        criteria: "Identifies chest pain characteristics (sharp, pleuritic)",
-        points: 8,
-        description: "Student should explore pain quality and triggers"
-      },
-      {
-        criteria: "Assesses shortness of breath symptoms",
-        points: 8,
-        description: "Important symptom for pulmonary embolism assessment"
-      },
-      {
-        criteria: "Demonstrates appropriate concern for serious pathology",
-        points: 10,
-        description: "Student should recognize potential for serious condition"
-      },
-      {
-        criteria: "Plans appropriate further investigation",
-        points: 12,
-        description: "Should mention need for tests/examination given symptoms"
-      }
-    ];
-
+    // Call with correct parameter order
     const result = await aiFeedbackService.generateFeedback(
       testTranscript,
       testCaseInfo,
-      180,
-      testExamMarkingDomains,
-      testCaseMarkingCriteria
+      testCaseTabs,  // CaseTabs object (3rd parameter)
+      180,  // duration in seconds (4th parameter)
+      testMarkingDomainsWithCriteria  // marking domains (5th parameter)
     );
 
     reply.send({
@@ -504,13 +474,14 @@ fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => 
       testData: {
         transcript: testTranscript,
         caseInfo: testCaseInfo,
-        examMarkingDomains: testExamMarkingDomains,
-        caseMarkingCriteria: testCaseMarkingCriteria,
+        caseTabs: testCaseTabs,
+        markingDomainsWithCriteria: testMarkingDomainsWithCriteria,
         enhancedFeatures: {
-          examDomainsUsed: testExamMarkingDomains.length,
-          caseSpecificCriteriaUsed: testCaseMarkingCriteria.length,
-          totalPossiblePoints: testCaseMarkingCriteria.reduce((sum, criteria) => sum + (criteria.points || 0), 0),
-          structureImprovement: "Case-specific criteria now structured like marking domains"
+          domainsUsed: testMarkingDomainsWithCriteria.length,
+          totalPossiblePoints: testMarkingDomainsWithCriteria.reduce((sum, domain) => 
+            sum + domain.criteria.reduce((cSum, c) => cSum + c.points, 0), 0
+          ),
+          structureImprovement: "Now using structured marking criteria grouped by domain"
         }
       }
     });

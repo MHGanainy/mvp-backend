@@ -31,7 +31,7 @@ model Instructor {
   updatedAt DateTime @updatedAt @map("updated_at")
   courses   Course[]
   exams     Exam[]
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("instructors")
 }
@@ -48,7 +48,7 @@ model Student {
   creditTransactions CreditTransaction[]
   payments           Payment[]
   simulationAttempts SimulationAttempt[]
-  user               User                @relation(fields: [userId], references: [id])
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   subscriptions      Subscription[]
 
   @@map("students")
@@ -67,7 +67,7 @@ model Exam {
   examCurriculums    ExamCurriculum[]
   examMarkingDomains ExamMarkingDomain[]
   examSpecialties    ExamSpecialty[]
-  instructor         Instructor          @relation(fields: [instructorId], references: [id])
+  instructor         Instructor          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
 
   @@map("exams")
 }
@@ -90,33 +90,49 @@ model Course {
   updatedAt       DateTime       @updatedAt @map("updated_at")
   infoPoints      String[]       @default([]) @map("info_points")
   courseCases     CourseCase[]
-  exam            Exam           @relation(fields: [examId], references: [id])
-  instructor      Instructor     @relation(fields: [instructorId], references: [id])
+  exam            Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  instructor      Instructor     @relation(fields: [instructorId], references: [id], onDelete: Restrict)
   subscriptions   Subscription[]
 
   @@map("courses")
 }
 
 model CourseCase {
-  id              String           @id @default(uuid())
-  courseId        String           @map("course_id")
+  id              String             @id @default(uuid())
+  courseId        String             @map("course_id")
   title           String
   diagnosis       String
-  patientName     String           @map("patient_name")
-  patientAge      Int              @map("patient_age")
-  patientGender   PatientGender    @map("patient_gender")
+  patientName     String             @map("patient_name")
+  patientAge      Int                @map("patient_age")
+  patientGender   PatientGender      @map("patient_gender")
   description     String
-  isFree          Boolean          @default(false) @map("is_free")
-  displayOrder    Int              @map("display_order")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  isFree          Boolean            @default(false) @map("is_free")
+  displayOrder    Int                @map("display_order")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
   caseCurriculums CaseCurriculum[]
   caseSpecialties CaseSpecialty[]
   caseTabs        CaseTab[]
-  course          Course           @relation(fields: [courseId], references: [id])
+  course          Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
   simulation      Simulation?
+  markingCriteria MarkingCriterion[] // Relation to the new model
 
   @@map("course_cases")
+}
+
+// ✨ NEW MODEL: To group marking criteria under domains
+model MarkingCriterion {
+  id              String        @id @default(uuid())
+  courseCaseId    String        @map("course_case_id")
+  markingDomainId String        @map("marking_domain_id")
+  text            String
+  points          Int           @default(0)
+  displayOrder    Int           @map("display_order")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  courseCase      CourseCase    @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
+  markingDomain   MarkingDomain @relation(fields: [markingDomainId], references: [id], onDelete: Cascade)
+
+  @@map("marking_criteria")
 }
 
 model CaseTab {
@@ -144,27 +160,27 @@ model Simulation {
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   simulationAttempts SimulationAttempt[]
-  courseCase         CourseCase          @relation(fields: [courseCaseId], references: [id])
+  courseCase         CourseCase          @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
 
   @@map("simulations")
 }
 
 model SimulationAttempt {
-  id              String     @id @default(uuid())
-  studentId       String     @map("student_id")
-  simulationId    String     @map("simulation_id")
-  startedAt       DateTime   @map("started_at")
-  endedAt         DateTime?  @map("ended_at")
-  durationSeconds Int?       @map("duration_seconds")
-  isCompleted     Boolean    @default(false) @map("is_completed")
-  score           Decimal?   @db.Decimal(5, 2)
-  aiFeedback      Json?      @map("ai_feedback")
-  aiPrompt        Json?      @map("ai_prompt")
-  transcript      Json?
-  createdAt       DateTime   @default(now()) @map("created_at")
-  simulation      Simulation @relation(fields: [simulationId], references: [id])
-  student         Student    @relation(fields: [studentId], references: [id])
-  correlationToken  String?   @unique
+  id               String      @id @default(uuid())
+  studentId        String      @map("student_id")
+  simulationId     String      @map("simulation_id")
+  startedAt        DateTime    @map("started_at")
+  endedAt          DateTime?   @map("ended_at")
+  durationSeconds  Int?        @map("duration_seconds")
+  isCompleted      Boolean     @default(false) @map("is_completed")
+  score            Decimal?    @db.Decimal(5, 2)
+  aiFeedback       Json?       @map("ai_feedback")
+  aiPrompt         Json?       @map("ai_prompt")
+  transcript       Json?
+  createdAt        DateTime    @default(now()) @map("created_at")
+  simulation       Simulation  @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  student          Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  correlationToken String?     @unique
 
   @@map("simulation_attempts")
 }
@@ -181,7 +197,7 @@ model Payment {
   subscriptionDuration Int?          @map("subscription_duration")
   creditsAmount        Int?          @map("credits_amount")
   createdAt            DateTime      @default(now()) @map("created_at")
-  student              Student       @relation(fields: [studentId], references: [id])
+  student              Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   subscription         Subscription?
 
   @@map("payments")
@@ -197,9 +213,9 @@ model Subscription {
   endDate        DateTime @map("end_date") @db.Date
   isActive       Boolean  @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at")
-  course         Course   @relation(fields: [courseId], references: [id])
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Restrict)
   payment        Payment  @relation(fields: [paymentId], references: [id])
-  student        Student  @relation(fields: [studentId], references: [id])
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("subscriptions")
 }
@@ -215,7 +231,7 @@ model CreditTransaction {
   description     String?
   expiresAt       DateTime?               @map("expires_at")
   createdAt       DateTime                @default(now()) @map("created_at")
-  student         Student                 @relation(fields: [studentId], references: [id])
+  student         Student                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("credit_transactions")
 }
@@ -245,6 +261,7 @@ model MarkingDomain {
   name               String              @unique
   createdAt          DateTime            @default(now()) @map("created_at")
   examMarkingDomains ExamMarkingDomain[]
+  markingCriteria    MarkingCriterion[] // Relation to the new model
 
   @@map("marking_domains")
 }
@@ -283,11 +300,11 @@ model ExamMarkingDomain {
 }
 
 model CaseSpecialty {
-  courseCaseId String     @map("course_case_id")
-  specialtyId  String     @map("specialty_id")
-  createdAt    DateTime   @default(now()) @map("created_at")
+  courseCaseId String    @map("course_case_id")
+  specialtyId  String    @map("specialty_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
   courseCase   CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
-  specialty    Specialty  @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  specialty    Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
 
   @@id([courseCaseId, specialtyId])
   @@map("case_specialties")
@@ -319,11 +336,9 @@ enum VoiceModel {
   VOICE_1
   VOICE_2
 }
-
 enum CaseTabType {
   DOCTORS_NOTE
   PATIENT_SCRIPT
-  MARKING_CRITERIA
   MEDICAL_NOTES
 }
 

@@ -26,6 +26,8 @@ import {
   filterQuerySchema
 } from '../../shared/junction-tables.schema'
 
+import { MarkingCriterionService } from '../marking-criterion/marking-criterion.service'
+
 // Additional schemas for query parameters
 const genderParamsSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
@@ -34,6 +36,7 @@ const genderParamsSchema = z.object({
 
 export default async function courseCaseRoutes(fastify: FastifyInstance) {
   const courseCaseService = new CourseCaseService(fastify.prisma)
+  const markingCriterionService = new MarkingCriterionService(fastify.prisma)
 
   // GET /course-cases - Get all course cases
   fastify.get('/course-cases', async (request, reply) => {
@@ -520,64 +523,115 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   })
 
   // GET /course-cases/:id/complete - Get course case with all relations
-  fastify.get('/course-cases/:id/complete', async (request, reply) => {
-    try {
-      const { id } = courseCaseParamsSchema.parse(request.params)
-      
-      // Fetch course case with all relations
-      const courseCase = await courseCaseService.findById(id)
-      
-      // Get all tabs
-      const tabs = await fastify.prisma.caseTab.findMany({
-        where: { courseCaseId: id }
-      })
-      
-      // Get specialties
-      const specialties = await courseCaseService.getCaseSpecialties(id)
-      
-      // Get curriculums
-      const curriculums = await courseCaseService.getCaseCurriculums(id)
-      
-      // Get simulation
-      const simulation = await fastify.prisma.simulation.findUnique({
-        where: { courseCaseId: id }
-      })
-      
-      // Format response
-      const tabsResponse: any = {}
-      for (const tab of tabs) {
-        tabsResponse[tab.tabType] = {
-          id: tab.id,
-          content: tab.content,
-          hasContent: tab.content.length > 0 // Changed from tab.content.trim().length > 0
+  // GET /course-cases/:id/complete - Get course case with all relations
+fastify.get('/course-cases/:id/complete', async (request, reply) => {
+  try {
+    const { id } = courseCaseParamsSchema.parse(request.params)
+    
+    // Fetch complete course case data with all relations
+    const courseCase = await fastify.prisma.courseCase.findUnique({
+      where: { id },
+      include: {
+        course: {
+          include: {
+            exam: {
+              select: {
+                id: true,
+                title: true,
+                slug: true
+              }
+            }
+          }
+        },
+        simulation: true,
+        caseTabs: true,
+        markingCriteria: {
+          include: {
+            markingDomain: true
+          },
+          orderBy: [
+            { markingDomain: { name: 'asc' } },
+            { displayOrder: 'asc' }
+          ]
+        },
+        caseSpecialties: {
+          include: {
+            specialty: true
+          }
+        },
+        caseCurriculums: {
+          include: {
+            curriculum: true
+          }
         }
       }
-      
-      reply.send({
-        courseCase: {
-          id: courseCase.id,
-          courseId: courseCase.courseId,
-          title: courseCase.title,
-          diagnosis: courseCase.diagnosis,
-          patientName: courseCase.patientName,
-          patientAge: courseCase.patientAge,
-          patientGender: courseCase.patientGender,
-          description: courseCase.description,
-          isFree: courseCase.isFree,
-          displayOrder: courseCase.displayOrder
-        },
-        tabs: tabsResponse,
-        specialties,
-        curriculums,
-        simulation,
-        course: courseCase.course
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Course case not found') {
-        reply.status(404).send({ error: 'Course case not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid request' })
+    })
+    
+    if (!courseCase) {
+      reply.status(404).send({ error: 'Course case not found' })
+      return
+    }
+    
+    // Format tabs response
+    const tabsResponse: any = {}
+    for (const tab of courseCase.caseTabs) {
+      tabsResponse[tab.tabType] = {
+        id: tab.id,
+        content: tab.content,
+        hasContent: tab.content.length > 0
       }
     }
-  })
+    
+    // Group marking criteria by domain
+    const markingCriteriaGrouped = courseCase.markingCriteria.reduce((acc, criterion) => {
+      const domainId = criterion.markingDomain.id
+      const domainName = criterion.markingDomain.name
+      
+      let group = acc.find((g: any) => g.domainId === domainId)
+      if (!group) {
+        group = { domainId, domainName, criteria: [] }
+        acc.push(group)
+      }
+      
+      group.criteria.push({
+        id: criterion.id,
+        text: criterion.text,
+        points: criterion.points,
+        displayOrder: criterion.displayOrder
+      })
+      
+      return acc
+    }, [] as any[])
+    
+    // Extract specialties and curriculums
+    const specialties = courseCase.caseSpecialties.map((cs: any) => cs.specialty)
+    const curriculums = courseCase.caseCurriculums.map((cc: any) => cc.curriculum)
+    
+    reply.send({
+      courseCase: {
+        id: courseCase.id,
+        courseId: courseCase.courseId,
+        title: courseCase.title,
+        diagnosis: courseCase.diagnosis,
+        patientName: courseCase.patientName,
+        patientAge: courseCase.patientAge,
+        patientGender: courseCase.patientGender,
+        description: courseCase.description,
+        isFree: courseCase.isFree,
+        displayOrder: courseCase.displayOrder,
+        createdAt: courseCase.createdAt,
+        updatedAt: courseCase.updatedAt
+      },
+      tabs: tabsResponse,
+      markingCriteria: markingCriteriaGrouped,
+      specialties,
+      curriculums,
+      simulation: courseCase.simulation,
+      course: courseCase.course
+    })
+  } catch (error) {
+    console.error('Error fetching complete course case:', error)
+    reply.status(400).send({ error: 'Invalid request' })
+  }
+})
 }

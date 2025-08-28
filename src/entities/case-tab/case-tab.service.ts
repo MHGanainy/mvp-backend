@@ -238,8 +238,8 @@ export class CaseTabService {
       throw new Error('Some tabs already exist for this case')
     }
 
-    // Create all 4 tabs with empty content arrays
-    const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES']
+    // Create all 3 tabs with empty content arrays - ADJUSTED
+    const tabTypes: CaseTabType[] = ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MEDICAL_NOTES']
     
     const tabs = await Promise.all(
       tabTypes.map((tabType: CaseTabType) => 
@@ -321,16 +321,18 @@ export class CaseTabService {
       caseTitle: courseCase.title,
       totalTabs: courseCase.caseTabs.length,
       completedTabs: courseCase.caseTabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length,
+      // ADJUSTED: Completion percentage based on 3 tabs
       completionPercentage: courseCase.caseTabs.length > 0 
-        ? Math.round((courseCase.caseTabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length / 4) * 100)
+        ? Math.round((courseCase.caseTabs.filter((tab: { content: string[] }) => tab.content && tab.content.length > 0).length / 3) * 100)
         : 0
     }))
 
     return {
       courseId,
       totalCases: courseCases.length,
-      casesWithAllTabs: overview.filter((item: { totalTabs: number }) => item.totalTabs === 4).length,
-      casesWithCompletedContent: overview.filter((item: { completedTabs: number }) => item.completedTabs === 4).length,
+      // ADJUSTED: Check for 3 tabs
+      casesWithAllTabs: overview.filter((item: { totalTabs: number }) => item.totalTabs === 3).length,
+      casesWithCompletedContent: overview.filter((item: { completedTabs: number }) => item.completedTabs === 3).length,
       averageCompletion: overview.length > 0 
         ? Math.round(overview.reduce((sum: number, item: { completionPercentage: number }) => sum + item.completionPercentage, 0) / overview.length)
         : 0,

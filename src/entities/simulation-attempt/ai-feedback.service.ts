@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import { TranscriptClean } from '../../shared/types';
 
-// Enhanced types for the AI feedback system
 interface CaseInfo {
   patientName: string;
   diagnosis: string;
@@ -10,38 +9,68 @@ interface CaseInfo {
   patientGender?: string;
 }
 
-interface MarkingDomain {
-  domain: string;
-  score: number;
+interface CaseTabs {
+  doctorsNote: string[];
+  patientScript: string[];
+  medicalNotes: string[];
+}
+
+interface MarkingCriterionResult {
+  criterionId: string;
+  criterionText: string;
+  points: number;
+  met: boolean;
+  transcriptReferences: string[];
   feedback: string;
 }
 
-interface CaseSpecificCriterion {
-  criteria: string;
-  score: number;
-  feedback: string;
+interface MarkingDomainResult {
+  domainId: string;
+  domainName: string;
+  totalPossiblePoints: number;
+  achievedPoints: number;
+  percentageScore: number;
+  criteria: MarkingCriterionResult[];
 }
 
-interface MarkingDomainCriteria {
-  id: string;
-  name: string;
-  description?: string;
-  weight?: number; // Weight percentage for this domain
+// Performance classification enum
+enum PerformanceClassification {
+  CLEAR_PASS = 'CLEAR_PASS',
+  BORDERLINE_PASS = 'BORDERLINE_PASS',
+  BORDERLINE_FAIL = 'BORDERLINE_FAIL',
+  CLEAR_FAIL = 'CLEAR_FAIL'
 }
 
-interface CaseMarkingCriteria {
-  criteria: string;
-  points?: number;
-  description?: string;
+interface OverallResult {
+  classification: PerformanceClassification;
+  classificationLabel: string;
+  percentageMet: number;
+  totalCriteria: number;
+  criteriaMet: number;
+  criteriaNotMet: number;
+  description: string;
 }
 
 interface AIFeedbackResponse {
   overallFeedback: string;
+  overallScore: number;
+  overallResult: OverallResult;
+  markingDomains: MarkingDomainResult[];
   strengths: string[];
   improvements: string[];
-  score: number;
-  markingDomains: MarkingDomain[];
-  caseSpecificCriteria: CaseSpecificCriterion[]; // Changed to structured array
+  totalPossiblePoints: number;
+  totalAchievedPoints: number;
+}
+
+interface MarkingDomainWithCriteria {
+  domainId: string;
+  domainName: string;
+  criteria: {
+    id: string;
+    text: string;
+    points: number;
+    displayOrder: number;
+  }[];
 }
 
 export class AIFeedbackService {
@@ -53,19 +82,51 @@ export class AIFeedbackService {
     });
   }
 
+  private calculatePerformanceClassification(percentageMet: number): {
+    classification: PerformanceClassification;
+    label: string;
+    description: string;
+  } {
+    if (percentageMet > 75) {
+      return {
+        classification: PerformanceClassification.CLEAR_PASS,
+        label: 'Clear Pass',
+        description: 'More than 75% of checklist items met'
+      };
+    } else if (percentageMet >= 50) {
+      return {
+        classification: PerformanceClassification.BORDERLINE_PASS,
+        label: 'Borderline Pass',
+        description: '50% - 75% of checklist items met'
+      };
+    } else if (percentageMet >= 25) {
+      return {
+        classification: PerformanceClassification.BORDERLINE_FAIL,
+        label: 'Borderline Fail',
+        description: '25% - 50% of checklist items met'
+      };
+    } else {
+      return {
+        classification: PerformanceClassification.CLEAR_FAIL,
+        label: 'Clear Fail',
+        description: 'Less than 25% of checklist items met'
+      };
+    }
+  }
+
   async generateFeedback(
     transcript: TranscriptClean,
     caseInfo: CaseInfo,
+    caseTabs: CaseTabs,
     sessionDuration: number,
-    examMarkingDomains: MarkingDomainCriteria[] = [],
-    caseMarkingCriteria: CaseMarkingCriteria[] = []
+    markingDomainsWithCriteria: MarkingDomainWithCriteria[]
   ): Promise<{ 
     feedback: AIFeedbackResponse; 
     score: number; 
     prompts: { systemPrompt: string; userPrompt: string; }
   }> {
   
-    const systemPrompt = this.buildSystemPrompt(caseInfo, examMarkingDomains, caseMarkingCriteria);
+    const systemPrompt = this.buildSystemPrompt(caseInfo, caseTabs, markingDomainsWithCriteria);
     const userPrompt = this.buildUserPrompt(transcript, caseInfo, sessionDuration);
   
     try {
@@ -76,7 +137,7 @@ export class AIFeedbackService {
           { role: "user", content: userPrompt }
         ],
         temperature: 0.3,
-        max_tokens: 3000, // Increased for more detailed feedback
+        max_tokens: 4000,
         response_format: { type: "json_object" }
       });
   
@@ -87,8 +148,35 @@ export class AIFeedbackService {
   
       const aiResponse = JSON.parse(responseContent) as AIFeedbackResponse;
       
-      // Validate and ensure score is within bounds
-      const score = Math.max(0, Math.min(100, aiResponse.score || 0));
+      // Calculate overall statistics
+      let totalCriteria = 0;
+      let criteriaMet = 0;
+      
+      aiResponse.markingDomains.forEach(domain => {
+        domain.criteria.forEach(criterion => {
+          totalCriteria++;
+          if (criterion.met) {
+            criteriaMet++;
+          }
+        });
+      });
+      
+      const percentageMet = totalCriteria > 0 ? (criteriaMet / totalCriteria) * 100 : 0;
+      const classification = this.calculatePerformanceClassification(percentageMet);
+      
+      // Add overall result to response
+      aiResponse.overallResult = {
+        classification: classification.classification,
+        classificationLabel: classification.label,
+        percentageMet: Math.round(percentageMet * 10) / 10, // Round to 1 decimal place
+        totalCriteria,
+        criteriaMet,
+        criteriaNotMet: totalCriteria - criteriaMet,
+        description: classification.description
+      };
+      
+      // Calculate overall score from achieved/possible points
+      const score = Math.round((aiResponse.totalAchievedPoints / aiResponse.totalPossiblePoints) * 100);
   
       return {
         feedback: aiResponse,
@@ -106,45 +194,20 @@ export class AIFeedbackService {
   }
 
   private buildSystemPrompt(
-    caseInfo: CaseInfo, 
-    examMarkingDomains: MarkingDomainCriteria[],
-    caseMarkingCriteria: CaseMarkingCriteria[]
+    caseInfo: CaseInfo,
+    caseTabs: CaseTabs,
+    markingDomainsWithCriteria: MarkingDomainWithCriteria[]
   ): string {
     
-    // Build marking domains section
-    let markingDomainsSection = '';
-    if (examMarkingDomains.length > 0) {
-      markingDomainsSection = `
-EXAM MARKING DOMAINS:
-${examMarkingDomains.map((domain, index) => 
-  `${index + 1}. **${domain.name}** ${domain.weight ? `(${domain.weight}%)` : ''}
-   ${domain.description ? `   Description: ${domain.description}` : ''}`
-).join('\n')}`;
-    } else {
-      // Fallback to default domains if none provided
-      markingDomainsSection = `
-EXAM MARKING DOMAINS:
-1. **Communication Skills** (25%): Active listening, empathy, clear explanations, appropriate tone
-2. **Clinical Assessment** (35%): History taking, physical examination approach, diagnostic reasoning  
-3. **Professionalism** (20%): Respect, confidentiality, ethical considerations, time management
-4. **Patient Safety** (20%): Risk assessment, appropriate follow-up, safety considerations`;
-    }
+    const totalPossiblePoints = markingDomainsWithCriteria.reduce((sum, domain) => 
+      sum + domain.criteria.reduce((domainSum, criterion) => domainSum + criterion.points, 0), 0
+    );
+    
+    const totalCriteria = markingDomainsWithCriteria.reduce((sum, domain) => 
+      sum + domain.criteria.length, 0
+    );
 
-    // Build case-specific criteria section
-    let caseSpecificSection = '';
-    if (caseMarkingCriteria.length > 0) {
-      caseSpecificSection = `
-
-CASE-SPECIFIC MARKING CRITERIA:
-${caseMarkingCriteria.map((criteria, index) => 
-  `${index + 1}. ${criteria.criteria}${criteria.points ? ` (${criteria.points} points)` : ''}
-   ${criteria.description ? `   Detail: ${criteria.description}` : ''}`
-).join('\n')}
-
-The student should be evaluated against each case-specific criterion individually with separate scores and feedback.`;
-    }
-
-    return `You are an expert medical examiner evaluating a medical student's performance during a simulated patient consultation for the SCA (Structured Clinical Assessment) exam.
+    return `You are an expert medical examiner evaluating a medical student's performance during a simulated patient consultation.
 
 PATIENT CASE CONTEXT:
 - Patient Name: ${caseInfo.patientName}
@@ -153,66 +216,95 @@ PATIENT CASE CONTEXT:
 ${caseInfo.patientAge ? `- Patient Age: ${caseInfo.patientAge}` : ''}
 ${caseInfo.patientGender ? `- Patient Gender: ${caseInfo.patientGender}` : ''}
 
-${markingDomainsSection}
-${caseSpecificSection}
+================================
+CASE PREPARATION MATERIALS:
+================================
 
-SCORING GUIDELINES:
-- 90-100: Exceptional performance, exceeds expectations
-- 80-89: Good performance, meets most expectations with minor gaps
-- 70-79: Satisfactory performance, meets basic expectations
-- 60-69: Below expectations, significant areas for improvement
-- 0-59: Unsatisfactory, major deficiencies
+DOCTOR'S NOTES (What the examiner expects):
+${caseTabs.doctorsNote.length > 0 ? caseTabs.doctorsNote.map((note, i) => `${i + 1}. ${note}`).join('\n') : 'No specific doctor notes provided'}
 
-EVALUATION APPROACH:
-1. First evaluate against the general marking domains
-2. Then assess performance against each case-specific criterion individually
-3. Provide separate scores and feedback for each case criterion
-4. Combine both assessments for the overall score and feedback
-5. Provide specific examples from the transcript to support your evaluation
+PATIENT SCRIPT (How the patient should present):
+${caseTabs.patientScript.length > 0 ? caseTabs.patientScript.map((script, i) => `${i + 1}. ${script}`).join('\n') : 'No specific patient script provided'}
+
+MEDICAL NOTES (Key medical information):
+${caseTabs.medicalNotes.length > 0 ? caseTabs.medicalNotes.map((note, i) => `${i + 1}. ${note}`).join('\n') : 'No specific medical notes provided'}
+
+================================
+MARKING CRITERIA:
+================================
+Total Possible Points: ${totalPossiblePoints}
+Total Criteria to Evaluate: ${totalCriteria}
+
+${markingDomainsWithCriteria.map((domain, index) => {
+  const domainPoints = domain.criteria.reduce((sum, c) => sum + c.points, 0);
+  return `
+DOMAIN ${index + 1}: ${domain.domainName}
+Domain ID: ${domain.domainId}
+Total Points in Domain: ${domainPoints}
+Number of Criteria: ${domain.criteria.length}
+Criteria to Evaluate:
+${domain.criteria.map((criterion, cIndex) => `
+  ${cIndex + 1}. [ID: ${criterion.id}] ${criterion.text}
+     Points: ${criterion.points}
+     Evaluate if MET or NOT MET based on the transcript AND case materials.`).join('')}`;
+}).join('\n')}
+
+================================
+PERFORMANCE CLASSIFICATION RULES:
+================================
+Based on the percentage of criteria MET:
+- Clear Pass: More than 75% of criteria met
+- Borderline Pass: 50% - 75% of criteria met  
+- Borderline Fail: 25% - 50% of criteria met
+- Clear Fail: Less than 25% of criteria met
+
+EVALUATION INSTRUCTIONS:
+1. Use the DOCTOR'S NOTES to understand what the examiner expects from the student
+2. Use the PATIENT SCRIPT to assess if the student elicited the correct information
+3. Use the MEDICAL NOTES to verify the student's clinical knowledge and approach
+4. For EACH criterion:
+   - Determine if it was MET (demonstrated) or NOT MET (not/partially demonstrated)
+   - Provide 1-3 EXACT quotes from the transcript supporting your decision
+   - Consider the case materials when making your determination
+   - Provide feedback explaining your decision
+
+5. Criteria are binary - either MET (full points) or NOT MET (0 points)
+6. Be strict but fair - the student must demonstrate competency based on the expected standards
+7. Count the total number of criteria MET vs NOT MET for classification
 
 RESPONSE FORMAT:
-You must respond with a valid JSON object containing:
+You must respond with a valid JSON object in this exact structure:
 {
-  "overallFeedback": "Comprehensive overall assessment considering both general domains and case-specific criteria (2-3 sentences)",
-  "strengths": ["List of 2-4 specific strengths observed"],
-  "improvements": ["List of 2-4 specific areas for improvement"],
-  "score": numeric_score_0_to_100,
+  "overallFeedback": "2-3 sentence summary comparing performance to case expectations and noting the overall classification",
+  "overallScore": calculated_percentage_score_based_on_points,
+  "totalPossiblePoints": ${totalPossiblePoints},
+  "totalAchievedPoints": sum_of_achieved_points,
   "markingDomains": [
-    ${examMarkingDomains.map(domain => `{
-      "domain": "${domain.name}",
-      "score": numeric_score_0_to_100,
-      "feedback": "Specific feedback for this domain with examples from transcript"
-    }`).join(',\n    ') || `{
-      "domain": "Communication Skills",
-      "score": numeric_score_0_to_100,
-      "feedback": "Specific feedback for this domain"
-    },
-    {
-      "domain": "Clinical Assessment", 
-      "score": numeric_score_0_to_100,
-      "feedback": "Specific feedback for this domain"
-    },
-    {
-      "domain": "Professionalism",
-      "score": numeric_score_0_to_100,
-      "feedback": "Specific feedback for this domain"
-    },
-    {
-      "domain": "Patient Safety",
-      "score": numeric_score_0_to_100,
-      "feedback": "Specific feedback for this domain"
-    }`}
-  ]${caseMarkingCriteria.length > 0 ? `,
-  "caseSpecificCriteria": [
-    ${caseMarkingCriteria.map(criteria => `{
-      "criteria": "${criteria.criteria}",
-      "score": numeric_score_0_to_${criteria.points || 10},
-      "feedback": "Specific assessment of how well the student met this criterion"
-    }`).join(',\n    ')}
-  ]` : ''}
+${markingDomainsWithCriteria.map(domain => {
+  const domainPoints = domain.criteria.reduce((sum, c) => sum + c.points, 0);
+  return `    {
+      "domainId": "${domain.domainId}",
+      "domainName": "${domain.domainName}",
+      "totalPossiblePoints": ${domainPoints},
+      "achievedPoints": sum_of_met_criteria_points,
+      "percentageScore": domain_percentage,
+      "criteria": [
+${domain.criteria.map(criterion => `        {
+          "criterionId": "${criterion.id}",
+          "criterionText": "${criterion.text}",
+          "points": ${criterion.points},
+          "met": true_or_false,
+          "transcriptReferences": ["exact quote 1", "exact quote 2"],
+          "feedback": "Explanation referencing case materials where relevant"
+        }`).join(',\n')}
+      ]
+    }`}).join(',\n')}
+  ],
+  "strengths": ["specific strength 1", "specific strength 2"],
+  "improvements": ["specific improvement 1", "specific improvement 2"]
 }
 
-Be constructive, specific, and educational in your feedback. Focus on actionable improvements and cite specific examples from the consultation.`;
+Note: The overall classification will be calculated automatically based on the percentage of criteria met.`;
   }
 
   private buildUserPrompt(
@@ -225,7 +317,7 @@ Be constructive, specific, and educational in your feedback. Focus on actionable
       .map(msg => {
         const speaker = msg.speaker.toLowerCase().includes('student') || msg.speaker.toLowerCase().includes('doctor') 
           ? 'STUDENT' 
-          : 'AI_PATIENT';
+          : 'PATIENT';
         return `[${msg.timestamp}] ${speaker}: ${msg.message}`;
       })
       .join('\n');
@@ -240,17 +332,24 @@ SESSION DETAILS:
 - Total Messages: ${transcript.totalMessages}
 - Case: ${caseInfo.caseTitle}
 
-EVALUATION INSTRUCTIONS:
-1. Analyze the student's performance against each marking domain
-2. Evaluate how well they met the case-specific marking criteria
-3. Provide specific examples from the transcript to support your scores
-4. Consider the flow and quality of the consultation
-5. Assess diagnostic reasoning and patient safety considerations
-6. Ensure all feedback is educational and actionable
+CRITICAL INSTRUCTIONS:
+1. Compare the student's performance against the DOCTOR'S NOTES expectations
+2. Check if the student elicited information mentioned in the PATIENT SCRIPT
+3. Verify the student's approach aligns with the MEDICAL NOTES
+4. Evaluate EACH criterion as either MET or NOT MET (binary decision)
+5. Provide 1-3 EXACT quotes from the transcript for each criterion
+6. Reference the case materials in your feedback where relevant
+7. Calculate points: MET = full points, NOT MET = 0 points
+8. Be aware that the overall classification depends on the percentage of criteria MET
+
+Remember:
+- Clear Pass requires >75% of criteria MET
+- Borderline Pass requires 50-75% of criteria MET
+- Borderline Fail requires 25-50% of criteria MET
+- Clear Fail is <25% of criteria MET
 
 Please provide your evaluation in the required JSON format.`;
   }
 }
 
-// Export both the class and a singleton instance
 export const aiFeedbackService = new AIFeedbackService();

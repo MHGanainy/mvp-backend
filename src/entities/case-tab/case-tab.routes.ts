@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { CaseTabService } from './case-tab.service'
 import { 
   createCaseTabSchema, 
@@ -10,7 +11,6 @@ import {
   bulkUpdateCaseTabSchema,
   createAllTabsSchema
 } from './case-tab.schema'
-import { z } from 'zod'
 
 export default async function caseTabRoutes(fastify: FastifyInstance) {
   const caseTabService = new CaseTabService(fastify.prisma)
@@ -113,7 +113,7 @@ export default async function caseTabRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // POST /case-tabs/create-all - Create all 4 tabs for a course case
+  // POST /case-tabs/create-all - Create all 3 tabs for a course case
   fastify.post('/case-tabs/create-all', async (request, reply) => {
     try {
       const { courseCaseId } = createAllTabsSchema.parse(request.body)
@@ -194,18 +194,19 @@ export default async function caseTabRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // Helper endpoint to get tab types (useful for frontend)
+  // Helper endpoint to get tab types (useful for frontend) - ADJUSTED
   fastify.get('/case-tabs/types', async (request, reply) => {
     reply.send({
-      tabTypes: ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MARKING_CRITERIA', 'MEDICAL_NOTES'],
+      tabTypes: ['DOCTORS_NOTE', 'PATIENT_SCRIPT', 'MEDICAL_NOTES'],
       descriptions: {
         DOCTORS_NOTE: "Doctor's clinical notes and observations",
         PATIENT_SCRIPT: "Patient dialogue and responses script",
-        MARKING_CRITERIA: "Assessment criteria and scoring rubric",
         MEDICAL_NOTES: "Key medical points and references"
       }
     })
   })
+
+  // POST /case-tabs/:id/content - Add an item to a tab's content array
   fastify.post('/case-tabs/:id/content', async (request, reply) => {
     try {
       const { id } = caseTabParamsSchema.parse(request.params)
