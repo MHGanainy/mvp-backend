@@ -18,6 +18,7 @@ interface CaseTabs {
 interface MarkingCriterionResult {
   criterionId: string;
   criterionText: string;
+  points: number; // Now included
   met: boolean;
   transcriptReferences: string[];
   feedback: string;
@@ -26,6 +27,9 @@ interface MarkingCriterionResult {
 interface MarkingDomainResult {
   domainId: string;
   domainName: string;
+  totalPossiblePoints: number; // Now included
+  achievedPoints: number; // Now included
+  percentageScore: number; // Now included
   criteria: MarkingCriterionResult[];
 }
 
@@ -114,7 +118,8 @@ export class AIFeedbackService {
   ): Promise<{ 
     feedback: AIFeedbackResponse; 
     score: number; 
-    prompts: { systemPrompt: string; userPrompt: string; }
+    prompts: { systemPrompt: string; userPrompt: string; };
+    markingStructure: MarkingDomainWithCriteria[]; // Added to return original structure
   }> {
   
     const systemPrompt = this.buildSystemPrompt(caseInfo, caseTabs, markingDomainsWithCriteria);
@@ -145,39 +150,50 @@ export class AIFeedbackService {
       let totalPossiblePoints = 0;
       let totalAchievedPoints = 0;
       
-      // Clean the response and calculate statistics
-      const cleanedDomains: MarkingDomainResult[] = rawResponse.markingDomains.map((domain: any) => {
-        const cleanedCriteria: MarkingCriterionResult[] = domain.criteria.map((criterion: any) => {
+      // Keep the full structure with points
+      const fullDomains: MarkingDomainResult[] = rawResponse.markingDomains.map((domain: any) => {
+        let domainAchievedPoints = 0;
+        let domainTotalPoints = 0;
+        
+        const fullCriteria: MarkingCriterionResult[] = domain.criteria.map((criterion: any) => {
           totalCriteria++;
           totalPossiblePoints += criterion.points;
+          domainTotalPoints += criterion.points;
           
           if (criterion.met) {
             criteriaMet++;
             totalAchievedPoints += criterion.points;
+            domainAchievedPoints += criterion.points;
           }
           
-          // Remove points field from criterion
+          // Keep all fields including points
           return {
             criterionId: criterion.criterionId,
             criterionText: criterion.criterionText,
+            points: criterion.points,
             met: criterion.met,
             transcriptReferences: criterion.transcriptReferences,
             feedback: criterion.feedback
           };
         });
         
-        // Return cleaned domain without scoring fields
+        // Return full domain with scoring fields
         return {
           domainId: domain.domainId,
           domainName: domain.domainName,
-          criteria: cleanedCriteria
+          totalPossiblePoints: domainTotalPoints,
+          achievedPoints: domainAchievedPoints,
+          percentageScore: domainTotalPoints > 0 
+            ? Math.round((domainAchievedPoints / domainTotalPoints) * 100) 
+            : 0,
+          criteria: fullCriteria
         };
       });
       
       const percentageMet = totalCriteria > 0 ? (criteriaMet / totalCriteria) * 100 : 0;
       const classification = this.calculatePerformanceClassification(percentageMet);
       
-      // Build the cleaned response
+      // Build the full response with all details
       const aiResponse: AIFeedbackResponse = {
         overallFeedback: rawResponse.overallFeedback,
         overallResult: {
@@ -189,10 +205,10 @@ export class AIFeedbackService {
           criteriaNotMet: totalCriteria - criteriaMet,
           description: classification.description
         },
-        markingDomains: cleanedDomains
+        markingDomains: fullDomains
       };
       
-      // Calculate score separately (not included in feedback)
+      // Calculate overall score
       const score = totalPossiblePoints > 0 
         ? Math.round((totalAchievedPoints / totalPossiblePoints) * 100)
         : 0;
@@ -203,7 +219,8 @@ export class AIFeedbackService {
         prompts: {
           systemPrompt,
           userPrompt
-        }
+        },
+        markingStructure: markingDomainsWithCriteria // Return original structure too
       };
   
     } catch (error) {

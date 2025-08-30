@@ -690,17 +690,23 @@ export class SimulationAttemptService {
       let aiFeedback: Prisma.InputJsonValue | null = null;
       let score: number | null = null;
       let aiPrompt: Prisma.InputJsonValue | null = null;
-  
+    
       try {
-        // 5. Generate AI feedback with the new structure
-        const { feedback, score: calculatedScore, prompts } = await aiFeedbackService.generateFeedback(
+        // Generate AI feedback with the new structure
+        const { 
+          feedback, 
+          score: calculatedScore, 
+          prompts,
+          markingStructure 
+        } = await aiFeedbackService.generateFeedback(
           transcriptData,
           caseInfo,
-          caseTabs, // Pass all three case tabs
+          caseTabs,
           durationSeconds,
-          markingDomainsWithCriteria // Pass structured marking criteria
+          markingDomainsWithCriteria
         );
-  
+    
+        // Include full marking structure in the feedback
         aiFeedback = {
           ...feedback,
           analysisStatus: 'success',
@@ -711,7 +717,8 @@ export class SimulationAttemptService {
             medicalNotes: caseTabs.medicalNotes.length > 0
           },
           totalMarkingCriteria: existingAttempt.simulation.courseCase.markingCriteria.length,
-          markingDomains: markingDomainsWithCriteria.length
+          markingDomainsCount: markingDomainsWithCriteria.length,
+          markingStructure: markingStructure // Include the original structure
         } as unknown as Prisma.InputJsonValue;
         
         score = calculatedScore;
@@ -722,7 +729,8 @@ export class SimulationAttemptService {
         aiFeedback = {
           analysisStatus: 'failed',
           error: aiError instanceof Error ? aiError.message : 'Unknown AI error',
-          generatedAt: new Date().toISOString()
+          generatedAt: new Date().toISOString(),
+          markingStructure: markingDomainsWithCriteria // Include even on failure
         } as unknown as Prisma.InputJsonValue;
       }
   

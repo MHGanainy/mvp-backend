@@ -306,7 +306,6 @@ fastify.patch('/simulation-attempts/:id/complete-with-transcript', async (reques
   try {
     const { id } = simulationAttemptParamsSchema.parse(request.params)
     
-    // Get the attempt to retrieve correlation token
     const existingAttempt = await simulationAttemptService.findById(id)
     
     if (!existingAttempt.correlationToken) {
@@ -316,13 +315,11 @@ fastify.patch('/simulation-attempts/:id/complete-with-transcript', async (reques
       return
     }
     
-    // Complete with transcript fetch and AI feedback generation
     const attempt = await simulationAttemptService.completeWithTranscript(
       id, 
       existingAttempt.correlationToken
     )
     
-    // Check if AI analysis was successful
     const aiFeedback = attempt.aiFeedback as any;
     const aiAnalysisSuccessful = aiFeedback?.analysisStatus !== 'failed';
     
@@ -330,13 +327,28 @@ fastify.patch('/simulation-attempts/:id/complete-with-transcript', async (reques
       message: aiAnalysisSuccessful 
         ? 'Simulation completed successfully with AI-generated feedback' 
         : 'Simulation completed with transcript, but AI analysis failed',
-      attempt,
+      attempt: {
+        ...attempt,
+        // Ensure the marking domains are visible in the response
+        aiFeedback: aiFeedback ? {
+          ...aiFeedback,
+          // The markingDomains should now include all details
+        } : null
+      },
       duration: `${Math.floor(attempt.durationSeconds! / 60)}:${String(attempt.durationSeconds! % 60).padStart(2, '0')}`,
       score: attempt.score,
       transcriptCaptured: !!attempt.transcript,
       aiAnalysisStatus: aiAnalysisSuccessful ? 'success' : 'failed',
       feedbackGenerated: aiAnalysisSuccessful,
       messagesCount: attempt.transcript ? (attempt.transcript as any).messages?.length : 0,
+      // Include marking summary
+      markingSummary: aiFeedback?.markingStructure ? {
+        totalDomains: aiFeedback.markingStructure.length,
+        totalCriteria: aiFeedback.overallResult?.totalCriteria,
+        criteriaMet: aiFeedback.overallResult?.criteriaMet,
+        criteriaNotMet: aiFeedback.overallResult?.criteriaNotMet,
+        classification: aiFeedback.overallResult?.classificationLabel
+      } : null,
       processingSteps: {
         transcriptRetrieved: !!attempt.transcript,
         aiModelCalled: true,
