@@ -136,6 +136,13 @@ export const simulationAttemptWithTokenResponseSchema = simulationAttemptRespons
   }).optional()
 })
 
+export const simulationAttemptStudentCaseParamsSchema = z.object({
+  studentId: z.string().uuid('Invalid student ID'),
+  caseId: z.string().uuid('Invalid case ID')
+})
+
+
+
 // Type exports
 export type CreateSimulationAttemptInput = z.infer<typeof createSimulationAttemptSchema>
 export type CompleteSimulationAttemptInput = z.infer<typeof completeSimulationAttemptSchema>
@@ -146,3 +153,5 @@ export type SimulationAttemptSimulationParams = z.infer<typeof simulationAttempt
 export type SimulationAttemptQuery = z.infer<typeof simulationAttemptQuerySchema>
 export type SimulationAttemptResponse = z.infer<typeof simulationAttemptResponseSchema>
 export type SimulationAttemptWithTokenResponse = z.infer<typeof simulationAttemptWithTokenResponseSchema>
+export type SimulationAttemptStudentCaseParams = z.infer<typeof simulationAttemptStudentCaseParamsSchema>
+

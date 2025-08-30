@@ -801,4 +801,105 @@ export class SimulationAttemptService {
       analysisStatus: "failed" // Flag to indicate AI analysis failed
     };
   }
+
+  async findByStudentAndCase(
+    studentId: string, 
+    caseId: string, 
+    query?: { completed?: boolean; limit?: number; offset?: number }
+  ) {
+    // Verify student exists
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId }
+    })
+  
+    if (!student) {
+      throw new Error('Student not found')
+    }
+  
+    // Verify course case exists and has a simulation
+    const courseCase = await this.prisma.courseCase.findUnique({
+      where: { id: caseId },
+      include: {
+        simulation: true
+      }
+    })
+  
+    if (!courseCase) {
+      throw new Error('Course case not found')
+    }
+  
+    if (!courseCase.simulation) {
+      throw new Error('No simulation exists for this case')
+    }
+  
+    const where: any = { 
+      studentId,
+      simulationId: courseCase.simulation.id
+    }
+    
+    if (query?.completed !== undefined) {
+      where.isCompleted = query.completed
+    }
+  
+    const attempts = await this.prisma.simulationAttempt.findMany({
+      where,
+      include: {
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            creditBalance: true
+          }
+        },
+        simulation: {
+          include: {
+            courseCase: {
+              include: {
+                course: {
+                  select: {
+                    id: true,
+                    title: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        startedAt: 'desc'
+      },
+      take: query?.limit || 50,
+      skip: query?.offset || 0
+    })
+  
+    // Add summary statistics
+    const stats = {
+      totalAttempts: await this.prisma.simulationAttempt.count({ where }),
+      completedAttempts: await this.prisma.simulationAttempt.count({ 
+        where: { ...where, isCompleted: true } 
+      }),
+      averageScore: await this.prisma.simulationAttempt.aggregate({
+        where: { ...where, isCompleted: true, score: { not: null } },
+        _avg: { score: true }
+      }).then(result => result._avg.score ? Number(result._avg.score.toFixed(1)) : null)
+    }
+  
+    return {
+      attempts,
+      stats,
+      student: {
+        id: student.id,
+        name: `${student.firstName} ${student.lastName}`,
+        creditBalance: student.creditBalance
+      },
+      case: {
+        id: courseCase.id,
+        title: courseCase.title,
+        diagnosis: courseCase.diagnosis,
+        patientName: courseCase.patientName
+      }
+    }
+  }
 }

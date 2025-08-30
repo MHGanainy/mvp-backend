@@ -228,7 +228,7 @@ export class AIFeedbackService {
       throw new Error('Failed to generate AI feedback');
     }
   }
-
+  
   private buildSystemPrompt(
     caseInfo: CaseInfo,
     caseTabs: CaseTabs,

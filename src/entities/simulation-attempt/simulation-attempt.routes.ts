@@ -8,7 +8,8 @@ import {
   simulationAttemptParamsSchema,
   simulationAttemptStudentParamsSchema,
   simulationAttemptSimulationParamsSchema,
-  simulationAttemptQuerySchema
+  simulationAttemptQuerySchema,
+  simulationAttemptStudentCaseParamsSchema
 } from './simulation-attempt.schema'
 
 export default async function simulationAttemptRoutes(fastify: FastifyInstance) {
@@ -37,6 +38,29 @@ export default async function simulationAttemptRoutes(fastify: FastifyInstance) 
         reply.status(404).send({ error: 'Student not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  fastify.get('/simulation-attempts/student/:studentId/case/:caseId', async (request, reply) => {
+    try {
+      const { studentId, caseId } = simulationAttemptStudentCaseParamsSchema.parse(request.params)
+      const query = simulationAttemptQuerySchema.parse(request.query)
+      const attempts = await simulationAttemptService.findByStudentAndCase(studentId, caseId, query)
+      reply.send(attempts)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Student not found') {
+          reply.status(404).send({ error: 'Student not found' })
+        } else if (error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else if (error.message === 'No simulation exists for this case') {
+          reply.status(404).send({ error: 'No simulation exists for this case' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
       }
     }
   })
