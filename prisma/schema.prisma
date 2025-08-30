@@ -120,7 +120,6 @@ model CourseCase {
   @@map("course_cases")
 }
 
-// ✨ NEW MODEL: To group marking criteria under domains
 model MarkingCriterion {
   id              String        @id @default(uuid())
   courseCaseId    String        @map("course_case_id")

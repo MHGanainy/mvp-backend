@@ -35,11 +35,13 @@ export class MarkingCriterionService {
   async findAllByCourseCase(courseCaseId: string) {
     const criteria = await this.prisma.markingCriterion.findMany({
       where: { courseCaseId },
-      include: this.getStandardInclude(),
+      include: {
+        markingDomain: true  // Include full markingDomain object
+      },
       orderBy: [{ markingDomain: { name: 'asc' } }, { displayOrder: 'asc' }]
     })
-
-    // Group criteria by marking domain
+  
+    // Group criteria by marking domain but keep ALL fields
     const grouped = criteria.reduce((acc, criterion) => {
       const domainId = criterion.markingDomain.id
       const domainName = criterion.markingDomain.name
@@ -50,13 +52,20 @@ export class MarkingCriterionService {
         acc.push(group)
       }
       
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { markingDomain, courseCaseId, markingDomainId, ...rest } = criterion
-      group.criteria.push(rest)
+      // Push the ENTIRE criterion object (all fields included)
+      group.criteria.push({
+        id: criterion.id,
+        courseCaseId: criterion.courseCaseId,
+        markingDomainId: criterion.markingDomainId,
+        text: criterion.text,
+        points: criterion.points,
+        displayOrder: criterion.displayOrder,
+        createdAt: criterion.createdAt
+      })
       
       return acc
     }, [] as { domainId: string, domainName: string, criteria: any[] }[])
-
+  
     return grouped
   }
 
