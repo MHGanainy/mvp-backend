@@ -19,6 +19,7 @@ import caseTabRoutes from './entities/case-tab/case-tab.routes'
 import simulationRoutes from './entities/simulation/simulation.routes'
 import simulationAttemptRoutes from './entities/simulation-attempt/simulation-attempt.routes'
 import paymentRoutes from './entities/payment/payment.routes'
+import markingCriterionRoutes from './entities/marking-criterion/marking-criterion.routes'
 
 const fastify = Fastify({ logger: true })
 const prisma = new PrismaClient()
@@ -107,6 +108,7 @@ const start = async () => {
       await fastify.register(simulationRoutes, { prefix: '/api' })
       await fastify.register(simulationAttemptRoutes, { prefix: '/api' })
       await fastify.register(paymentRoutes, { prefix: '/api' })
+      await fastify.register(markingCriterionRoutes, { prefix: '/api' })
       const port = Number(process.env.PORT) || 3000
       const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost'
       
