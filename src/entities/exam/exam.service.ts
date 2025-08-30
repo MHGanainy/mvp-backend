@@ -1,6 +1,6 @@
 // exam.service.ts
 import { PrismaClient } from '@prisma/client'
-import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput, UpdateCompleteExamInput } from './exam.schema'
+import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput, UpdateCompleteExamInput, ExamMarkingDomainsDetailedResponse } from './exam.schema'
 
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
@@ -381,7 +381,7 @@ export class ExamService {
   }
 
   // Get marking domains assigned to an exam
-  async getExamMarkingDomains(examId: string) {
+  async getExamMarkingDomains(examId: string): Promise<ExamMarkingDomainsDetailedResponse> {
     // Verify exam exists
     const exam = await this.prisma.exam.findUnique({
       where: { id: examId }
@@ -394,16 +394,143 @@ export class ExamService {
     const examMarkingDomains = await this.prisma.examMarkingDomain.findMany({
       where: { examId },
       include: {
-        markingDomain: true
+        markingDomain: {
+          include: {
+            markingCriteria: {
+              include: {
+                courseCase: {
+                  select: {
+                    id: true,
+                    title: true,
+                    diagnosis: true,
+                    patientName: true,
+                    patientAge: true,
+                    patientGender: true,
+                    displayOrder: true,
+                    course: {
+                      select: {
+                        id: true,
+                        title: true,
+                        examId: true,
+                        exam: {
+                          select: {
+                            id: true,
+                            title: true,
+                            slug: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              // Only include marking criteria from courses that belong to this exam
+              where: {
+                courseCase: {
+                  course: {
+                    examId: examId
+                  }
+                }
+              },
+              orderBy: [
+                {
+                  courseCase: {
+                    course: {
+                      title: 'asc' as const
+                    }
+                  }
+                },
+                {
+                  courseCase: {
+                    displayOrder: 'asc' as const
+                  }
+                },
+                {
+                  displayOrder: 'asc' as const
+                }
+              ]
+            },
+            _count: {
+              select: {
+                markingCriteria: true
+              }
+            }
+          }
+        }
       },
       orderBy: {
         markingDomain: {
-          name: 'asc'
+          name: 'asc' as const
         }
       }
     })
 
-    return examMarkingDomains.map(emd => emd.markingDomain)
+    // Transform the response to include statistics and organized data
+    return examMarkingDomains.map(emd => {
+      // Group marking criteria by course and case for better organization
+      const criteriaByCourseCaseMap = new Map<string, any[]>()
+      
+      emd.markingDomain.markingCriteria.forEach(criterion => {
+        const key = `${criterion.courseCase.course.id}:${criterion.courseCase.id}`
+        if (!criteriaByCourseCaseMap.has(key)) {
+          criteriaByCourseCaseMap.set(key, [])
+        }
+        criteriaByCourseCaseMap.get(key)!.push(criterion)
+      })
+
+      // Convert map to structured array
+      const criteriaByCase = Array.from(criteriaByCourseCaseMap.entries()).map(([key, criteria]) => {
+        const [courseId, caseId] = key.split(':')
+        const firstCriterion = criteria[0]
+        return {
+          courseId,
+          courseTitle: firstCriterion.courseCase.course.title,
+          caseId,
+          caseTitle: firstCriterion.courseCase.title,
+          caseDisplayOrder: firstCriterion.courseCase.displayOrder,
+          criteria: criteria.map(c => ({
+            id: c.id,
+            text: c.text,
+            points: c.points,
+            displayOrder: c.displayOrder,
+            createdAt: c.createdAt
+          })),
+          totalPoints: criteria.reduce((sum, c) => sum + c.points, 0),
+          criteriaCount: criteria.length
+        }
+      })
+
+      // Calculate domain statistics
+      const totalPoints = emd.markingDomain.markingCriteria.reduce((sum, c) => sum + c.points, 0)
+      const totalCriteria = emd.markingDomain.markingCriteria.length
+      const uniqueCases = new Set(emd.markingDomain.markingCriteria.map(c => c.courseCaseId)).size
+      const uniqueCourses = new Set(emd.markingDomain.markingCriteria.map(c => c.courseCase.course.id)).size
+
+      return {
+        id: emd.markingDomain.id,
+        name: emd.markingDomain.name,
+        createdAt: emd.markingDomain.createdAt,
+        associatedAt: emd.createdAt, // When it was linked to this exam
+        
+        // Statistics for this domain within this exam
+        statistics: {
+          totalCriteria,
+          totalPoints,
+          uniqueCases,
+          uniqueCourses,
+          averagePointsPerCriterion: totalCriteria > 0 ? (totalPoints / totalCriteria).toFixed(2) : '0'
+        },
+        
+        // All marking criteria (flat list)
+        markingCriteria: emd.markingDomain.markingCriteria,
+        
+        // Organized by course and case for UI display
+        criteriaByCase,
+        
+        // Count including criteria from other exams (total in the domain)
+        _count: emd.markingDomain._count
+      }
+    })
   }
 
   // ===== REMOVAL OPERATIONS =====
@@ -1144,6 +1271,8 @@ export class ExamService {
     })
   }
 
+  
+
   // Helper method
   private generateSlug(title: string): string {
     return title
@@ -1151,4 +1280,7 @@ export class ExamService {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
   }
+
+
+  
 }

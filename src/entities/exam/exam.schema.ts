@@ -246,6 +246,76 @@ export const completeExamResponseSchema = z.object({
   })
 })
 
+
+export const examMarkingDomainsDetailedResponseSchema = z.array(z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.date(),
+  associatedAt: z.date(), // When the domain was linked to the exam
+  
+  // Statistics for this domain within this exam
+  statistics: z.object({
+    totalCriteria: z.number(),
+    totalPoints: z.number(),
+    uniqueCases: z.number(),
+    uniqueCourses: z.number(),
+    averagePointsPerCriterion: z.union([z.string(), z.number()])
+  }),
+  
+  // All marking criteria (flat list with full relations)
+  markingCriteria: z.array(z.object({
+    id: z.string(),
+    courseCaseId: z.string(),
+    markingDomainId: z.string(),
+    text: z.string(),
+    points: z.number(),
+    displayOrder: z.number(),
+    createdAt: z.date(),
+    courseCase: z.object({
+      id: z.string(),
+      title: z.string(),
+      diagnosis: z.string(),
+      patientName: z.string(),
+      patientAge: z.number(),
+      patientGender: z.enum(['MALE', 'FEMALE', 'OTHER']),
+      displayOrder: z.number(),
+      course: z.object({
+        id: z.string(),
+        title: z.string(),
+        examId: z.string(),
+        exam: z.object({
+          id: z.string(),
+          title: z.string(),
+          slug: z.string()
+        })
+      })
+    })
+  })),
+  
+  // Organized by course and case for UI display
+  criteriaByCase: z.array(z.object({
+    courseId: z.string(),
+    courseTitle: z.string(),
+    caseId: z.string(),
+    caseTitle: z.string(),
+    caseDisplayOrder: z.number(),
+    criteria: z.array(z.object({
+      id: z.string(),
+      text: z.string(),
+      points: z.number(),
+      displayOrder: z.number(),
+      createdAt: z.date()
+    })),
+    totalPoints: z.number(),
+    criteriaCount: z.number()
+  })),
+  
+  // Total count (including from other exams)
+  _count: z.object({
+    markingCriteria: z.number()
+  })
+}))
+
 // Type exports
 export type CreateExamInput = z.infer<typeof createExamSchema>
 export type UpdateExamInput = z.infer<typeof updateExamSchema>
@@ -256,3 +326,4 @@ export type ExamWithRelationsResponse = z.infer<typeof examWithRelationsResponse
 export type CreateCompleteExamInput = z.infer<typeof createCompleteExamSchema>
 export type UpdateCompleteExamInput = z.infer<typeof updateCompleteExamSchema>
 export type CompleteExamResponse = z.infer<typeof completeExamResponseSchema>
+export type ExamMarkingDomainsDetailedResponse = z.infer<typeof examMarkingDomainsDetailedResponseSchema>
