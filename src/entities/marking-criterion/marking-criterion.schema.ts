@@ -66,9 +66,11 @@ export const markingCriterionCourseCaseParamsSchema = z.object({
   courseCaseId: z.string().uuid('Invalid course case ID')
 })
 
+
 // Type exports
 export type CreateMarkingCriterionInput = z.infer<typeof createMarkingCriterionSchema>
 export type UpdateMarkingCriterionInput = z.infer<typeof updateMarkingCriterionSchema>
 export type BulkUpdateMarkingCriteriaInput = z.infer<typeof bulkUpdateMarkingCriteriaSchema>
 export type MarkingCriterionParams = z.infer<typeof markingCriterionParamsSchema>
 export type MarkingCriterionCourseCaseParams = z.infer<typeof markingCriterionCourseCaseParamsSchema>
+export const courseCaseParamsSchema = markingCriterionCourseCaseParamsSchema
