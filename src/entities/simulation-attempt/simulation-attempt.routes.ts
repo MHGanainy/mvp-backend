@@ -370,7 +370,6 @@ fastify.patch('/simulation-attempts/:id/complete-with-transcript', async (reques
 
 
 // POST /simulation-attempts/test-ai-feedback - Test AI feedback generation
-// POST /simulation-attempts/test-ai-feedback - Test AI feedback generation
 fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => {
   try {
     // Sample test data

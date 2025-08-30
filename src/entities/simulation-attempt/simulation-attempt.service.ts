@@ -597,7 +597,7 @@ export class SimulationAttemptService {
     try {
       // 1. Fetch transcript from voice assistant API
       const transcriptResponse = await fetch(
-        `${process.env.VOICE_ASSISTANT_API_URL}/api/conversations/${correlationToken}/transcript`,
+        `${process.env.VOICE_ASSISTANT_API_URL}/api/conversations/${correlationToken}`,
         {
           method: 'GET',
           headers: {
