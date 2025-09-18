@@ -90,7 +90,7 @@ fastify.get('/users/:id', async (request) => {
 const start = async () => {
     try {
       // Register auth routes FIRST (no prefix needed)
-      await fastify.register(authRoutes)
+      await fastify.register(authRoutes, { prefix: '/api' })
       
       // Register subscription routes (also at root level for easier access)
       await fastify.register(subscriptionRoutes, { prefix: '/api' })
