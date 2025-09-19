@@ -149,6 +149,7 @@ export default async function simulationAttemptRoutes(fastify: FastifyInstance) 
       
       // Build voice assistant configuration
       const voiceAssistantConfig = {
+        token: attempt.voiceToken,
         correlationToken: attempt.correlationToken,
         wsEndpoint: process.env.VOICE_ASSISTANT_WS_URL || 'ws://localhost:8000/ws/conversation',
         sessionConfig: {

@@ -6,6 +6,7 @@ import {
   TranscriptClean,
   } from '../../shared/types';
 import { aiFeedbackService } from './ai-feedback.service' 
+import { voiceTokenService } from '../../services/voice-token.service';
 
 export class SimulationAttemptService {
   constructor(private prisma: PrismaClient) {}
@@ -92,7 +93,16 @@ export class SimulationAttemptService {
         }
       })
 
-      return attempt
+      const voiceToken = voiceTokenService.generateToken({
+        attemptId: attempt.id,
+        studentId: attempt.studentId,
+        correlationToken: attempt.correlationToken || ''
+      });
+
+      return {
+        ...attempt,
+        voiceToken
+      }
     })
   }
 
