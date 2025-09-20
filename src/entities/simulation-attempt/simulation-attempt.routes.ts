@@ -141,60 +141,65 @@ export default async function simulationAttemptRoutes(fastify: FastifyInstance) 
     }
   })
 
-  // POST /simulation-attempts - Start new simulation attempt (deducts credits)
-  fastify.post('/simulation-attempts', async (request, reply) => {
-    try {
-      const data = createSimulationAttemptSchema.parse(request.body)
-      const attempt = await simulationAttemptService.create(data)
-      
-      // Build voice assistant configuration
-      const voiceAssistantConfig = {
-        token: attempt.voiceToken,
-        correlationToken: attempt.correlationToken,
-        wsEndpoint: process.env.VOICE_ASSISTANT_WS_URL || 'ws://localhost:8000/ws/conversation',
-        sessionConfig: {
-          // These can be customized based on the simulation settings
-          stt_provider: 'deepgram',
-          llm_provider: 'deepinfra',
-          tts_provider: 'deepinfra',
-          system_prompt: `You are a patient named ${attempt.simulation.courseCase.patientName}. 
-            Age: ${attempt.simulation.courseCase.patientAge} years old.
-            Gender: ${attempt.simulation.courseCase.patientGender}.
-            Diagnosis: ${attempt.simulation.courseCase.diagnosis}. 
-            ${attempt.simulation.casePrompt}
-            
-            Important: Stay in character as the patient. Only provide information that a patient would realistically know about their condition. Do not diagnose yourself or provide medical explanations beyond what a typical patient might understand from their doctor.`
-        }
-      }
-      
-      reply.status(201).send({
-        message: 'Simulation attempt started successfully',
-        attempt,
-        creditsDeducted: attempt.simulation.creditCost,
-        remainingCredits: attempt.student.creditBalance,
-        voiceAssistantConfig // Include this for the frontend
-      })
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message === 'Student not found') {
-          reply.status(404).send({ error: 'Student not found' })
-        } else if (error.message === 'Simulation not found') {
-          reply.status(404).send({ error: 'Simulation not found' })
-        } else if (error.message.includes('Insufficient credits')) {
-          reply.status(400).send({ error: error.message })
-        } else {
-          // Log the actual error for debugging
-          console.error('Validation error:', error)
-          reply.status(400).send({ 
-            error: 'Invalid data',
-            details: error.message // Add this to see the actual error
-          })
-        }
-      } else {
-        reply.status(500).send({ error: 'Internal server error' })
+// POST /simulation-attempts - Start new simulation attempt (NO upfront credit deduction)
+fastify.post('/simulation-attempts', async (request, reply) => {
+  try {
+    const data = createSimulationAttemptSchema.parse(request.body)
+    const attempt = await simulationAttemptService.create(data)
+    
+    // Build voice assistant configuration
+    const voiceAssistantConfig = {
+      token: attempt.voiceToken,
+      correlationToken: attempt.correlationToken,
+      wsEndpoint: process.env.VOICE_ASSISTANT_WS_URL || 'ws://localhost:8000/ws/conversation',
+      sessionConfig: {
+        stt_provider: 'deepgram',
+        llm_provider: 'deepinfra',
+        tts_provider: 'deepinfra',
+        system_prompt: `You are a patient named ${attempt.simulation.courseCase.patientName}. 
+          Age: ${attempt.simulation.courseCase.patientAge} years old.
+          Gender: ${attempt.simulation.courseCase.patientGender}.
+          Diagnosis: ${attempt.simulation.courseCase.diagnosis}. 
+          ${attempt.simulation.casePrompt}
+          
+          Important: Stay in character as the patient. Only provide information that a patient would realistically know about their condition. Do not diagnose yourself or provide medical explanations beyond what a typical patient might understand from their doctor.`
       }
     }
-  })
+    
+    reply.status(201).send({
+      message: 'Simulation attempt started successfully. Credits will be charged per minute during conversation.',
+      attempt,
+      billingInfo: {
+        creditsWillBeCharged: 'per_minute',
+        currentBalance: attempt.student.creditBalance,
+        chargeRate: '1 credit per minute',
+        minimumRequired: 1
+      },
+      voiceAssistantConfig
+    })
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Student not found') {
+        reply.status(404).send({ error: 'Student not found' })
+      } else if (error.message === 'Simulation not found') {
+        reply.status(404).send({ error: 'Simulation not found' })
+      } else if (error.message.includes('Insufficient credits')) {
+        reply.status(400).send({ 
+          error: error.message,
+          minimumRequired: 1
+        })
+      } else {
+        console.error('Validation error:', error)
+        reply.status(400).send({ 
+          error: 'Invalid data',
+          details: error.message
+        })
+      }
+    } else {
+      reply.status(500).send({ error: 'Internal server error' })
+    }
+  }
+})
 
   // PATCH /simulation-attempts/:id/complete - Complete simulation attempt (add feedback & score)
   fastify.patch('/simulation-attempts/:id/complete', async (request, reply) => {

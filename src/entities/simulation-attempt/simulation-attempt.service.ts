@@ -16,95 +16,89 @@ export class SimulationAttemptService {
     return `sim_${randomBytes(16).toString('hex')}_${Date.now()}`
   }
 
-  async create(data: CreateSimulationAttemptInput) {
-    // Verify the student exists
-    const student = await this.prisma.student.findUnique({
-      where: { id: data.studentId }
-    })
+async create(data: CreateSimulationAttemptInput) {
+  // Verify the student exists
+  const student = await this.prisma.student.findUnique({
+    where: { id: data.studentId }
+  })
 
-    if (!student) {
-      throw new Error('Student not found')
-    }
+  if (!student) {
+    throw new Error('Student not found')
+  }
 
-    // Verify the simulation exists
-    const simulation = await this.prisma.simulation.findUnique({
-      where: { id: data.simulationId },
-      include: {
-        courseCase: {
-          include: {
-            course: true
-          }
+  // Verify the simulation exists
+  const simulation = await this.prisma.simulation.findUnique({
+    where: { id: data.simulationId },
+    include: {
+      courseCase: {
+        include: {
+          course: true
         }
       }
-    })
-
-    if (!simulation) {
-      throw new Error('Simulation not found')
     }
+  })
 
-    // Check if student has sufficient credits
-    if (student.creditBalance < simulation.creditCost) {
-      throw new Error(`Insufficient credits. Required: ${simulation.creditCost}, Available: ${student.creditBalance}`)
-    }
+  if (!simulation) {
+    throw new Error('Simulation not found')
+  }
 
-    const correlationToken = this.generateCorrelationToken()
+  // Check if student has at least 1 credit to start
+  // (Will be charged per-minute during conversation)
+  if (student.creditBalance < 1) {
+    throw new Error(`Insufficient credits. You need at least 1 credit to start. Current balance: ${student.creditBalance}`)
+  }
 
-    // Start transaction to deduct credits and create attempt
-    return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Deduct credits from student
-      await tx.student.update({
-        where: { id: data.studentId },
-        data: {
-          creditBalance: student.creditBalance - simulation.creditCost
+  const correlationToken = this.generateCorrelationToken()
+
+  // Create attempt WITHOUT deducting credits
+  // Credits will be deducted per-minute by the billing webhook
+  const attempt = await this.prisma.simulationAttempt.create({
+    data: {
+      studentId: data.studentId,
+      simulationId: data.simulationId,
+      startedAt: new Date(),
+      correlationToken: correlationToken
+    },
+    include: {
+      student: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          creditBalance: true
         }
-      })
-
-      // Create simulation attempt
-      const attempt = await tx.simulationAttempt.create({
-        data: {
-          studentId: data.studentId,
-          simulationId: data.simulationId,
-          startedAt: new Date(),
-          correlationToken: correlationToken
-        },
+      },
+      simulation: {
         include: {
-          student: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              creditBalance: true
-            }
-          },
-          simulation: {
+          courseCase: {
             include: {
-              courseCase: {
-                include: {
-                  course: {
-                    select: {
-                      id: true,
-                      title: true
-                    }
-                  }
+              course: {
+                select: {
+                  id: true,
+                  title: true
                 }
               }
             }
           }
         }
-      })
-
-      const voiceToken = voiceTokenService.generateToken({
-        attemptId: attempt.id,
-        studentId: attempt.studentId,
-        correlationToken: attempt.correlationToken || ''
-      });
-
-      return {
-        ...attempt,
-        voiceToken
       }
-    })
+    }
+  })
+
+  const voiceToken = voiceTokenService.generateToken({
+    attemptId: attempt.id,
+    studentId: attempt.studentId,
+    correlationToken: attempt.correlationToken || ''
+  });
+
+  // Log the attempt creation for billing tracking
+  console.log(`[BILLING] Simulation attempt created without upfront charge. ID: ${attempt.id}, Token: ${correlationToken}`);
+
+  return {
+    ...attempt,
+    voiceToken
   }
+}
 
   async complete(id: string, data: CompleteSimulationAttemptInput) {
     // Check if attempt exists and is not already completed

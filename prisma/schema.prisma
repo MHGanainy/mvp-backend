@@ -180,6 +180,7 @@ model SimulationAttempt {
   simulation       Simulation  @relation(fields: [simulationId], references: [id], onDelete: Cascade)
   student          Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
   correlationToken String?     @unique
+  minutesBilled    Int?        @default(0) @map("minutes_billed")
 
   @@map("simulation_attempts")
 }
