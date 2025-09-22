@@ -138,6 +138,35 @@ export class AIFeedbackService {
     }
   }
 
+  // Helper method to clean JSON response from markdown code blocks
+  private cleanJsonResponse(response: string): string {
+    // Remove markdown code blocks if present
+    let cleaned = response.trim();
+    
+    // Check for ```json or ``` blocks
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/i, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '');
+    }
+    
+    // Remove closing ``` if present
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.replace(/```\s*$/, '');
+    }
+    
+    // Also handle case where the model might add other text before/after JSON
+    // Try to extract JSON object between first { and last }
+    const jsonStart = cleaned.indexOf('{');
+    const jsonEnd = cleaned.lastIndexOf('}');
+    
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+    }
+    
+    return cleaned.trim();
+  }
+
   // New method to handle completions across providers
   private async getCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
     const messages = [
@@ -173,7 +202,9 @@ export class AIFeedbackService {
       if (!responseContent) {
         throw new Error('No response content from Groq');
       }
-      return responseContent;
+      
+      // Clean the response from markdown code blocks for Groq
+      return this.cleanJsonResponse(responseContent);
       
     } else {
       throw new Error(`Provider ${this.provider} not properly initialized`);
@@ -298,7 +329,7 @@ export class AIFeedbackService {
 
     // Add explicit JSON instruction for Groq since it doesn't have response_format
     const jsonInstruction = this.provider === AIProvider.GROQ 
-      ? '\n\nIMPORTANT: You MUST respond with ONLY a valid JSON object. No additional text, explanations, or markdown formatting.'
+      ? '\n\nCRITICAL: Return ONLY the raw JSON object. Do NOT wrap it in markdown code blocks (no ```json or ```). Do NOT add any text before or after the JSON. Start directly with { and end with }.'
       : '';
 
     return `You are an expert medical examiner evaluating a medical student's performance during a simulated patient consultation.
@@ -411,7 +442,7 @@ ${domain.criteria.map(criterion => `        {
 
     // Additional JSON reminder for Groq
     const jsonReminder = this.provider === AIProvider.GROQ
-      ? '\n\nRemember: Respond ONLY with the JSON object, no other text.'
+      ? '\n\nFINAL REMINDER: Output ONLY the raw JSON object starting with { and ending with }. No markdown, no code blocks, no explanations.'
       : '';
 
     return `Please evaluate this medical student's consultation performance:

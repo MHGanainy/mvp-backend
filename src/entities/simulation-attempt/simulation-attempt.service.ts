@@ -14,6 +14,8 @@ export class SimulationAttemptService {
   constructor(private prisma: PrismaClient) {
     this.aiFeedbackService = createAIFeedbackService({
       provider: AIProvider.GROQ,
+      apiKey: process.env.GROQ_API_KEY,
+      model: 'llama-3.3-70b-versatile'
     });
   }
 
