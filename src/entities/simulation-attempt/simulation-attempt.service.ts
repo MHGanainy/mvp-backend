@@ -708,7 +708,7 @@ async create(data: CreateSimulationAttemptInput) {
           score: calculatedScore, 
           prompts,
           markingStructure 
-        } = await aiFeedbackService.generateFeedback(
+        } = await this.aiFeedbackService.generateFeedback(
           transcriptData,
           caseInfo,
           caseTabs,
