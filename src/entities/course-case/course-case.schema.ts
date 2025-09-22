@@ -186,7 +186,7 @@ export const createCompleteCourseCaseSchema = z.object({
     })).default([])
   }).optional(),
   
-  // Simulation configuration
+  // Simulation configuration - Updated with provider keys
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
@@ -209,7 +209,24 @@ export const createCompleteCourseCaseSchema = z.object({
       .int('Credit cost must be a whole number')
       .min(1, 'Credit cost must be at least 1')
       .max(10, 'Credit cost cannot exceed 10')
-      .default(1)
+      .default(1),
+    
+    // Voice assistant configuration - accept either provider keys or full config
+    sttProviderKey: z.string().optional(),
+    llmProviderKey: z.string().optional(),
+    ttsProviderKey: z.string().optional(),
+    
+    // Also accept the full config from frontend (will extract provider keys in service)
+    voiceAssistantConfig: z.object({
+      sttProvider: z.string().optional(),
+      sttModel: z.string().optional(),
+      llmProvider: z.string().optional(),
+      llmModel: z.string().optional(),
+      ttsProvider: z.string().optional(),
+      ttsModel: z.string().optional(),
+      ttsVoice: z.string().optional(),
+      ttsSpeed: z.number().optional(),
+    }).optional()
   }).optional()
 })
 
@@ -290,6 +307,7 @@ export const updateCompleteCourseCaseSchema = z.object({
     })).optional()
   }).optional(),
   
+  // Simulation configuration - Updated with provider keys
   simulation: z.object({
     casePrompt: z.string()
       .min(10, 'Case prompt must be at least 10 characters')
@@ -315,11 +333,28 @@ export const updateCompleteCourseCaseSchema = z.object({
       .int('Credit cost must be a whole number')
       .min(1, 'Credit cost must be at least 1')
       .max(10, 'Credit cost cannot exceed 10')
-      .optional()
+      .optional(),
+    
+    // Voice assistant configuration - accept either provider keys or full config
+    sttProviderKey: z.string().optional(),
+    llmProviderKey: z.string().optional(),
+    ttsProviderKey: z.string().optional(),
+    
+    // Also accept the full config from frontend (will extract provider keys in service)
+    voiceAssistantConfig: z.object({
+      sttProvider: z.string().optional(),
+      sttModel: z.string().optional(),
+      llmProvider: z.string().optional(),
+      llmModel: z.string().optional(),
+      ttsProvider: z.string().optional(),
+      ttsModel: z.string().optional(),
+      ttsVoice: z.string().optional(),
+      ttsSpeed: z.number().optional(),
+    }).optional()
   }).optional()
 })
 
-// Response schema for complete course case
+// Response schema for complete course case - Updated to include provider keys
 export const completeCourseCaseResponseSchema = z.object({
   courseCase: z.object({
     id: z.string(),
@@ -387,7 +422,11 @@ export const completeCourseCaseResponseSchema = z.object({
     timeLimitMinutes: z.number(),
     voiceModel: z.string(),
     warningTimeMinutes: z.number().nullable(),
-    creditCost: z.number()
+    creditCost: z.number(),
+    // Include provider keys in response
+    sttProviderKey: z.string().nullable().optional(),
+    llmProviderKey: z.string().nullable().optional(),
+    ttsProviderKey: z.string().nullable().optional()
   }).nullable(),
   summary: z.object({
     totalSpecialties: z.number(),

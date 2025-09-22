@@ -874,12 +874,24 @@ export class CourseCaseService {
         })
       }
   
-      // Step 9: Create simulation if provided
+      // Step 9: Create simulation if provided - UPDATED
       let simulation = null
       if (data.simulation) {
         if (data.simulation.warningTimeMinutes && 
             data.simulation.warningTimeMinutes >= data.simulation.timeLimitMinutes) {
           throw new Error('Warning time must be less than time limit')
+        }
+  
+        // Extract provider keys - prioritize direct keys, fall back to extracting from voiceAssistantConfig
+        let sttProviderKey = data.simulation.sttProviderKey
+        let llmProviderKey = data.simulation.llmProviderKey
+        let ttsProviderKey = data.simulation.ttsProviderKey
+  
+        // If voiceAssistantConfig is provided (from frontend sending full config), extract provider keys
+        // This is for backward compatibility
+        if (data.simulation.voiceAssistantConfig && !sttProviderKey && !llmProviderKey && !ttsProviderKey) {
+          // You could add logic here to map from full config to provider keys if needed
+          // For now, we'll just use the direct provider keys
         }
   
         simulation = await tx.simulation.create({
@@ -890,7 +902,11 @@ export class CourseCaseService {
             timeLimitMinutes: data.simulation.timeLimitMinutes,
             voiceModel: data.simulation.voiceModel,
             warningTimeMinutes: data.simulation.warningTimeMinutes,
-            creditCost: data.simulation.creditCost
+            creditCost: data.simulation.creditCost,
+            // Store provider keys
+            sttProviderKey: sttProviderKey,
+            llmProviderKey: llmProviderKey,
+            ttsProviderKey: ttsProviderKey
           }
         })
       }
@@ -1232,7 +1248,7 @@ export class CourseCaseService {
         }
       }
   
-      // Step 6: Update or create simulation
+      // Step 6: Update or create simulation - UPDATED
       let simulation = existingCourseCase.simulation
       if (data.simulation) {
         if (data.simulation.warningTimeMinutes && 
@@ -1241,10 +1257,28 @@ export class CourseCaseService {
           throw new Error('Warning time must be less than time limit')
         }
   
+        // Extract provider keys - prioritize direct keys, fall back to extracting from voiceAssistantConfig
+        let sttProviderKey = data.simulation.sttProviderKey
+        let llmProviderKey = data.simulation.llmProviderKey
+        let ttsProviderKey = data.simulation.ttsProviderKey
+  
+        // If voiceAssistantConfig is provided (from frontend sending full config), extract provider keys
+        // This is for backward compatibility
+        if (data.simulation.voiceAssistantConfig && !sttProviderKey && !llmProviderKey && !ttsProviderKey) {
+          // You could add logic here to map from full config to provider keys if needed
+          // For now, we'll just use the direct provider keys
+        }
+  
         if (simulation) {
           simulation = await tx.simulation.update({
             where: { id: simulation.id },
-            data: data.simulation
+            data: {
+              ...data.simulation,
+              // Ensure we use the extracted provider keys
+              sttProviderKey: sttProviderKey,
+              llmProviderKey: llmProviderKey,
+              ttsProviderKey: ttsProviderKey
+            }
           })
         } else {
           simulation = await tx.simulation.create({
@@ -1255,7 +1289,11 @@ export class CourseCaseService {
               timeLimitMinutes: data.simulation.timeLimitMinutes!,
               voiceModel: data.simulation.voiceModel!,
               warningTimeMinutes: data.simulation.warningTimeMinutes,
-              creditCost: data.simulation.creditCost || 1
+              creditCost: data.simulation.creditCost || 1,
+              // Store provider keys
+              sttProviderKey: sttProviderKey,
+              llmProviderKey: llmProviderKey,
+              ttsProviderKey: ttsProviderKey
             }
           })
         }

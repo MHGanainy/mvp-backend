@@ -156,6 +156,12 @@ model Simulation {
   voiceModel         VoiceModel          @map("voice_model")
   warningTimeMinutes Int?                @map("warning_time_minutes")
   creditCost         Int                 @default(1) @map("credit_cost")
+  
+  // Just store the provider keys
+  sttProviderKey     String?             @map("stt_provider_key")
+  llmProviderKey     String?             @map("llm_provider_key")
+  ttsProviderKey     String?             @map("tts_provider_key")
+  
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   simulationAttempts SimulationAttempt[]
