@@ -146,6 +146,11 @@ fastify.post('/simulation-attempts', async (request, reply) => {
   try {
     const data = createSimulationAttemptSchema.parse(request.body)
     const attempt = await simulationAttemptService.create(data)
+    const criticalRules = `CRITICAL RULES:
+- Keep answers short and only answer when asked about a specific point; do not provide unrequested information.
+- Express emotions ONLY by starting the sentence with one of these tags: [happy], [sad], [angry], [surprised], [fearful], [disgusted].
+- Do not use <> or any other symbols around the tags.
+- Do NOT include stage directions or actions (e.g., *sighs*, *laughs*, [pauses]).`;
     
     // Build voice assistant configuration
     const voiceAssistantConfig = {
@@ -162,7 +167,9 @@ fastify.post('/simulation-attempts', async (request, reply) => {
           Diagnosis: ${attempt.simulation.courseCase.diagnosis}. 
           ${attempt.simulation.casePrompt}
           
-          Important: Stay in character as the patient. Only provide information that a patient would realistically know about their condition. Do not diagnose yourself or provide medical explanations beyond what a typical patient might understand from their doctor.`
+          Important: Stay in character as the patient. Only provide information that a patient would realistically know about their condition. Do not diagnose yourself or provide medical explanations beyond what a typical patient might understand from their doctor.
+          
+          ${criticalRules}`
       }
     }
     
