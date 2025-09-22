@@ -6,10 +6,16 @@ import {
   TranscriptClean,
   } from '../../shared/types';
 import { aiFeedbackService } from './ai-feedback.service' 
+import { createAIFeedbackService, AIProvider } from './ai-feedback.service' 
 import { voiceTokenService } from '../../services/voice-token.service';
 
 export class SimulationAttemptService {
-  constructor(private prisma: PrismaClient) {}
+  private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
+  constructor(private prisma: PrismaClient) {
+    this.aiFeedbackService = createAIFeedbackService({
+      provider: AIProvider.GROQ,
+    });
+  }
 
   private generateCorrelationToken(): string {
     // Generate a URL-safe token

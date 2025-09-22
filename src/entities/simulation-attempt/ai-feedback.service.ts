@@ -1,5 +1,12 @@
 import OpenAI from 'openai';
+import Groq from 'groq-sdk';
 import { TranscriptClean } from '../../shared/types';
+
+// Add provider enum
+enum AIProvider {
+  OPENAI = 'openai',
+  GROQ = 'groq'
+}
 
 interface CaseInfo {
   patientName: string;
@@ -18,7 +25,7 @@ interface CaseTabs {
 interface MarkingCriterionResult {
   criterionId: string;
   criterionText: string;
-  points: number; // Now included
+  points: number;
   met: boolean;
   transcriptReferences: string[];
   feedback: string;
@@ -27,13 +34,12 @@ interface MarkingCriterionResult {
 interface MarkingDomainResult {
   domainId: string;
   domainName: string;
-  totalPossiblePoints: number; // Now included
-  achievedPoints: number; // Now included
-  percentageScore: number; // Now included
+  totalPossiblePoints: number;
+  achievedPoints: number;
+  percentageScore: number;
   criteria: MarkingCriterionResult[];
 }
 
-// Performance classification enum
 enum PerformanceClassification {
   CLEAR_PASS = 'CLEAR_PASS',
   BORDERLINE_PASS = 'BORDERLINE_PASS',
@@ -68,13 +74,36 @@ interface MarkingDomainWithCriteria {
   }[];
 }
 
-export class AIFeedbackService {
-  private openai: OpenAI;
+// Configuration interface for service initialization
+interface AIFeedbackServiceConfig {
+  provider?: AIProvider;
+  apiKey?: string;
+  model?: string;
+}
 
-  constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
+export class AIFeedbackService {
+  private openai?: OpenAI;
+  private groq?: Groq;
+  private provider: AIProvider;
+  private model: string;
+
+  constructor(config?: AIFeedbackServiceConfig) {
+    this.provider = config?.provider || AIProvider.OPENAI;
+    
+    // Initialize the appropriate client based on provider
+    if (this.provider === AIProvider.OPENAI) {
+      this.openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+      this.model = 'gpt-4o';
+    } else if (this.provider === AIProvider.GROQ) {
+      this.groq = new Groq({
+        apiKey:  process.env.GROQ_API_KEY
+      });
+      this.model = 'llama-3.3-70b-versatile';
+    } else {
+      throw new Error(`Unsupported AI provider: ${this.provider}`);
+    }
   }
 
   private calculatePerformanceClassification(percentageMet: number): {
@@ -109,6 +138,48 @@ export class AIFeedbackService {
     }
   }
 
+  // New method to handle completions across providers
+  private async getCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
+    const messages = [
+      { role: "system" as const, content: systemPrompt },
+      { role: "user" as const, content: userPrompt }
+    ];
+
+    if (this.provider === AIProvider.OPENAI && this.openai) {
+      const completion = await this.openai.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: 0.3,
+        max_tokens: 4000,
+        response_format: { type: "json_object" }
+      });
+      
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('No response content from OpenAI');
+      }
+      return responseContent;
+      
+    } else if (this.provider === AIProvider.GROQ && this.groq) {
+      // Note: Groq doesn't support response_format yet, so we'll need to ensure JSON in the prompt
+      const completion = await this.groq.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: 0.3,
+        max_tokens: 4000
+      });
+      
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('No response content from Groq');
+      }
+      return responseContent;
+      
+    } else {
+      throw new Error(`Provider ${this.provider} not properly initialized`);
+    }
+  }
+
   async generateFeedback(
     transcript: TranscriptClean,
     caseInfo: CaseInfo,
@@ -119,29 +190,15 @@ export class AIFeedbackService {
     feedback: AIFeedbackResponse; 
     score: number; 
     prompts: { systemPrompt: string; userPrompt: string; };
-    markingStructure: MarkingDomainWithCriteria[]; // Added to return original structure
+    markingStructure: MarkingDomainWithCriteria[];
   }> {
   
     const systemPrompt = this.buildSystemPrompt(caseInfo, caseTabs, markingDomainsWithCriteria);
     const userPrompt = this.buildUserPrompt(transcript, caseInfo, sessionDuration);
   
     try {
-      const completion = await this.openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 4000,
-        response_format: { type: "json_object" }
-      });
-  
-      const responseContent = completion.choices[0]?.message?.content;
-      if (!responseContent) {
-        throw new Error('No response content from OpenAI');
-      }
-  
+      // Use the new getCompletion method
+      const responseContent = await this.getCompletion(systemPrompt, userPrompt);
       const rawResponse = JSON.parse(responseContent);
       
       // Calculate overall statistics from the raw response
@@ -166,7 +223,6 @@ export class AIFeedbackService {
             domainAchievedPoints += criterion.points;
           }
           
-          // Keep all fields including points
           return {
             criterionId: criterion.criterionId,
             criterionText: criterion.criterionText,
@@ -177,7 +233,6 @@ export class AIFeedbackService {
           };
         });
         
-        // Return full domain with scoring fields
         return {
           domainId: domain.domainId,
           domainName: domain.domainName,
@@ -193,7 +248,6 @@ export class AIFeedbackService {
       const percentageMet = totalCriteria > 0 ? (criteriaMet / totalCriteria) * 100 : 0;
       const classification = this.calculatePerformanceClassification(percentageMet);
       
-      // Build the full response with all details
       const aiResponse: AIFeedbackResponse = {
         overallFeedback: rawResponse.overallFeedback,
         overallResult: {
@@ -208,7 +262,6 @@ export class AIFeedbackService {
         markingDomains: fullDomains
       };
       
-      // Calculate overall score
       const score = totalPossiblePoints > 0 
         ? Math.round((totalAchievedPoints / totalPossiblePoints) * 100)
         : 0;
@@ -220,12 +273,12 @@ export class AIFeedbackService {
           systemPrompt,
           userPrompt
         },
-        markingStructure: markingDomainsWithCriteria // Return original structure too
+        markingStructure: markingDomainsWithCriteria
       };
   
     } catch (error) {
-      console.error('Error generating AI feedback:', error);
-      throw new Error('Failed to generate AI feedback');
+      console.error(`Error generating AI feedback with ${this.provider}:`, error);
+      throw new Error(`Failed to generate AI feedback using ${this.provider}`);
     }
   }
   
@@ -242,6 +295,11 @@ export class AIFeedbackService {
     const totalCriteria = markingDomainsWithCriteria.reduce((sum, domain) => 
       sum + domain.criteria.length, 0
     );
+
+    // Add explicit JSON instruction for Groq since it doesn't have response_format
+    const jsonInstruction = this.provider === AIProvider.GROQ 
+      ? '\n\nIMPORTANT: You MUST respond with ONLY a valid JSON object. No additional text, explanations, or markdown formatting.'
+      : '';
 
     return `You are an expert medical examiner evaluating a medical student's performance during a simulated patient consultation.
 
@@ -308,7 +366,7 @@ EVALUATION INSTRUCTIONS:
 6. Be strict but fair - the student must demonstrate competency based on the expected standards
 7. Count the total number of criteria MET vs NOT MET for classification
 
-RESPONSE FORMAT:
+RESPONSE FORMAT:${jsonInstruction}
 You must respond with a valid JSON object in this exact structure:
 {
   "overallFeedback": "2-3 sentence summary comparing performance to case expectations",
@@ -351,6 +409,11 @@ ${domain.criteria.map(criterion => `        {
       })
       .join('\n');
 
+    // Additional JSON reminder for Groq
+    const jsonReminder = this.provider === AIProvider.GROQ
+      ? '\n\nRemember: Respond ONLY with the JSON object, no other text.'
+      : '';
+
     return `Please evaluate this medical student's consultation performance:
 
 CONSULTATION TRANSCRIPT:
@@ -377,8 +440,17 @@ Remember:
 - Borderline Fail requires 25-50% of criteria MET
 - Clear Fail is <25% of criteria MET
 
-Please provide your evaluation in the required JSON format.`;
+Please provide your evaluation in the required JSON format.${jsonReminder}`;
   }
 }
 
+// Export both the class and the enum for external use
+export { AIProvider };
+
+// Factory function for easier instantiation
+export function createAIFeedbackService(config?: AIFeedbackServiceConfig): AIFeedbackService {
+  return new AIFeedbackService(config);
+}
+
+// Default singleton for backward compatibility
 export const aiFeedbackService = new AIFeedbackService();
