@@ -17,9 +17,12 @@ export class AuthService {
 
   // Student Registration
   async registerStudent(data: RegisterStudentInput) {
+    // Normalize email to lowercase
+    const normalizedEmail = data.email.toLowerCase().trim()
+    
     // Check if email already exists
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: data.email }
+      where: { email: normalizedEmail }
     })
 
     if (existingUser) {
@@ -31,10 +34,10 @@ export class AuthService {
 
     // Create user and student profile in transaction
     const result = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Create user
+      // Create user with normalized email
       const user = await tx.user.create({
         data: {
-          email: data.email,
+          email: normalizedEmail,
           name: data.name || `${data.firstName} ${data.lastName}`,
           passwordHash,
           emailVerified: true // Always true in simplified flow
@@ -99,9 +102,12 @@ export class AuthService {
 
   // Instructor Registration
   async registerInstructor(data: RegisterInstructorInput) {
+    // Normalize email to lowercase
+    const normalizedEmail = data.email.toLowerCase().trim()
+    
     // Check if email already exists
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: data.email }
+      where: { email: normalizedEmail }
     })
 
     if (existingUser) {
@@ -113,10 +119,10 @@ export class AuthService {
 
     // Create user and instructor profile in transaction
     const result = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Create user
+      // Create user with normalized email
       const user = await tx.user.create({
         data: {
-          email: data.email,
+          email: normalizedEmail,
           name: data.name || `${data.firstName} ${data.lastName}`,
           passwordHash,
           emailVerified: true // Always true in simplified flow
@@ -167,9 +173,12 @@ export class AuthService {
   }
 
   async login(data: LoginInput) {
-    // Find user by email
+    // Normalize email to lowercase for consistent comparison
+    const normalizedEmail = data.email.toLowerCase().trim()
+    
+    // Find user by normalized email
     const user = await this.prisma.user.findUnique({
-      where: { email: data.email },
+      where: { email: normalizedEmail },
       include: {
         student: true,
         instructor: true

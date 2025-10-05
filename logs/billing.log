@@ -1691,3 +1691,5 @@
 {"timestamp":"2025-10-05T15:07:54.399Z","level":"INFO","service":"BillingService","message":"BillingService initialized","environment":"development","database_url":"configured"}
 {"timestamp":"2025-10-05T19:03:03.637Z","level":"INFO","service":"BillingService","message":"BillingService initialized","environment":"development","database_url":"configured"}
 {"timestamp":"2025-10-05T19:17:42.901Z","level":"INFO","service":"BillingService","message":"BillingService initialized","environment":"development","database_url":"configured"}
+{"timestamp":"2025-10-05T21:46:46.143Z","level":"INFO","service":"BillingService","message":"BillingService initialized","environment":"development","database_url":"configured"}
+{"timestamp":"2025-10-05T21:50:52.735Z","level":"INFO","service":"BillingService","message":"BillingService initialized","environment":"development","database_url":"configured"}
