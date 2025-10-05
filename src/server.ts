@@ -112,7 +112,7 @@ const start = async () => {
       await fastify.register(markingCriterionRoutes, { prefix: '/api' })
       await fastify.register(billingRoutes, { prefix: '/api' })
       const port = Number(process.env.PORT) || 3000
-      const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost'
+      const host = process.env.HOST || '0.0.0.0'
       
       await fastify.listen({ port, host })
       console.log(`🚀 Server running on ${host}:${port}`)
