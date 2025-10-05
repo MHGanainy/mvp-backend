@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-// Student Registration Schema
+// Student Registration Schema - dateOfBirth removed
 export const registerStudentSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
@@ -12,15 +12,9 @@ export const registerStudentSchema = z.object({
     .min(1, 'Last name is required')
     .max(50, 'Last name must be less than 50 characters')
     .trim(),
-  dateOfBirth: z.string()
-    .datetime('Invalid date format')
-    .or(z.date())
-    .transform((val) => new Date(val))
-    .refine((date) => {
-      const age = (new Date().getTime() - date.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
-      return age >= 18 && age <= 100
-    }, 'Age must be between 18 and 100 years'),
-  name: z.string().optional() // Optional display name
+  name: z.string().optional(), // Optional display name
+  // dateOfBirth field removed - ignore if provided for backward compatibility
+  dateOfBirth: z.any().optional() // Accept but ignore for backward compatibility
 })
 
 // Instructor Registration Schema

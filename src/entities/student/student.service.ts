@@ -16,12 +16,12 @@ export class StudentService {
       })
 
       // Then, create the Student linked to the User
+      // Note: dateOfBirth is removed from the model
       const student = await tx.student.create({
         data: {
           userId: user.id,
           firstName: data.firstName,
           lastName: data.lastName,
-          dateOfBirth: data.dateOfBirth,
           creditBalance: 0 // Always start with 0 credits
         },
         include: {
@@ -78,9 +78,22 @@ export class StudentService {
     // Check if exists first
     await this.findById(id)
 
+    // Filter out dateOfBirth if it's provided (for backward compatibility)
+    const updateData: any = {
+      firstName: data.firstName,
+      lastName: data.lastName
+    }
+
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key]
+      }
+    })
+
     return await this.prisma.student.update({
       where: { id },
-      data,
+      data: updateData,
       include: {
         user: true
       }

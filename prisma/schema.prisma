@@ -41,7 +41,6 @@ model Student {
   userId             Int                 @unique @map("user_id")
   firstName          String              @map("first_name")
   lastName           String              @map("last_name")
-  dateOfBirth        DateTime            @map("date_of_birth") @db.Date
   creditBalance      Int                 @default(0) @map("credit_balance")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")

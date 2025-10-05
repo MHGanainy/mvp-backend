@@ -42,12 +42,12 @@ export class AuthService {
       })
 
       // Create student profile with 100 complimentary credits
+      // Note: dateOfBirth is removed from the model
       const student = await tx.student.create({
         data: {
           userId: user.id,
           firstName: data.firstName,
           lastName: data.lastName,
-          dateOfBirth: data.dateOfBirth,
           creditBalance: 100 // 100 complimentary credits on registration
         }
       })
