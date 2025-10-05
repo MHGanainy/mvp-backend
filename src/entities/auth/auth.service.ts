@@ -41,14 +41,26 @@ export class AuthService {
         }
       })
 
-      // Create student profile
+      // Create student profile with 100 complimentary credits
       const student = await tx.student.create({
         data: {
           userId: user.id,
           firstName: data.firstName,
           lastName: data.lastName,
           dateOfBirth: data.dateOfBirth,
-          creditBalance: 0 // Start with 0 credits
+          creditBalance: 100 // 100 complimentary credits on registration
+        }
+      })
+
+      // Create a credit transaction record for the complimentary credits
+      await tx.creditTransaction.create({
+        data: {
+          studentId: student.id,
+          transactionType: 'CREDIT',
+          amount: 100,
+          balanceAfter: 100,
+          sourceType: 'MANUAL',
+          description: 'Welcome bonus - 100 complimentary credits'
         }
       })
 
