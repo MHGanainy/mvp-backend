@@ -43,3 +43,13 @@ Production: railway run npx prisma studio
 npx prisma migrate dev --name add-curriculum
 
 
+
+docker run --rm postgres:16 pg_dump "postgresql://postgres:IBdHmFwKDoDzMYEyVyhuYBwgdaWayUiJ@caboose.proxy.rlwy.net:55655/railway" > railway_backup_$(date +%Y%m%d_%H%M%S).sql
+
+cp .env .env.backup
+
+echo 'DATABASE_URL="postgresql://postgres:IBdHmFwKDoDzMYEyVyhuYBwgdaWayUiJ@caboose.proxy.rlwy.net:55655/railway"' > .env
+
+
+npx prisma generate
+

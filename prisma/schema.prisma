@@ -40,7 +40,7 @@ model Student {
   id                 String              @id @default(uuid())
   userId             Int                 @unique @map("user_id")
   firstName          String              @map("first_name")
-  lastName           String              @map("last_name")
+  lastName           String              @map("last_name")  
   creditBalance      Int                 @default(0) @map("credit_balance")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
