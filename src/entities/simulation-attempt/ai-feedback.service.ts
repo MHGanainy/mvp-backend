@@ -100,7 +100,7 @@ export class AIFeedbackService {
       this.groq = new Groq({
         apiKey:  process.env.GROQ_API_KEY
       });
-      this.model = 'llama-3.3-70b-versatile';
+      this.model = 'openai/gpt-oss-120b';
     } else {
       throw new Error(`Unsupported AI provider: ${this.provider}`);
     }
@@ -179,7 +179,7 @@ export class AIFeedbackService {
         model: this.model,
         messages,
         temperature: 0.3,
-        max_tokens: 4000,
+        max_tokens: 20000,
         response_format: { type: "json_object" }
       });
       
@@ -195,7 +195,7 @@ export class AIFeedbackService {
         model: this.model,
         messages,
         temperature: 0.3,
-        max_tokens: 4000
+        max_tokens: 20000
       });
       
       const responseContent = completion.choices[0]?.message?.content;
@@ -379,91 +379,102 @@ PERFORMANCE CLASSIFICATION RULES:
 ================================
 Based on the percentage of criteria MET:
 - Clear Pass: More than 75% of criteria met
-- Borderline Pass: 50% - 75% of criteria met  
+- Borderline Pass: 50% - 75% of criteria met 
 - Borderline Fail: 25% - 50% of criteria met
 - Clear Fail: Less than 25% of criteria met
+
 
 EVALUATION INSTRUCTIONS:
 1. Use the DOCTOR'S NOTES to understand what the examiner expects from the student
 2. Use the PATIENT SCRIPT to assess if the student elicited the correct information
 3. Use the MEDICAL NOTES to verify the student's clinical knowledge and approach
 4. For EACH criterion:
-   - Determine if it was MET (demonstrated) or NOT MET (not/partially demonstrated)
-   - Provide 1-3 EXACT quotes from the transcript supporting your decision
-   - Consider the case materials when making your determination
-   - Provide feedback explaining your decision
+  - Determine if it was MET (demonstrated) or NOT MET (not/partially demonstrated).If a criterion is partially demonstrated at >75% completion, accept it as MET.
+  - Provide 1-3 EXACT quotes from the transcript supporting your decision
+  - Consider the case materials when making your determination
+  - Provide feedback explaining your decision
+
 
 5. Criteria are binary - either MET (full points) or NOT MET (0 points)
 6. Be strict but fair - the student must demonstrate competency based on the expected standards
 7. Count the total number of criteria MET vs NOT MET for classification
+8. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
+9. If information elicited by the actor without the student asking then student does not need to gather this information again as it is said and condition will be met
+
 
 RESPONSE FORMAT:${jsonInstruction}
 You must respond with a valid JSON object in this exact structure:
 {
-  "overallFeedback": "2-3 sentence summary comparing performance to case expectations",
-  "markingDomains": [
+ "overallFeedback": "2-3 sentence summary comparing performance to case expectations",
+ "markingDomains": [
 ${markingDomainsWithCriteria.map(domain => {
-  const domainPoints = domain.criteria.reduce((sum, c) => sum + c.points, 0);
-  return `    {
-      "domainId": "${domain.domainId}",
-      "domainName": "${domain.domainName}",
-      "totalPossiblePoints": ${domainPoints},
-      "achievedPoints": sum_of_met_criteria_points,
-      "percentageScore": domain_percentage,
-      "criteria": [
+ const domainPoints = domain.criteria.reduce((sum, c) => sum + c.points, 0);
+ return `    {
+     "domainId": "${domain.domainId}",
+     "domainName": "${domain.domainName}",
+     "totalPossiblePoints": ${domainPoints},
+     "achievedPoints": sum_of_met_criteria_points,
+     "percentageScore": domain_percentage,
+     "criteria": [
 ${domain.criteria.map(criterion => `        {
-          "criterionId": "${criterion.id}",
-          "criterionText": "${criterion.text}",
-          "points": ${criterion.points},
-          "met": true_or_false,
-          "transcriptReferences": ["exact quote 1", "exact quote 2"],
-          "feedback": "Explanation referencing case materials where relevant"
-        }`).join(',\n')}
-      ]
-    }`}).join(',\n')}
-  ]
+         "criterionId": "${criterion.id}",
+         "criterionText": "${criterion.text}",
+         "points": ${criterion.points},
+         "met": true_or_false,
+         "transcriptReferences": ["exact quote 1", "exact quote 2"],
+         "feedback": "Explanation referencing case materials where relevant"
+       }`).join(',\n')}
+     ]
+   }`}).join(',\n')}
+ ]
 }`;
-  }
+ }
 
-  private buildUserPrompt(
-    transcript: TranscriptClean,
-    caseInfo: CaseInfo,
-    sessionDuration: number
-  ): string {
-    
-    const conversationText = transcript.messages
-      .map(msg => {
-        const speaker = msg.speaker.toLowerCase().includes('student') || msg.speaker.toLowerCase().includes('doctor') 
-          ? 'STUDENT' 
-          : 'PATIENT';
-        return `[${msg.timestamp}] ${speaker}: ${msg.message}`;
-      })
-      .join('\n');
 
-    // Additional JSON reminder for Groq
-    const jsonReminder = this.provider === AIProvider.GROQ
-      ? '\n\nFINAL REMINDER: Output ONLY the raw JSON object starting with { and ending with }. No markdown, no code blocks, no explanations.'
-      : '';
+ private buildUserPrompt(
+   transcript: TranscriptClean,
+   caseInfo: CaseInfo,
+   sessionDuration: number
+ ): string {
+  
+   const conversationText = transcript.messages
+     .map(msg => {
+       const speaker = msg.speaker.toLowerCase().includes('student') || msg.speaker.toLowerCase().includes('doctor')
+         ? 'STUDENT'
+         : 'PATIENT';
+       return `[${msg.timestamp}] ${speaker}: ${msg.message}`;
+     })
+     .join('\n');
 
-    return `Please evaluate this medical student's consultation performance:
+
+   // Additional JSON reminder for Groq
+   const jsonReminder = this.provider === AIProvider.GROQ
+     ? '\n\nFINAL REMINDER: Output ONLY the raw JSON object starting with { and ending with }. No markdown, no code blocks, no explanations.'
+     : '';
+
+
+   return `Please evaluate this medical student's consultation performance:
+
 
 CONSULTATION TRANSCRIPT:
 ${conversationText}
+
 
 SESSION DETAILS:
 - Total Duration: ${Math.floor(sessionDuration / 60)} minutes ${sessionDuration % 60} seconds
 - Total Messages: ${transcript.totalMessages}
 - Case: ${caseInfo.caseTitle}
 
+
 CRITICAL INSTRUCTIONS:
-1. Compare the student's performance against the DOCTOR'S NOTES expectations
-2. Check if the student elicited information mentioned in the PATIENT SCRIPT
-3. Verify the student's approach aligns with the MEDICAL NOTES
-4. Evaluate EACH criterion as either MET or NOT MET (binary decision)
-5. Provide 1-3 EXACT quotes from the transcript for each criterion
-6. Reference the case materials in your feedback where relevant
-7. Calculate points: MET = full points, NOT MET = 0 points
-8. Be aware that the overall classification depends on the percentage of criteria MET
+1. Compare the student's performance against the marking criteria expectations
+2. Check if the student elicited information mentioned in the PATIENT SCRIPT (If information elicited by the actor without the student asking then student does not need to gather this information again as it is said and condition will be met)
+3. Evaluate EACH criterion as either MET or NOT MET (binary decision). If a criterion is partially demonstrated at >80% completion, accept it as MET
+4. Provide 1-3 EXACT quotes from the transcript for each criterion
+5. Calculate points: MET = full points, NOT MET = 0 points
+6. Be aware that the overall classification depends on the percentage of criteria MET
+7. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
+
 
 Remember:
 - Clear Pass requires >75% of criteria MET
@@ -471,9 +482,11 @@ Remember:
 - Borderline Fail requires 25-50% of criteria MET
 - Clear Fail is <25% of criteria MET
 
+
 Please provide your evaluation in the required JSON format.${jsonReminder}`;
-  }
+ }
 }
+
 
 // Export both the class and the enum for external use
 export { AIProvider };

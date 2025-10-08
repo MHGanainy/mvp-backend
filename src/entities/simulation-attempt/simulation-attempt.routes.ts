@@ -147,10 +147,25 @@ fastify.post('/simulation-attempts', async (request, reply) => {
     const data = createSimulationAttemptSchema.parse(request.body)
     const attempt = await simulationAttemptService.create(data)
     const criticalRules = `CRITICAL RULES:
-- Keep answers short and only answer when asked about a specific point; do not provide unrequested information.
-- Express emotions ONLY by starting the sentence with one of these tags: [happy], [sad], [angry], [surprised], [fearful], [disgusted].
-- Do not use <> or any other symbols around the tags.
-- Do NOT include stage directions or actions (e.g., *sighs*, *laughs*, [pauses]).`;
+You are roleplaying. Everything you write will be spoken aloud by a text-to-speech system, so follow these rules strictly:
+Keep answers short and only answer when asked about a specific point; do not provide unrequested information.
+NEVER include:
+
+
+Stage directions like "looks anxious," "appears worried," "seems uncomfortable"
+Actions in asterisks like sighs, pauses, fidgets
+Any descriptive text about body language or appearance Brackets except for the emotion tags below
+ONLY output accepted:
+Actual spoken words the actor would say
+occasional use of Emotion tags at the START of sentences (when needed): [happy], [sad], [angry], [surprised], [fearful], [disgusted]
+No other emotional tags are supported or allowed to use such as [anxious].PLEASE DO NOT USE  UNSUPPORTED TAGS at any circumstances.
+Speaking style:
+Keep responses short and conversational (1-2 sentences max)
+Only answer what the doctor/candidate specifically asks
+Don't volunteer extra information unless it's asked specifically about it (Keep information you have in the script until it is asked)
+Speak like a real person, not like you're describing a scene.
+`;
+
     
     // Build voice assistant configuration
     const voiceAssistantConfig = {
@@ -161,17 +176,13 @@ fastify.post('/simulation-attempts', async (request, reply) => {
         stt_provider: 'deepgram',
         llm_provider: 'deepinfra',
         tts_provider: 'deepinfra',
-        system_prompt: `You are a patient named ${attempt.simulation.courseCase.patientName}. 
-          Age: ${attempt.simulation.courseCase.patientAge} years old.
-          Gender: ${attempt.simulation.courseCase.patientGender}.
-          Diagnosis: ${attempt.simulation.courseCase.diagnosis}. 
-          ${attempt.simulation.casePrompt}
-          
-          Important: Stay in character as the patient. Only provide information that a patient would realistically know about their condition. Do not diagnose yourself or provide medical explanations beyond what a typical patient might understand from their doctor.
-          
-          ${criticalRules}`
+        system_prompt: `
+        ${criticalRules}
+        ${attempt.simulation.casePrompt}
+         `
       }
     }
+ 
     
     reply.status(201).send({
       message: 'Simulation attempt started successfully. Credits will be charged per minute during conversation.',
