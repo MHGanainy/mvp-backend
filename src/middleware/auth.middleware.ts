@@ -22,11 +22,9 @@ declare module 'fastify' {
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   try {
     await request.jwtVerify()
-    
-    // The JWT payload is automatically attached to request.user by fastify-jwt
     const user = request.user as JWTPayload
     request.role = user.role
-    request.isAdmin = user.isAdmin || false // ADD THIS
+    request.isAdmin = user.isAdmin || false
   } catch (err) {
     reply.status(401).send({ error: 'Unauthorized' })
   }
@@ -68,20 +66,41 @@ export function requireAuth(role?: 'student' | 'instructor') {
 }
 
 // Optional auth middleware - attaches user if token is valid, but doesn't fail if not
+// USED BY GLOBAL HOOK - This runs on EVERY request
 export async function optionalAuth(request: FastifyRequest, reply: FastifyReply) {
   try {
+    // Check for Authorization header
+    const authHeader = request.headers.authorization
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // No token provided, set defaults and continue
+      request.role = undefined
+      request.isAdmin = false  // Explicitly false for non-authenticated
+      return
+    }
+
+    // Attempt to verify JWT
     await request.jwtVerify()
     const user = request.user as JWTPayload
+    
+    // Set user properties from JWT
     request.role = user.role
-    request.isAdmin = user.isAdmin || false // ADD THIS
+    request.isAdmin = user.isAdmin || false
+    
+    // Log for debugging (remove in production)
+    if (user.isAdmin) {
+      console.log(`🔑 Admin user detected: ${user.email}`)
+    }
   } catch (err) {
-    // Don't fail, just continue without user
+    // Token is invalid or expired, set defaults and continue
     request.role = undefined
-    request.isAdmin = undefined
+    request.isAdmin = false  // Explicitly false for failed authentication
+    
+    // Don't throw error - this is optional auth
+    // Public routes remain accessible
   }
 }
 
-// Helper to check if user is admin - NEW
+// Helper to check if user is admin
 export function isAdmin(request: FastifyRequest): boolean {
   return request.isAdmin === true
 }
@@ -101,7 +120,7 @@ export function getCurrentStudentId(request: FastifyRequest): string | null {
   return null
 }
 
-// Helper to get current instructor ID
+// Helper to get current instructor ID  
 export function getCurrentInstructorId(request: FastifyRequest): string | null {
   const user = request.user as JWTPayload | undefined
   if (request.role === 'instructor' && user?.instructorId) {
@@ -110,7 +129,7 @@ export function getCurrentInstructorId(request: FastifyRequest): string | null {
   return null
 }
 
-// Helper to check if user can access instructor resources - NEW
+// Helper to check if user can access instructor resources
 export function canAccessInstructorResource(request: FastifyRequest, instructorId: string): boolean {
   // Admin can access everything
   if (request.isAdmin) {
@@ -120,7 +139,7 @@ export function canAccessInstructorResource(request: FastifyRequest, instructorI
   return getCurrentInstructorId(request) === instructorId
 }
 
-// Helper to check if user can access student resources - NEW
+// Helper to check if user can access student resources
 export function canAccessStudentResource(request: FastifyRequest, studentId: string): boolean {
   // Admin can access everything
   if (request.isAdmin) {
@@ -130,7 +149,7 @@ export function canAccessStudentResource(request: FastifyRequest, studentId: str
   return getCurrentStudentId(request) === studentId
 }
 
-// Helper to check if user can modify exam - NEW
+// Helper to check if user can modify exam
 export function canModifyExam(request: FastifyRequest, examInstructorId: string): boolean {
   // Admin can modify any exam
   if (request.isAdmin) {
@@ -140,7 +159,7 @@ export function canModifyExam(request: FastifyRequest, examInstructorId: string)
   return getCurrentInstructorId(request) === examInstructorId
 }
 
-// Helper to check if user can access course - NEW
+// Helper to check if user can access course
 export function canAccessCourse(request: FastifyRequest, courseInstructorId: string): boolean {
   // Admin can access any course
   if (request.isAdmin) {
@@ -150,7 +169,7 @@ export function canAccessCourse(request: FastifyRequest, courseInstructorId: str
   return getCurrentInstructorId(request) === courseInstructorId
 }
 
-// Helper to check if user needs to pay for resources - NEW
+// Helper to check if user needs to pay for resources
 export function requiresPayment(request: FastifyRequest): boolean {
   // Admin never needs to pay
   if (request.isAdmin) {
@@ -160,7 +179,7 @@ export function requiresPayment(request: FastifyRequest): boolean {
   return true
 }
 
-// Helper to get effective credit balance - NEW
+// Helper to get effective credit balance
 export function getEffectiveCreditBalance(request: FastifyRequest, actualBalance: number): number {
   // Admin always has unlimited credits
   if (request.isAdmin) {

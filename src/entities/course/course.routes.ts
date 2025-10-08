@@ -107,31 +107,44 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /courses/instructor/:instructorId - Get courses by instructor
-  fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
+// GET /courses/instructor/:instructorId - Get courses by instructor
+fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
+  try {
+    const { instructorId } = courseInstructorParamsSchema.parse(request.params)
+    
+    let isUserAdmin = false
+    let canViewAll = false
     try {
-      const { instructorId } = courseInstructorParamsSchema.parse(request.params)
-      
-      let canViewAll = false
-      try {
-        await request.jwtVerify()
-        canViewAll = isAdmin(request) || getCurrentInstructorId(request) === instructorId
-      } catch {
-        // Not authenticated - can only see published
-      }
-      
-      const allCourses = await courseService.findByInstructor(instructorId)
-      const courses = canViewAll ? allCourses : allCourses.filter(course => course.isPublished)
-      
-      reply.send(courses)
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Instructor not found') {
-        reply.status(404).send({ error: 'Instructor not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid request' })
-      }
+      await request.jwtVerify()
+      isUserAdmin = isAdmin(request)
+      canViewAll = isUserAdmin || getCurrentInstructorId(request) === instructorId
+    } catch {
+      // Not authenticated - can only see published
     }
-  })
+    
+    // FIXED: Admin gets ALL courses, not filtered by instructor
+    let courses
+    if (isUserAdmin) {
+      // Admin sees ALL courses from all instructors
+      courses = await courseService.findAll()
+    } else if (canViewAll) {
+      // Instructor sees all their own courses
+      courses = await courseService.findByInstructor(instructorId)
+    } else {
+      // Public/other users see only published courses from this instructor
+      const instructorCourses = await courseService.findByInstructor(instructorId)
+      courses = instructorCourses.filter(course => course.isPublished)
+    }
+    
+    reply.send(courses)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Instructor not found') {
+      reply.status(404).send({ error: 'Instructor not found' })
+    } else {
+      reply.status(400).send({ error: 'Invalid request' })
+    }
+  }
+})
 
   // GET /courses/:id - Get course by ID
   fastify.get('/courses/:id', async (request, reply) => {

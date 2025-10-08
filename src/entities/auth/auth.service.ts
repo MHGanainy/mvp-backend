@@ -184,47 +184,53 @@ export class AuthService {
     const normalizedEmail = data.email.toLowerCase().trim()
     
     // Find user by normalized email
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
       include: {
         student: true,
         instructor: true
       }
     })
-
+  
     if (!user) {
       throw new Error('Invalid credentials')
     }
-
-    // Special handling for admin user
+  
+    // Verify password first (before creating profiles)
+    if (!user.passwordHash) {
+      throw new Error('Invalid credentials')
+    }
+  
+    const isValidPassword = await this.comparePassword(data.password, user.passwordHash)
+    
+    if (!isValidPassword) {
+      throw new Error('Invalid credentials')
+    }
+  
+    // Special handling for admin user - create profile if needed
     if (user.isAdmin) {
-      // Admin can login as either role - create profile if needed
-      if (data.userType === 'student') {
-        if (!user.student) {
-          // Create student profile for admin on first student login
-          const adminStudent = await this.prisma.student.create({
-            data: {
-              userId: user.id,
-              firstName: 'Admin',
-              lastName: 'User',
-              creditBalance: 999999 // Unlimited credits
-            }
-          })
-          user.student = adminStudent
-        }
-      } else if (data.userType === 'instructor') {
-        if (!user.instructor) {
-          // Create instructor profile for admin on first instructor login
-          const adminInstructor = await this.prisma.instructor.create({
-            data: {
-              userId: user.id,
-              firstName: 'Admin',
-              lastName: 'User',
-              bio: 'System Administrator with full access'
-            }
-          })
-          user.instructor = adminInstructor
-        }
+      if (data.userType === 'student' && !user.student) {
+        // Create student profile for admin on first student login
+        const adminStudent = await this.prisma.student.create({
+          data: {
+            userId: user.id,
+            firstName: 'System',  // Use consistent naming
+            lastName: 'Administrator',
+            creditBalance: 999999 // Unlimited credits
+          }
+        })
+        user.student = adminStudent  // Update the user object
+      } else if (data.userType === 'instructor' && !user.instructor) {
+        // Create instructor profile for admin on first instructor login
+        const adminInstructor = await this.prisma.instructor.create({
+          data: {
+            userId: user.id,
+            firstName: 'System',  // Use consistent naming
+            lastName: 'Administrator',
+            bio: 'System Administrator with full access'
+          }
+        })
+        user.instructor = adminInstructor  // Update the user object
       }
     } else {
       // Regular users must have the correct profile type
@@ -235,44 +241,45 @@ export class AuthService {
         throw new Error('User is not an instructor')
       }
     }
-
-    // Verify password
-    if (!user.passwordHash) {
-      throw new Error('Invalid credentials')
+  
+    // Build profile based on requested userType
+    let profile;
+    if (data.userType === 'student') {
+      if (!user.student) {
+        throw new Error('Student profile not found')
+      }
+      profile = {
+        id: user.student.id,
+        firstName: user.student.firstName,
+        lastName: user.student.lastName,
+        creditBalance: user.isAdmin ? 999999 : user.student.creditBalance
+      }
+    } else {
+      if (!user.instructor) {
+        throw new Error('Instructor profile not found')
+      }
+      profile = {
+        id: user.instructor.id,
+        firstName: user.instructor.firstName,
+        lastName: user.instructor.lastName,
+        bio: user.instructor.bio
+      }
     }
-
-    const isValidPassword = await this.comparePassword(data.password, user.passwordHash)
-    
-    if (!isValidPassword) {
-      throw new Error('Invalid credentials')
-    }
-
+  
     // Generate tokens - include isAdmin flag
     const payload: JWTPayload = {
       userId: user.id,
-      role: data.userType, // Use the requested role, not 'admin'
+      role: data.userType,  // Always use the requested role
       email: user.email,
       isAdmin: user.isAdmin || false,
-      studentId: user.student?.id,
-      instructorId: user.instructor?.id
+      studentId: data.userType === 'student' ? user.student?.id : undefined,
+      instructorId: data.userType === 'instructor' ? user.instructor?.id : undefined
     }
-
+  
     const accessToken = await this.generateAccessToken(payload)
     const refreshToken = await this.generateRefreshToken(payload)
-
-    // Get profile based on user type
-    const profile = data.userType === 'student' ? {
-      id: user.student!.id,
-      firstName: user.student!.firstName,
-      lastName: user.student!.lastName,
-      creditBalance: user.isAdmin ? 999999 : user.student!.creditBalance // Show unlimited for admin
-    } : {
-      id: user.instructor!.id,
-      firstName: user.instructor!.firstName,
-      lastName: user.instructor!.lastName,
-      bio: user.instructor!.bio
-    }
-
+  
+    // Return consistent structure for all users (admin or not)
     return {
       accessToken,
       refreshToken,

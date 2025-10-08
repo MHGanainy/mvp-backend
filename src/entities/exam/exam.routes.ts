@@ -77,32 +77,45 @@ export default async function examRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /exams/instructor/:instructorId - Get exams by instructor
-  fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
+// GET /exams/instructor/:instructorId - Get exams by instructor
+fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
+  try {
+    const { instructorId } = examInstructorParamsSchema.parse(request.params)
+    
+    // Check authentication and admin status
+    let isUserAdmin = false
+    let canViewAll = false
     try {
-      const { instructorId } = examInstructorParamsSchema.parse(request.params)
-      
-      // Check if user can see this instructor's exams
-      let canView = false
-      try {
-        await request.jwtVerify()
-        canView = isAdmin(request) || getCurrentInstructorId(request) === instructorId
-      } catch {
-        // Not authenticated - can only see if exams are active
-      }
-      
-      const allExams = await examService.findByInstructor(instructorId)
-      const exams = canView ? allExams : allExams.filter(exam => exam.isActive)
-      
-      reply.send(exams)
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Instructor not found') {
-        reply.status(404).send({ error: 'Instructor not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid request' })
-      }
+      await request.jwtVerify()
+      isUserAdmin = isAdmin(request)
+      canViewAll = isUserAdmin || getCurrentInstructorId(request) === instructorId
+    } catch {
+      // Not authenticated - can only see active exams
     }
-  })
+    
+    // FIXED: Admin gets ALL exams, not filtered by instructor
+    let exams
+    if (isUserAdmin) {
+      // Admin sees ALL exams regardless of instructor
+      exams = await examService.findAll()
+    } else if (canViewAll) {
+      // Instructor sees all their own exams
+      exams = await examService.findByInstructor(instructorId)
+    } else {
+      // Public/other users see only active exams from this instructor
+      const instructorExams = await examService.findByInstructor(instructorId)
+      exams = instructorExams.filter(exam => exam.isActive)
+    }
+    
+    reply.send(exams)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Instructor not found') {
+      reply.status(404).send({ error: 'Instructor not found' })
+    } else {
+      reply.status(400).send({ error: 'Invalid request' })
+    }
+  }
+})
 
   // GET /exams/slug/:slug - Get exam by slug
   fastify.get('/exams/slug/:slug', async (request, reply) => {

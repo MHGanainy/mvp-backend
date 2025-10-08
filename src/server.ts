@@ -1,8 +1,10 @@
+// src/server.ts
 import Fastify from 'fastify'
 import { PrismaClient } from '@prisma/client'
 import fastifyJwt from '@fastify/jwt'
 import fastifyCors from '@fastify/cors'
 import './shared/types'
+import { optionalAuth } from './middleware/auth.middleware'
 
 // Add all imports
 import authRoutes from './entities/auth/auth.routes'
@@ -22,6 +24,7 @@ import paymentRoutes from './entities/payment/payment.routes'
 import markingCriterionRoutes from './entities/marking-criterion/marking-criterion.routes'
 import billingRoutes from './entities/billing/billing.routes'
 import { seedAdminUser } from './services/seed-admin'
+
 const fastify = Fastify({ logger: true })
 const prisma = new PrismaClient()
 
@@ -44,13 +47,31 @@ fastify.register(fastifyCors, {
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] // Allowed methods
 })
 
+// GLOBAL AUTHENTICATION HOOK - Runs on EVERY request
+// This attempts to authenticate but doesn't block if no token
+// Ensures admin users are always identified
+fastify.addHook('onRequest', async (request, reply) => {
+  // Skip for health check and other system endpoints
+  if (request.url === '/health' || request.url === '/favicon.ico') {
+    return
+  }
+  
+  // Attempt to authenticate on every request
+  await optionalAuth(request, reply)
+})
+
 // Health check
 fastify.get('/health', async () => {
   return { status: 'OK', timestamp: new Date().toISOString() }
 })
 
 // Clean User routes
-fastify.get('/users', async () => {
+fastify.get('/users', async (request) => {
+  // Admin check will work because of global hook
+  if (!request.isAdmin) {
+    throw new Error('Admin access required')
+  }
+  
   const users = await prisma.user.findMany({
     include: { 
       instructor: true,
@@ -60,7 +81,13 @@ fastify.get('/users', async () => {
   return users
 })
 
-fastify.post('/users', async (request) => {
+fastify.post('/users', async (request, reply) => {
+  // Admin check will work because of global hook
+  if (!request.isAdmin) {
+    reply.status(403).send({ error: 'Admin access required' })
+    return
+  }
+  
   const { email, name } = request.body as { email: string; name?: string }
   
   const user = await prisma.user.create({
@@ -69,7 +96,13 @@ fastify.post('/users', async (request) => {
   return user
 })
 
-fastify.get('/users/:id', async (request) => {
+fastify.get('/users/:id', async (request, reply) => {
+  // Admin check will work because of global hook
+  if (!request.isAdmin) {
+    reply.status(403).send({ error: 'Admin access required' })
+    return
+  }
+  
   const { id } = request.params as { id: string }
   
   const user = await prisma.user.findUnique({
@@ -89,40 +122,43 @@ fastify.get('/users/:id', async (request) => {
 
 // Start server
 const start = async () => {
-    try {
-      await seedAdminUser()
-      // Register auth routes FIRST (no prefix needed)
-      await fastify.register(authRoutes, { prefix: '/api' })
-      
-      // Register subscription routes (also at root level for easier access)
-      await fastify.register(subscriptionRoutes, { prefix: '/api' })
-      
-      // Register all other route sets
-      await fastify.register(specialtyRoutes, { prefix: '/api' })
-      await fastify.register(curriculumRoutes, { prefix: '/api' })
-      await fastify.register(markingDomainRoutes, { prefix: '/api' })
-      await fastify.register(instructorRoutes, { prefix: '/api' })
-      await fastify.register(studentRoutes, { prefix: '/api' })
-      await fastify.register(examRoutes, { prefix: '/api' })
-      await fastify.register(courseRoutes, { prefix: '/api' })
-      await fastify.register(courseCaseRoutes, { prefix: '/api' })
-      await fastify.register(caseTabRoutes, { prefix: '/api' })  
-      await fastify.register(simulationRoutes, { prefix: '/api' })
-      await fastify.register(simulationAttemptRoutes, { prefix: '/api' })
-      await fastify.register(paymentRoutes, { prefix: '/api' })
-      await fastify.register(markingCriterionRoutes, { prefix: '/api' })
-      await fastify.register(billingRoutes, { prefix: '/api' })
-      const port = Number(process.env.PORT) || 3000
-      const host = process.env.HOST || '0.0.0.0'
-      
-      await fastify.listen({ port, host })
-      console.log(`🚀 Server running on ${host}:${port}`)
-      console.log(`🔐 JWT authentication enabled`)
-      console.log(`🌐 CORS enabled for ALL origins`)
-    } catch (err) {
-      fastify.log.error(err)
-      process.exit(1)
-    }
+  try {
+    await seedAdminUser()
+    
+    // Register auth routes FIRST (no prefix needed)
+    await fastify.register(authRoutes, { prefix: '/api' })
+    
+    // Register subscription routes (also at root level for easier access)
+    await fastify.register(subscriptionRoutes, { prefix: '/api' })
+    
+    // Register all other route sets
+    await fastify.register(specialtyRoutes, { prefix: '/api' })
+    await fastify.register(curriculumRoutes, { prefix: '/api' })
+    await fastify.register(markingDomainRoutes, { prefix: '/api' })
+    await fastify.register(instructorRoutes, { prefix: '/api' })
+    await fastify.register(studentRoutes, { prefix: '/api' })
+    await fastify.register(examRoutes, { prefix: '/api' })
+    await fastify.register(courseRoutes, { prefix: '/api' })
+    await fastify.register(courseCaseRoutes, { prefix: '/api' })
+    await fastify.register(caseTabRoutes, { prefix: '/api' })  
+    await fastify.register(simulationRoutes, { prefix: '/api' })
+    await fastify.register(simulationAttemptRoutes, { prefix: '/api' })
+    await fastify.register(paymentRoutes, { prefix: '/api' })
+    await fastify.register(markingCriterionRoutes, { prefix: '/api' })
+    await fastify.register(billingRoutes, { prefix: '/api' })
+    
+    const port = Number(process.env.PORT) || 3000
+    const host = process.env.HOST || '0.0.0.0'
+    
+    await fastify.listen({ port, host })
+    console.log(`🚀 Server running on ${host}:${port}`)
+    console.log(`🔐 JWT authentication enabled with global auth hook`)
+    console.log(`👤 Admin users automatically identified on all routes`)
+    console.log(`🌐 CORS enabled for ALL origins`)
+  } catch (err) {
+    fastify.log.error(err)
+    process.exit(1)
   }
-  
-  start()
+}
+
+start()
