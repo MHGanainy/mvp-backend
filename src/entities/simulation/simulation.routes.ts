@@ -1,6 +1,9 @@
+// src/entities/simulation/simulation.routes.ts
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { SimulationService } from './simulation.service'
+import { CourseCaseService } from '../course-case/course-case.service'
+import { CourseService } from '../course/course.service'
 import { 
   createSimulationSchema, 
   updateSimulationSchema, 
@@ -8,8 +11,8 @@ import {
   simulationCourseCaseParamsSchema,
   VoiceModelEnum
 } from './simulation.schema'
+import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 
-// Additional schemas for business operations
 const creditCostUpdateSchema = z.object({
   creditCost: z.number().int().min(1).max(10)
 })
@@ -33,8 +36,10 @@ const courseIdParamsSchema = z.object({
 
 export default async function simulationRoutes(fastify: FastifyInstance) {
   const simulationService = new SimulationService(fastify.prisma)
+  const courseCaseService = new CourseCaseService(fastify.prisma)
+  const courseService = new CourseService(fastify.prisma)
 
-  // GET /simulations - Get all simulations
+  // GET /simulations - Get all simulations (PUBLIC)
   fastify.get('/simulations', async (request, reply) => {
     try {
       const simulations = await simulationService.findAll()
@@ -44,7 +49,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /simulations/course-case/:courseCaseId - Get simulation by course case
+  // GET /simulations/course-case/:courseCaseId - Get simulation by course case (PUBLIC)
   fastify.get('/simulations/course-case/:courseCaseId', async (request, reply) => {
     try {
       const { courseCaseId } = simulationCourseCaseParamsSchema.parse(request.params)
@@ -65,7 +70,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /simulations/course/:courseId - Get simulations by course
+  // GET /simulations/course/:courseId - Get simulations by course (PUBLIC)
   fastify.get('/simulations/course/:courseId', async (request, reply) => {
     try {
       const { courseId } = courseIdParamsSchema.parse(request.params)
@@ -76,7 +81,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /simulations/voice-model/:voiceModel - Get simulations by voice model
+  // GET /simulations/voice-model/:voiceModel - Get simulations by voice model (PUBLIC)
   fastify.get('/simulations/voice-model/:voiceModel', async (request, reply) => {
     try {
       const { voiceModel } = voiceModelParamsSchema.parse(request.params)
@@ -87,7 +92,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /simulations/credit-cost/:creditCost - Get simulations by credit cost
+  // GET /simulations/credit-cost/:creditCost - Get simulations by credit cost (PUBLIC)
   fastify.get('/simulations/credit-cost/:creditCost', async (request, reply) => {
     try {
       const { creditCost } = creditCostParamsSchema.parse(request.params)
@@ -98,7 +103,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /simulations/stats - Get simulation statistics (all courses)
+  // GET /simulations/stats - Get simulation statistics (PUBLIC)
   fastify.get('/simulations/stats', async (request, reply) => {
     try {
       const stats = await simulationService.getSimulationStats()
@@ -108,7 +113,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /simulations/stats/course/:courseId - Get simulation statistics for specific course
+  // GET /simulations/stats/course/:courseId - Get simulation statistics for specific course (PUBLIC)
   fastify.get('/simulations/stats/course/:courseId', async (request, reply) => {
     try {
       const { courseId } = courseIdParamsSchema.parse(request.params)
@@ -119,7 +124,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /simulations/:id - Get simulation by ID
+  // GET /simulations/:id - Get simulation by ID (PUBLIC)
   fastify.get('/simulations/:id', async (request, reply) => {
     try {
       const { id } = simulationParamsSchema.parse(request.params)
@@ -135,9 +140,23 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
   })
 
   // POST /simulations - Create new simulation
-  fastify.post('/simulations', async (request, reply) => {
+  fastify.post('/simulations', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const data = createSimulationSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(data.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only create simulations for your own course cases' })
+          return
+        }
+      }
+      
       const simulation = await simulationService.create(data)
       reply.status(201).send(simulation)
     } catch (error) {
@@ -156,10 +175,25 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
   })
 
   // PUT /simulations/:id - Update simulation
-  fastify.put('/simulations/:id', async (request, reply) => {
+  fastify.put('/simulations/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = simulationParamsSchema.parse(request.params)
       const data = updateSimulationSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const simulation = await simulationService.findById(id)
+        const courseCase = await courseCaseService.findById(simulation.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update simulations for your own course cases' })
+          return
+        }
+      }
+      
       const simulation = await simulationService.update(id, data)
       reply.send(simulation)
     } catch (error) {
@@ -172,10 +206,25 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
   })
 
   // PATCH /simulations/:id/credit-cost - Update simulation credit cost
-  fastify.patch('/simulations/:id/credit-cost', async (request, reply) => {
+  fastify.patch('/simulations/:id/credit-cost', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = simulationParamsSchema.parse(request.params)
       const { creditCost } = creditCostUpdateSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const simulation = await simulationService.findById(id)
+        const courseCase = await courseCaseService.findById(simulation.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update simulations for your own course cases' })
+          return
+        }
+      }
+      
       const simulation = await simulationService.updateCreditCost(id, creditCost)
       reply.send({
         message: `Credit cost updated to ${creditCost} successfully`,
@@ -197,10 +246,25 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
   })
 
   // PATCH /simulations/:id/time-limit - Update simulation time limit
-  fastify.patch('/simulations/:id/time-limit', async (request, reply) => {
+  fastify.patch('/simulations/:id/time-limit', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = simulationParamsSchema.parse(request.params)
       const { timeLimitMinutes, warningTimeMinutes } = timeLimitUpdateSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const simulation = await simulationService.findById(id)
+        const courseCase = await courseCaseService.findById(simulation.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update simulations for your own course cases' })
+          return
+        }
+      }
+      
       const simulation = await simulationService.updateTimeLimit(id, timeLimitMinutes, warningTimeMinutes)
       reply.send({
         message: `Time limit updated to ${timeLimitMinutes} minutes successfully`,
@@ -222,9 +286,24 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
   })
 
   // DELETE /simulations/:id - Delete simulation
-  fastify.delete('/simulations/:id', async (request, reply) => {
+  fastify.delete('/simulations/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = simulationParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const simulation = await simulationService.findById(id)
+        const courseCase = await courseCaseService.findById(simulation.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only delete simulations for your own course cases' })
+          return
+        }
+      }
+      
       await simulationService.delete(id)
       reply.status(204).send()
     } catch (error) {

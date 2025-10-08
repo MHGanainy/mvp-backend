@@ -1,3 +1,4 @@
+// src/entities/auth/auth.service.ts
 import { PrismaClient, Prisma } from '@prisma/client'
 import * as bcrypt from 'bcryptjs'
 import { FastifyInstance } from 'fastify'
@@ -75,6 +76,7 @@ export class AuthService {
       userId: result.user.id,
       role: 'student',
       email: result.user.email,
+      isAdmin: false,
       studentId: result.student.id
     }
 
@@ -86,10 +88,12 @@ export class AuthService {
       refreshToken,
       expiresIn: 3600, // 1 hour
       role: 'student',
+      isAdmin: false,
       user: {
         id: result.user.id,
         email: result.user.email,
         name: result.user.name,
+        isAdmin: false,
         profile: {
           id: result.student.id,
           firstName: result.student.firstName,
@@ -147,6 +151,7 @@ export class AuthService {
       userId: result.user.id,
       role: 'instructor',
       email: result.user.email,
+      isAdmin: false,
       instructorId: result.instructor.id
     }
 
@@ -158,10 +163,12 @@ export class AuthService {
       refreshToken,
       expiresIn: 3600, // 1 hour
       role: 'instructor',
+      isAdmin: false,
       user: {
         id: result.user.id,
         email: result.user.email,
         name: result.user.name,
+        isAdmin: false,
         profile: {
           id: result.instructor.id,
           firstName: result.instructor.firstName,
@@ -189,12 +196,44 @@ export class AuthService {
       throw new Error('Invalid credentials')
     }
 
-    // Check if user has the correct type
-    if (data.userType === 'student' && !user.student) {
-      throw new Error('User is not a student')
-    }
-    if (data.userType === 'instructor' && !user.instructor) {
-      throw new Error('User is not an instructor')
+    // Special handling for admin user
+    if (user.isAdmin) {
+      // Admin can login as either role - create profile if needed
+      if (data.userType === 'student') {
+        if (!user.student) {
+          // Create student profile for admin on first student login
+          const adminStudent = await this.prisma.student.create({
+            data: {
+              userId: user.id,
+              firstName: 'Admin',
+              lastName: 'User',
+              creditBalance: 999999 // Unlimited credits
+            }
+          })
+          user.student = adminStudent
+        }
+      } else if (data.userType === 'instructor') {
+        if (!user.instructor) {
+          // Create instructor profile for admin on first instructor login
+          const adminInstructor = await this.prisma.instructor.create({
+            data: {
+              userId: user.id,
+              firstName: 'Admin',
+              lastName: 'User',
+              bio: 'System Administrator with full access'
+            }
+          })
+          user.instructor = adminInstructor
+        }
+      }
+    } else {
+      // Regular users must have the correct profile type
+      if (data.userType === 'student' && !user.student) {
+        throw new Error('User is not a student')
+      }
+      if (data.userType === 'instructor' && !user.instructor) {
+        throw new Error('User is not an instructor')
+      }
     }
 
     // Verify password
@@ -208,11 +247,12 @@ export class AuthService {
       throw new Error('Invalid credentials')
     }
 
-    // Generate tokens
+    // Generate tokens - include isAdmin flag
     const payload: JWTPayload = {
       userId: user.id,
-      role: data.userType, // Using role field
+      role: data.userType, // Use the requested role, not 'admin'
       email: user.email,
+      isAdmin: user.isAdmin || false,
       studentId: user.student?.id,
       instructorId: user.instructor?.id
     }
@@ -225,7 +265,7 @@ export class AuthService {
       id: user.student!.id,
       firstName: user.student!.firstName,
       lastName: user.student!.lastName,
-      creditBalance: user.student!.creditBalance
+      creditBalance: user.isAdmin ? 999999 : user.student!.creditBalance // Show unlimited for admin
     } : {
       id: user.instructor!.id,
       firstName: user.instructor!.firstName,
@@ -237,11 +277,13 @@ export class AuthService {
       accessToken,
       refreshToken,
       expiresIn: 3600, // 1 hour
-      role: data.userType, // Using role field
+      role: data.userType,
+      isAdmin: user.isAdmin || false,
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
+        isAdmin: user.isAdmin || false,
         profile
       }
     }
@@ -265,8 +307,14 @@ export class AuthService {
         throw new Error('User not found')
       }
 
+      // Preserve isAdmin flag in new token
+      const newPayload: JWTPayload = {
+        ...decoded,
+        isAdmin: user.isAdmin || false // Ensure current isAdmin status
+      }
+
       // Generate new access token
-      const newAccessToken = await this.generateAccessToken(decoded)
+      const newAccessToken = await this.generateAccessToken(newPayload)
       
       return {
         accessToken: newAccessToken,

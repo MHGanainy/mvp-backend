@@ -1,3 +1,4 @@
+// src/entities/marking-domain/marking-domain.routes.ts
 import { FastifyInstance } from 'fastify'
 import { MarkingDomainService } from './marking-domain.service'
 import { 
@@ -5,11 +6,12 @@ import {
   updateMarkingDomainSchema, 
   markingDomainParamsSchema 
 } from './marking-domain.schema'
+import { authenticate, isAdmin } from '../../middleware/auth.middleware'
 
 export default async function markingDomainRoutes(fastify: FastifyInstance) {
   const markingDomainService = new MarkingDomainService(fastify.prisma)
 
-  // GET /marking-domains - Get all marking domains
+  // GET /marking-domains - Get all marking domains (PUBLIC)
   fastify.get('/marking-domains', async (request, reply) => {
     try {
       const markingDomains = await markingDomainService.findAll()
@@ -19,7 +21,7 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /marking-domains/:id - Get marking domain by ID
+  // GET /marking-domains/:id - Get marking domain by ID (PUBLIC)
   fastify.get('/marking-domains/:id', async (request, reply) => {
     try {
       const { id } = markingDomainParamsSchema.parse(request.params)
@@ -34,7 +36,7 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /marking-domains/:id/marking-criteria - Get all marking criteria for a domain
+  // GET /marking-domains/:id/marking-criteria - Get all marking criteria for a domain (PUBLIC)
   fastify.get('/marking-domains/:id/marking-criteria', async (request, reply) => {
     try {
       const { id } = markingDomainParamsSchema.parse(request.params)
@@ -49,7 +51,7 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /marking-domains/:id/usage-stats - Get usage statistics for a marking domain
+  // GET /marking-domains/:id/usage-stats - Get usage statistics for a marking domain (PUBLIC)
   fastify.get('/marking-domains/:id/usage-stats', async (request, reply) => {
     try {
       const { id } = markingDomainParamsSchema.parse(request.params)
@@ -64,9 +66,16 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // POST /marking-domains - Create new marking domain
-  fastify.post('/marking-domains', async (request, reply) => {
+  // POST /marking-domains - Create new marking domain (ADMIN ONLY)
+  fastify.post('/marking-domains', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to create marking domains' })
+        return
+      }
+      
       const data = createMarkingDomainSchema.parse(request.body)
       const markingDomain = await markingDomainService.create(data)
       reply.status(201).send(markingDomain)
@@ -79,9 +88,16 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PUT /marking-domains/:id - Update marking domain
-  fastify.put('/marking-domains/:id', async (request, reply) => {
+  // PUT /marking-domains/:id - Update marking domain (ADMIN ONLY)
+  fastify.put('/marking-domains/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to update marking domains' })
+        return
+      }
+      
       const { id } = markingDomainParamsSchema.parse(request.params)
       const data = updateMarkingDomainSchema.parse(request.body)
       const markingDomain = await markingDomainService.update(id, data)
@@ -97,9 +113,16 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // DELETE /marking-domains/:id - Delete marking domain
-  fastify.delete('/marking-domains/:id', async (request, reply) => {
+  // DELETE /marking-domains/:id - Delete marking domain (ADMIN ONLY)
+  fastify.delete('/marking-domains/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to delete marking domains' })
+        return
+      }
+      
       const { id } = markingDomainParamsSchema.parse(request.params)
       await markingDomainService.delete(id)
       reply.status(204).send()

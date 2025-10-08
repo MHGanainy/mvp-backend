@@ -21,7 +21,7 @@ import simulationAttemptRoutes from './entities/simulation-attempt/simulation-at
 import paymentRoutes from './entities/payment/payment.routes'
 import markingCriterionRoutes from './entities/marking-criterion/marking-criterion.routes'
 import billingRoutes from './entities/billing/billing.routes'
-
+import { seedAdminUser } from './services/seed-admin'
 const fastify = Fastify({ logger: true })
 const prisma = new PrismaClient()
 
@@ -90,6 +90,7 @@ fastify.get('/users/:id', async (request) => {
 // Start server
 const start = async () => {
     try {
+      await seedAdminUser()
       // Register auth routes FIRST (no prefix needed)
       await fastify.register(authRoutes, { prefix: '/api' })
       

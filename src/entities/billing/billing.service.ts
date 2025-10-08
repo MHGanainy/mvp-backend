@@ -1,3 +1,4 @@
+// src/services/billing.service.ts
 import { PrismaClient, Prisma, CreditTransactionType, CreditTransactionSource } from '@prisma/client';
 import { FastifyBaseLogger } from 'fastify';
 import * as fs from 'fs';
@@ -12,13 +13,11 @@ import {
   BILLING_CONFIG 
 } from './billing.schema';
 
-// Create logs directory if it doesn't exist
 const logsDir = path.join(process.cwd(), 'logs');
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-// Dedicated billing logger class
 class BillingLogger {
   private logFile: fs.WriteStream;
   private fastifyLogger?: FastifyBaseLogger;
@@ -46,20 +45,17 @@ class BillingLogger {
   log(level: 'info' | 'warn' | 'error' | 'debug', message: string, data?: any) {
     const formatted = this.formatLog(level.toUpperCase(), message, data);
     
-    // Write to file
     this.logFile.write(formatted + '\n');
     
-    // Console output with color coding
     const colors = {
-      info: '\x1b[36m',   // Cyan
-      warn: '\x1b[33m',   // Yellow
-      error: '\x1b[31m',  // Red
-      debug: '\x1b[90m'   // Gray
+      info: '\x1b[36m',
+      warn: '\x1b[33m',
+      error: '\x1b[31m',
+      debug: '\x1b[90m'
     };
     const reset = '\x1b[0m';
     console.log(`${colors[level]}[BILLING]${reset} ${formatted}`);
     
-    // Fastify logger if available
     if (this.fastifyLogger) {
       this.fastifyLogger[level]({ ...data, service: 'BillingService' }, message);
     }
@@ -118,7 +114,6 @@ export class BillingService {
     });
 
     try {
-      // Get simulation attempt first to check minutesBilled
       this.logger.debug('Fetching simulation attempt by correlation token', {
         requestId,
         correlation_token: data.correlation_token
@@ -159,7 +154,39 @@ export class BillingService {
         };
       }
 
-      // Check if this minute was already billed using minutesBilled field
+      // CHECK IF STUDENT IS ADMIN - BYPASS BILLING
+      if (attempt.student.user.isAdmin) {
+        this.logger.info('Admin user detected - bypassing billing', {
+          requestId,
+          student_id: attempt.student.id,
+          student_email: attempt.student.user.email,
+          is_admin: true,
+          minute: data.minute
+        });
+        
+        // Update attempt minutes without charging
+        await this.prisma.simulationAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            minutesBilled: data.minute,
+            durationSeconds: data.minute * BILLING_CONFIG.MINUTE_DURATION_SECONDS
+          }
+        });
+        
+        this.metrics.successfulBillings++;
+        
+        return {
+          status: BillingStatus.CONTINUE,
+          creditsRemaining: 999999,
+          minuteBilled: data.minute,
+          totalMinutesBilled: data.minute,
+          attemptId: attempt.id,
+          shouldTerminate: false,
+          message: 'Admin user - unlimited usage'
+        };
+      }
+
+      // REGULAR BILLING LOGIC FOR NON-ADMIN USERS
       const currentMinutesBilled = attempt.minutesBilled || 0;
       
       this.logger.debug('Checking if minute already billed', {
@@ -190,16 +217,9 @@ export class BillingService {
           message: 'Already billed (idempotent response)'
         };
         
-        this.logger.info('Returning idempotent response', {
-          requestId,
-          response,
-          duration_ms: Date.now() - startTime
-        });
-        
         return response;
       }
 
-      // Verify minute is sequential (warn if not)
       if (data.minute > currentMinutesBilled + 1) {
         this.logger.warn('Non-sequential minute billing detected', {
           requestId,
@@ -224,7 +244,6 @@ export class BillingService {
 
       const { student } = attempt;
 
-      // Check current credits
       if (student.creditBalance < 1) {
         this.metrics.insufficientCreditEvents++;
         
@@ -250,7 +269,6 @@ export class BillingService {
         };
       }
 
-      // Start atomic transaction for credit deduction
       const transactionStartTime = Date.now();
       
       this.logger.info('Starting credit deduction transaction', {
@@ -265,7 +283,6 @@ export class BillingService {
       try {
         const result = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
           
-          // Update student credits atomically
           this.logger.debug('Decrementing student credit balance', {
             requestId,
             student_id: student.id,
@@ -288,7 +305,6 @@ export class BillingService {
             change: -1
           });
 
-          // Safety check: verify balance didn't go negative
           if (updatedStudent.creditBalance < 0) {
             this.logger.error('CRITICAL: Balance went negative - rolling back', {
               requestId,
@@ -298,7 +314,6 @@ export class BillingService {
             throw new Error('INSUFFICIENT_CREDITS');
           }
 
-          // Create credit transaction record for audit trail
           this.logger.debug('Creating credit transaction record', {
             requestId,
             student_id: student.id,
@@ -327,7 +342,6 @@ export class BillingService {
             balance_after: creditTransaction.balanceAfter
           });
 
-          // Update attempt with new minutesBilled and duration
           this.logger.debug('Updating simulation attempt with minutes billed', {
             requestId,
             attempt_id: attempt.id,
@@ -338,15 +352,9 @@ export class BillingService {
           await tx.simulationAttempt.update({
             where: { id: attempt.id },
             data: {
-              minutesBilled: data.minute, // Update the minutesBilled field
+              minutesBilled: data.minute,
               durationSeconds: data.minute * BILLING_CONFIG.MINUTE_DURATION_SECONDS
             }
-          });
-
-          this.logger.debug('Attempt updated with minutes billed', {
-            requestId,
-            attempt_id: attempt.id,
-            minutes_billed: data.minute
           });
 
           return updatedStudent;
@@ -373,7 +381,6 @@ export class BillingService {
           avg_transaction_time: this.metrics.averageTransactionTime.toFixed(2)
         });
 
-        // Determine response based on remaining credits
         let response: BillingResponse;
         
         if (result.creditBalance === 0) {
@@ -448,7 +455,6 @@ export class BillingService {
             error: error.message
           });
 
-          // Fix negative balance if it occurred
           this.logger.info('Resetting negative balance to zero', {
             requestId,
             student_id: student.id
@@ -533,11 +539,23 @@ export class BillingService {
         const finalMinutesBilled = Math.max(data.total_minutes, currentMinutesBilled);
         const finalDurationSeconds = finalMinutesBilled * BILLING_CONFIG.MINUTE_DURATION_SECONDS;
         
+        // Note if it's an admin session
+        if (attempt.student.user.isAdmin) {
+          this.logger.info('Admin session ended - no billing impact', {
+            sessionId,
+            attempt_id: attempt.id,
+            student_id: attempt.student.id,
+            is_admin: true,
+            minutes: finalMinutesBilled
+          });
+        }
+        
         this.logger.info('Updating final attempt duration and minutes billed', {
           sessionId,
           attempt_id: attempt.id,
           student_id: attempt.student.id,
           student_email: attempt.student.user.email,
+          is_admin: attempt.student.user.isAdmin,
           old_minutes_billed: currentMinutesBilled,
           new_minutes_billed: finalMinutesBilled,
           old_duration: attempt.durationSeconds,
@@ -545,7 +563,6 @@ export class BillingService {
           case_title: attempt.simulation.courseCase.title
         });
         
-        // Only update if total_minutes is greater than what's already billed
         if (data.total_minutes > currentMinutesBilled) {
           await this.prisma.simulationAttempt.update({
             where: { id: attempt.id },
@@ -562,7 +579,6 @@ export class BillingService {
             minutes_billed: data.total_minutes
           });
         } else {
-          // Just update the endedAt timestamp
           await this.prisma.simulationAttempt.update({
             where: { id: attempt.id },
             data: {
@@ -584,7 +600,7 @@ export class BillingService {
           sessionId,
           attempt_id: attempt.id,
           total_minutes_billed: finalMinutesBilled,
-          final_balance: attempt.student.creditBalance,
+          final_balance: attempt.student.user.isAdmin ? 999999 : attempt.student.creditBalance,
           processing_duration_ms: duration
         });
         
@@ -592,7 +608,7 @@ export class BillingService {
           success: true, 
           totalMinutesBilled: finalMinutesBilled,
           attemptFound: true,
-          finalBalance: attempt.student.creditBalance
+          finalBalance: attempt.student.user.isAdmin ? 999999 : attempt.student.creditBalance
         };
         
       } else {

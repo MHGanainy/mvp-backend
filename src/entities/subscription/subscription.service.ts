@@ -1,3 +1,4 @@
+// src/entities/subscription/subscription.service.ts
 import { PrismaClient, Prisma, PaymentStatus, CreditTransactionType, CreditTransactionSource } from '@prisma/client'
 import { CreateSubscriptionInput } from './subscription.schema'
 
@@ -5,13 +6,21 @@ export class SubscriptionService {
   constructor(private prisma: PrismaClient) {}
 
   async create(data: CreateSubscriptionInput) {
-    // Verify the student exists
+    // Verify the student exists and check if admin
     const student = await this.prisma.student.findUnique({
-      where: { id: data.studentId }
+      where: { id: data.studentId },
+      include: {
+        user: true // Include user to check isAdmin
+      }
     })
 
     if (!student) {
       throw new Error('Student not found')
+    }
+
+    // Admin doesn't need subscriptions
+    if (student.user.isAdmin) {
+      throw new Error('Admin users do not require subscriptions')
     }
 
     // Verify the course exists and get pricing/credit info
@@ -194,13 +203,22 @@ export class SubscriptionService {
   }
 
   async findByStudent(studentId: string, query?: { active?: boolean; includeExpired?: boolean }) {
-    // Verify student exists
+    // Verify student exists and check if admin
     const student = await this.prisma.student.findUnique({
-      where: { id: studentId }
+      where: { id: studentId },
+      include: {
+        user: true
+      }
     })
 
     if (!student) {
       throw new Error('Student not found')
+    }
+
+    // Admin doesn't have subscriptions - return empty or virtual subscriptions
+    if (student.user.isAdmin) {
+      // Could optionally return virtual "all access" subscriptions for UI consistency
+      return []
     }
 
     const where: any = { studentId }
@@ -277,6 +295,36 @@ export class SubscriptionService {
   }
 
   async checkSubscription(studentId: string, courseId: string) {
+    // Check if student is admin
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+
+    if (!student) {
+      throw new Error('Student not found')
+    }
+
+    // Admin has access to everything
+    if (student.user.isAdmin) {
+      return {
+        hasActiveSubscription: true,
+        subscription: {
+          id: 'admin-access',
+          studentId: studentId,
+          courseId: courseId,
+          isActive: true,
+          startDate: new Date(2020, 0, 1), // Arbitrary past date
+          endDate: new Date(2099, 11, 31), // Far future date
+          durationMonths: 999,
+          isAdmin: true
+        },
+        daysRemaining: 99999,
+        isExpired: false,
+        isAdmin: true
+      }
+    }
+
     const subscription = await this.prisma.subscription.findFirst({
       where: {
         studentId,
@@ -303,7 +351,8 @@ export class SubscriptionService {
         hasActiveSubscription: false,
         subscription: undefined,
         daysRemaining: 0,
-        isExpired: true
+        isExpired: true,
+        isAdmin: false
       }
     }
 
@@ -317,7 +366,8 @@ export class SubscriptionService {
         isActive
       },
       daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
-      isExpired: !isActive
+      isExpired: !isActive,
+      isAdmin: false
     }
   }
 
@@ -327,13 +377,32 @@ export class SubscriptionService {
   }
 
   async getStudentStats(studentId: string) {
-    // Verify student exists
+    // Verify student exists and check if admin
     const student = await this.prisma.student.findUnique({
-      where: { id: studentId }
+      where: { id: studentId },
+      include: { user: true }
     })
 
     if (!student) {
       throw new Error('Student not found')
+    }
+
+    // Admin stats
+    if (student.user.isAdmin) {
+      return {
+        studentId,
+        totalSubscriptions: 0,
+        activeSubscriptions: 0,
+        expiredSubscriptions: 0,
+        totalCreditsReceived: 999999,
+        subscriptionsByDuration: {
+          threeMonth: 0,
+          sixMonth: 0,
+          twelveMonth: 0
+        },
+        isAdmin: true,
+        message: 'Admin has unlimited access to all courses'
+      }
     }
 
     const subscriptions = await this.prisma.subscription.findMany({
@@ -373,7 +442,8 @@ export class SubscriptionService {
       activeSubscriptions: activeSubscriptions.length,
       expiredSubscriptions: expiredSubscriptions.length,
       totalCreditsReceived,
-      subscriptionsByDuration
+      subscriptionsByDuration,
+      isAdmin: false
     }
   }
 
@@ -434,8 +504,18 @@ export class SubscriptionService {
     return subscription.startDate <= now && subscription.endDate >= now
   }
 
-  // Method to check if student can access course content
+  // Method to check if student can access course content - UPDATED for admin
   async canAccessCourseContent(studentId: string, courseId: string): Promise<boolean> {
+    // Check if student is admin
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+    
+    if (student?.user.isAdmin) {
+      return true // Admin has access to everything
+    }
+
     // Check if the course case is free first
     const courseCase = await this.prisma.courseCase.findFirst({
       where: { courseId }
@@ -449,8 +529,23 @@ export class SubscriptionService {
     return await this.checkActiveSubscription(studentId, courseId)
   }
 
-  // Method to get all courses a student has access to
+  // Method to get all courses a student has access to - UPDATED for admin
   async getAccessibleCourses(studentId: string) {
+    // Check if student is admin
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+
+    if (student?.user.isAdmin) {
+      // Admin has access to all published courses
+      const allPublishedCourses = await this.prisma.course.findMany({
+        where: { isPublished: true },
+        select: { id: true }
+      })
+      return allPublishedCourses.map((c:any) => c.id)
+    }
+
     const activeSubscriptions = await this.findByStudent(studentId, { active: true })
     
     const subscribedCourseIds = activeSubscriptions.map((sub:any) => sub.courseId)

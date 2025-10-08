@@ -1,3 +1,4 @@
+// src/entities/course/course.routes.ts
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { CourseService } from './course.service'
@@ -10,8 +11,8 @@ import {
   updateCourseInfoPointsSchema,
   CourseStyleEnum
 } from './course.schema'
+import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 
-// Business operation schemas
 const pricingUpdateSchema = z.object({
   price3Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
   price6Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
@@ -31,17 +32,46 @@ const styleParamsSchema = z.object({
 export default async function courseRoutes(fastify: FastifyInstance) {
   const courseService = new CourseService(fastify.prisma)
 
-  // GET /courses - Get all courses
+  // GET /courses - Get courses based on user role
   fastify.get('/courses', async (request, reply) => {
     try {
-      const courses = await courseService.findAll()
+      let isUserAdmin = false
+      let currentInstructorId = null
+      
+      try {
+        await request.jwtVerify()
+        isUserAdmin = isAdmin(request)
+        currentInstructorId = getCurrentInstructorId(request)
+      } catch {
+        // Not authenticated - public access
+      }
+      
+      let courses
+      if (isUserAdmin) {
+        // Admin sees ALL courses (published and unpublished)
+        courses = await courseService.findAll()
+      } else if (currentInstructorId) {
+        // Instructor sees their own courses + all published courses
+        const instructorCourses = await courseService.findByInstructor(currentInstructorId)
+        const publishedCourses = await courseService.findPublished()
+        // Merge and deduplicate
+        const courseMap = new Map()
+        ;[...instructorCourses, ...publishedCourses].forEach(course => {
+          courseMap.set(course.id, course)
+        })
+        courses = Array.from(courseMap.values())
+      } else {
+        // Public sees only published courses
+        courses = await courseService.findPublished()
+      }
+      
       reply.send(courses)
     } catch (error) {
       reply.status(500).send({ error: 'Failed to fetch courses' })
     }
   })
 
-  // GET /courses/published - Get only published courses (public endpoint)
+  // GET /courses/published - Get only published courses
   fastify.get('/courses/published', async (request, reply) => {
     try {
       const courses = await courseService.findPublished()
@@ -51,7 +81,7 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /courses/style/:style - Get courses by style (RANDOM/STRUCTURED)
+  // GET /courses/style/:style - Get courses by style
   fastify.get('/courses/style/:style', async (request, reply) => {
     try {
       const { style } = styleParamsSchema.parse(request.params)
@@ -81,7 +111,18 @@ export default async function courseRoutes(fastify: FastifyInstance) {
   fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
     try {
       const { instructorId } = courseInstructorParamsSchema.parse(request.params)
-      const courses = await courseService.findByInstructor(instructorId)
+      
+      let canViewAll = false
+      try {
+        await request.jwtVerify()
+        canViewAll = isAdmin(request) || getCurrentInstructorId(request) === instructorId
+      } catch {
+        // Not authenticated - can only see published
+      }
+      
+      const allCourses = await courseService.findByInstructor(instructorId)
+      const courses = canViewAll ? allCourses : allCourses.filter(course => course.isPublished)
+      
       reply.send(courses)
     } catch (error) {
       if (error instanceof Error && error.message === 'Instructor not found') {
@@ -107,7 +148,7 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /courses/:id/pricing - Get pricing information for a course
+  // GET /courses/:id/pricing - Get pricing information
   fastify.get('/courses/:id/pricing', async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
@@ -123,9 +164,20 @@ export default async function courseRoutes(fastify: FastifyInstance) {
   })
 
   // POST /courses - Create new course
-  fastify.post('/courses', async (request, reply) => {
+  fastify.post('/courses', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const data = createCourseSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const currentInstructorId = getCurrentInstructorId(request)
+        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
+          reply.status(403).send({ error: 'You can only create courses for yourself' })
+          return
+        }
+      }
+      
       const course = await courseService.create(data)
       reply.status(201).send(course)
     } catch (error) {
@@ -146,10 +198,23 @@ export default async function courseRoutes(fastify: FastifyInstance) {
   })
 
   // PUT /courses/:id - Update course
-  fastify.put('/courses/:id', async (request, reply) => {
+  fastify.put('/courses/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const data = updateCourseSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only edit your own courses' })
+          return
+        }
+      }
+      
       const course = await courseService.update(id, data)
       reply.send(course)
     } catch (error) {
@@ -161,10 +226,23 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /courses/:id/toggle - Toggle course published status
-  fastify.patch('/courses/:id/toggle', async (request, reply) => {
+  // PATCH /courses/:id/toggle - Toggle published status
+  fastify.patch('/courses/:id/toggle', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only toggle your own courses' })
+          return
+        }
+      }
+      
       const course = await courseService.togglePublished(id)
       reply.send({
         message: `Course ${course.isPublished ? 'published' : 'unpublished'} successfully`,
@@ -179,11 +257,24 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /courses/:id/pricing - Update course pricing
-  fastify.patch('/courses/:id/pricing', async (request, reply) => {
+  // PATCH /courses/:id/pricing - Update pricing
+  fastify.patch('/courses/:id/pricing', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const pricing = pricingUpdateSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update pricing for your own courses' })
+          return
+        }
+      }
+      
       const course = await courseService.updatePricing(id, pricing)
       reply.send({
         message: 'Course pricing updated successfully',
@@ -198,11 +289,24 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /courses/:id/credits - Update course credit allocation
-  fastify.patch('/courses/:id/credits', async (request, reply) => {
+  // PATCH /courses/:id/credits - Update credits
+  fastify.patch('/courses/:id/credits', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const credits = creditsUpdateSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update credits for your own courses' })
+          return
+        }
+      }
+      
       const course = await courseService.updateCredits(id, credits)
       reply.send({
         message: 'Course credit allocation updated successfully',
@@ -217,14 +321,25 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /courses/:id/info-points - Update course info points
-  fastify.patch('/courses/:id/info-points', async (request, reply) => {
+  // PATCH /courses/:id/info-points - Update info points
+  fastify.patch('/courses/:id/info-points', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const { infoPoints } = updateCourseInfoPointsSchema.parse(request.body)
       
-      const course = await courseService.update(id, { infoPoints })
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update info points for your own courses' })
+          return
+        }
+      }
       
+      const course = await courseService.update(id, { infoPoints })
       reply.send({
         message: 'Course info points updated successfully',
         course
@@ -239,9 +354,22 @@ export default async function courseRoutes(fastify: FastifyInstance) {
   })
 
   // DELETE /courses/:id - Delete course
-  fastify.delete('/courses/:id', async (request, reply) => {
+  fastify.delete('/courses/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only delete your own courses' })
+          return
+        }
+      }
+      
       await courseService.delete(id)
       reply.status(204).send()
     } catch (error) {

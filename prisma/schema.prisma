@@ -15,6 +15,7 @@ model User {
   emailVerified Boolean     @default(true) @map("email_verified")
   passwordHash  String?     @map("password_hash")
   updatedAt     DateTime    @updatedAt @map("updated_at")
+  isAdmin       Boolean     @default(false) @map("is_admin")
   instructor    Instructor?
   student       Student?
 

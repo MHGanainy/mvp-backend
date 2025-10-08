@@ -51,7 +51,7 @@ export class CourseCaseService {
   constructor(private prisma: PrismaClient) {}
 
   // Helper function to get standard include object for course cases
-  private getStandardInclude() {
+  public getStandardInclude() {
     return {
       course: {
         include: {

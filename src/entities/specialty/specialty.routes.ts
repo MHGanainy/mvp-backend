@@ -1,3 +1,4 @@
+// src/entities/specialty/specialty.routes.ts
 import { FastifyInstance } from 'fastify'
 import { SpecialtyService } from './specialty.service'
 import { 
@@ -5,11 +6,12 @@ import {
   updateSpecialtySchema, 
   specialtyParamsSchema 
 } from './specialty.schema'
+import { authenticate, isAdmin } from '../../middleware/auth.middleware'
 
 export default async function specialtyRoutes(fastify: FastifyInstance) {
   const specialtyService = new SpecialtyService(fastify.prisma)
 
-  // GET /specialties - Get all specialties
+  // GET /specialties - Get all specialties (PUBLIC)
   fastify.get('/specialties', async (request, reply) => {
     try {
       const specialties = await specialtyService.findAll()
@@ -19,7 +21,7 @@ export default async function specialtyRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /specialties/:id - Get specialty by ID
+  // GET /specialties/:id - Get specialty by ID (PUBLIC)
   fastify.get('/specialties/:id', async (request, reply) => {
     try {
       const { id } = specialtyParamsSchema.parse(request.params)
@@ -34,9 +36,16 @@ export default async function specialtyRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // POST /specialties - Create new specialty
-  fastify.post('/specialties', async (request, reply) => {
+  // POST /specialties - Create new specialty (ADMIN ONLY)
+  fastify.post('/specialties', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to create specialties' })
+        return
+      }
+      
       const data = createSpecialtySchema.parse(request.body)
       const specialty = await specialtyService.create(data)
       reply.status(201).send(specialty)
@@ -45,9 +54,16 @@ export default async function specialtyRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PUT /specialties/:id - Update specialty
-  fastify.put('/specialties/:id', async (request, reply) => {
+  // PUT /specialties/:id - Update specialty (ADMIN ONLY)
+  fastify.put('/specialties/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to update specialties' })
+        return
+      }
+      
       const { id } = specialtyParamsSchema.parse(request.params)
       const data = updateSpecialtySchema.parse(request.body)
       const specialty = await specialtyService.update(id, data)
@@ -61,9 +77,16 @@ export default async function specialtyRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // DELETE /specialties/:id - Delete specialty
-  fastify.delete('/specialties/:id', async (request, reply) => {
+  // DELETE /specialties/:id - Delete specialty (ADMIN ONLY)
+  fastify.delete('/specialties/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to delete specialties' })
+        return
+      }
+      
       const { id } = specialtyParamsSchema.parse(request.params)
       await specialtyService.delete(id)
       reply.status(204).send()

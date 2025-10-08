@@ -1,3 +1,4 @@
+// src/entities/curriculum/curriculum.routes.ts
 import { FastifyInstance } from 'fastify'
 import { CurriculumService } from './curriculum.service'
 import { 
@@ -5,11 +6,12 @@ import {
   updateCurriculumSchema, 
   curriculumParamsSchema 
 } from './curriculum.schema'
+import { authenticate, isAdmin } from '../../middleware/auth.middleware'
 
 export default async function curriculumRoutes(fastify: FastifyInstance) {
   const curriculumService = new CurriculumService(fastify.prisma)
 
-  // GET /curriculums - Get all curriculums
+  // GET /curriculums - Get all curriculums (PUBLIC)
   fastify.get('/curriculums', async (request, reply) => {
     try {
       const curriculums = await curriculumService.findAll()
@@ -19,7 +21,7 @@ export default async function curriculumRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /curriculums/:id - Get curriculum by ID
+  // GET /curriculums/:id - Get curriculum by ID (PUBLIC)
   fastify.get('/curriculums/:id', async (request, reply) => {
     try {
       const { id } = curriculumParamsSchema.parse(request.params)
@@ -34,9 +36,16 @@ export default async function curriculumRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // POST /curriculums - Create new curriculum
-  fastify.post('/curriculums', async (request, reply) => {
+  // POST /curriculums - Create new curriculum (ADMIN ONLY)
+  fastify.post('/curriculums', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to create curriculum items' })
+        return
+      }
+      
       const data = createCurriculumSchema.parse(request.body)
       const curriculum = await curriculumService.create(data)
       reply.status(201).send(curriculum)
@@ -45,9 +54,16 @@ export default async function curriculumRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PUT /curriculums/:id - Update curriculum
-  fastify.put('/curriculums/:id', async (request, reply) => {
+  // PUT /curriculums/:id - Update curriculum (ADMIN ONLY)
+  fastify.put('/curriculums/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to update curriculum items' })
+        return
+      }
+      
       const { id } = curriculumParamsSchema.parse(request.params)
       const data = updateCurriculumSchema.parse(request.body)
       const curriculum = await curriculumService.update(id, data)
@@ -61,9 +77,16 @@ export default async function curriculumRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // DELETE /curriculums/:id - Delete curriculum
-  fastify.delete('/curriculums/:id', async (request, reply) => {
+  // DELETE /curriculums/:id - Delete curriculum (ADMIN ONLY)
+  fastify.delete('/curriculums/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
+      if (!isAdmin(request)) {
+        reply.status(403).send({ error: 'Admin access required to delete curriculum items' })
+        return
+      }
+      
       const { id } = curriculumParamsSchema.parse(request.params)
       await curriculumService.delete(id)
       reply.status(204).send()

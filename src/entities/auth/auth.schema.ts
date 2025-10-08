@@ -1,3 +1,4 @@
+// src/entities/auth/auth.schema.ts
 import { z } from 'zod'
 
 // Student Registration Schema - dateOfBirth removed
@@ -12,9 +13,8 @@ export const registerStudentSchema = z.object({
     .min(1, 'Last name is required')
     .max(50, 'Last name must be less than 50 characters')
     .trim(),
-  name: z.string().optional(), // Optional display name
-  // dateOfBirth field removed - ignore if provided for backward compatibility
-  dateOfBirth: z.any().optional() // Accept but ignore for backward compatibility
+  name: z.string().optional(),
+  dateOfBirth: z.any().optional()
 })
 
 // Instructor Registration Schema
@@ -32,40 +32,43 @@ export const registerInstructorSchema = z.object({
   bio: z.string()
     .max(500, 'Bio must be less than 500 characters')
     .optional(),
-  name: z.string().optional() // Optional display name
+  name: z.string().optional()
 })
 
-// Login Schema
+// Login Schema - no changes needed
 export const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   userType: z.enum(['student', 'instructor'])
 })
 
-// Token Refresh Schema
+// Token Refresh Schema - no changes needed
 export const refreshTokenSchema = z.object({
   refreshToken: z.string()
 })
 
-// JWT Payload Schema - Updated with 'role' field
+// JWT Payload Schema - UPDATED to include isAdmin
 export const jwtPayloadSchema = z.object({
   userId: z.number(),
-  role: z.enum(['student', 'instructor']), // Changed from userType to role
+  role: z.enum(['student', 'instructor']), // Keep as-is, admin will use the requested role
   email: z.string().email(),
+  isAdmin: z.boolean().optional(), // ADD THIS
   studentId: z.string().uuid().optional(),
   instructorId: z.string().uuid().optional()
 })
 
-// Auth Response Schema
+// Auth Response Schema - UPDATED to include isAdmin
 export const authResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
   expiresIn: z.number(),
-  role: z.enum(['student', 'instructor']), // Changed from userType to role
+  role: z.enum(['student', 'instructor']),
+  isAdmin: z.boolean().optional(), // ADD THIS
   user: z.object({
     id: z.number(),
     email: z.string(),
     name: z.string().nullable(),
+    isAdmin: z.boolean().optional(), // ADD THIS
     profile: z.union([
       z.object({
         id: z.string(),

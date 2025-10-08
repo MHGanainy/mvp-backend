@@ -1,5 +1,8 @@
+// src/entities/marking-criterion/marking-criterion.routes.ts
 import { FastifyInstance } from 'fastify'
 import { MarkingCriterionService } from './marking-criterion.service'
+import { CourseCaseService } from '../course-case/course-case.service'
+import { CourseService } from '../course/course.service'
 import {
   createMarkingCriterionSchema,
   updateMarkingCriterionSchema,
@@ -7,9 +10,12 @@ import {
   markingCriterionParamsSchema,
   courseCaseParamsSchema
 } from './marking-criterion.schema'
+import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 
 export default async function markingCriterionRoutes(fastify: FastifyInstance) {
   const service = new MarkingCriterionService(fastify.prisma)
+  const courseCaseService = new CourseCaseService(fastify.prisma)
+  const courseService = new CourseService(fastify.prisma)
 
   // GET /marking-criteria/case/:courseCaseId - Get all criteria for a case, grouped by domain
   fastify.get('/marking-criteria/case/:courseCaseId', async (request, reply) => {
@@ -53,9 +59,23 @@ export default async function markingCriterionRoutes(fastify: FastifyInstance) {
   })
 
   // POST /marking-criteria - Create a single new criterion
-  fastify.post('/marking-criteria', async (request, reply) => {
+  fastify.post('/marking-criteria', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const data = createMarkingCriterionSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(data.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only create criteria for your own course cases' })
+          return
+        }
+      }
+      
       const criterion = await service.create(data)
       reply.status(201).send(criterion)
     } catch (error) {
@@ -72,9 +92,23 @@ export default async function markingCriterionRoutes(fastify: FastifyInstance) {
   })
 
   // PUT /marking-criteria/case/bulk - Bulk create/update/delete criteria for a case
-  fastify.put('/marking-criteria/case/bulk', async (request, reply) => {
+  fastify.put('/marking-criteria/case/bulk', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const data = bulkUpdateMarkingCriteriaSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(data.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update criteria for your own course cases' })
+          return
+        }
+      }
+      
       const updatedCriteria = await service.bulkUpdate(data)
       reply.send({
         message: 'Marking criteria updated successfully',
@@ -87,10 +121,25 @@ export default async function markingCriterionRoutes(fastify: FastifyInstance) {
   })
 
   // PUT /marking-criteria/:id - Update a single criterion
-  fastify.put('/marking-criteria/:id', async (request, reply) => {
+  fastify.put('/marking-criteria/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = markingCriterionParamsSchema.parse(request.params)
       const data = updateMarkingCriterionSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const criterion = await service.findById(id)
+        const courseCase = await courseCaseService.findById(criterion.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update criteria for your own course cases' })
+          return
+        }
+      }
+      
       const criterion = await service.update(id, data)
       reply.send(criterion)
     } catch (error) {
@@ -103,9 +152,24 @@ export default async function markingCriterionRoutes(fastify: FastifyInstance) {
   })
 
   // DELETE /marking-criteria/:id - Delete a single criterion
-  fastify.delete('/marking-criteria/:id', async (request, reply) => {
+  fastify.delete('/marking-criteria/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = markingCriterionParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const criterion = await service.findById(id)
+        const courseCase = await courseCaseService.findById(criterion.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only delete criteria from your own course cases' })
+          return
+        }
+      }
+      
       await service.delete(id)
       reply.status(204).send()
     } catch (error) {

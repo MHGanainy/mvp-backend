@@ -1,3 +1,4 @@
+// src/entities/auth/auth.routes.ts
 import { FastifyInstance } from 'fastify'
 import { AuthService } from './auth.service'
 import { 
@@ -84,7 +85,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /auth/me - Get current user (requires authentication)
+  // GET /auth/me - Get current user (requires authentication) - UPDATED
   fastify.get('/auth/me', {
     preHandler: async (request, reply) => {
       try {
@@ -96,6 +97,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const userId = (request.user as any).userId
+      const isAdmin = (request.user as any).isAdmin || false
       
       const user = await fastify.prisma.user.findUnique({
         where: { id: userId },
@@ -115,7 +117,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         id: user.student.id,
         firstName: user.student.firstName,
         lastName: user.student.lastName,
-        creditBalance: user.student.creditBalance
+        creditBalance: isAdmin ? 999999 : user.student.creditBalance // Show unlimited for admin
       } : {
         id: user.instructor!.id,
         firstName: user.instructor!.firstName,
@@ -129,6 +131,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           email: user.email,
           name: user.name,
           role,
+          isAdmin: user.isAdmin || false, // Include isAdmin flag
           profile
         }
       })

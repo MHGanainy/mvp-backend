@@ -1,10 +1,11 @@
+// src/entities/simulation-attempt/simulation-attempt.service.ts
 import { PrismaClient, Prisma } from '@prisma/client'
 import { CreateSimulationAttemptInput, CompleteSimulationAttemptInput, UpdateSimulationAttemptInput } from './simulation-attempt.schema'
 import { randomBytes } from 'crypto'
 import {
   VoiceAssistantTranscriptApi,
   TranscriptClean,
-  } from '../../shared/types';
+} from '../../shared/types';
 import { aiFeedbackService } from './ai-feedback.service' 
 import { createAIFeedbackService, AIProvider } from './ai-feedback.service' 
 import { voiceTokenService } from '../../services/voice-token.service';
@@ -15,7 +16,7 @@ export class SimulationAttemptService {
     this.aiFeedbackService = createAIFeedbackService({
       provider: AIProvider.GROQ,
       apiKey: process.env.GROQ_API_KEY,
-      model: 'openai/gpt-oss-120b'
+      model: 'llama-3.3-70b-versatile'
     });
   }
 
@@ -24,89 +25,99 @@ export class SimulationAttemptService {
     return `sim_${randomBytes(16).toString('hex')}_${Date.now()}`
   }
 
-async create(data: CreateSimulationAttemptInput) {
-  // Verify the student exists
-  const student = await this.prisma.student.findUnique({
-    where: { id: data.studentId }
-  })
+  async create(data: CreateSimulationAttemptInput) {
+    // Verify the student exists and check if admin
+    const student = await this.prisma.student.findUnique({
+      where: { id: data.studentId },
+      include: {
+        user: true // Include user to check isAdmin
+      }
+    })
 
-  if (!student) {
-    throw new Error('Student not found')
-  }
+    if (!student) {
+      throw new Error('Student not found')
+    }
 
-  // Verify the simulation exists
-  const simulation = await this.prisma.simulation.findUnique({
-    where: { id: data.simulationId },
-    include: {
-      courseCase: {
-        include: {
-          course: true
+    // Verify the simulation exists
+    const simulation = await this.prisma.simulation.findUnique({
+      where: { id: data.simulationId },
+      include: {
+        courseCase: {
+          include: {
+            course: true
+          }
         }
       }
+    })
+
+    if (!simulation) {
+      throw new Error('Simulation not found')
     }
-  })
 
-  if (!simulation) {
-    throw new Error('Simulation not found')
-  }
+    // Check if student has at least 1 credit to start
+    // Admin bypasses credit check
+    if (!student.user.isAdmin) {
+      if (student.creditBalance < 1) {
+        throw new Error(`Insufficient credits. You need at least 1 credit to start. Current balance: ${student.creditBalance}`)
+      }
+    }
 
-  // Check if student has at least 1 credit to start
-  // (Will be charged per-minute during conversation)
-  if (student.creditBalance < 1) {
-    throw new Error(`Insufficient credits. You need at least 1 credit to start. Current balance: ${student.creditBalance}`)
-  }
+    const correlationToken = this.generateCorrelationToken()
 
-  const correlationToken = this.generateCorrelationToken()
-
-  // Create attempt WITHOUT deducting credits
-  // Credits will be deducted per-minute by the billing webhook
-  const attempt = await this.prisma.simulationAttempt.create({
-    data: {
-      studentId: data.studentId,
-      simulationId: data.simulationId,
-      startedAt: new Date(),
-      correlationToken: correlationToken
-    },
-    include: {
-      student: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          creditBalance: true
-        }
+    // Create attempt WITHOUT deducting credits
+    // Credits will be deducted per-minute by the billing webhook (except for admin)
+    const attempt = await this.prisma.simulationAttempt.create({
+      data: {
+        studentId: data.studentId,
+        simulationId: data.simulationId,
+        startedAt: new Date(),
+        correlationToken: correlationToken
       },
-      simulation: {
-        include: {
-          courseCase: {
-            include: {
-              course: {
-                select: {
-                  id: true,
-                  title: true
+      include: {
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            creditBalance: true
+          }
+        },
+        simulation: {
+          include: {
+            courseCase: {
+              include: {
+                course: {
+                  select: {
+                    id: true,
+                    title: true
+                  }
                 }
               }
             }
           }
         }
       }
+    })
+
+    const voiceToken = voiceTokenService.generateToken({
+      attemptId: attempt.id,
+      studentId: attempt.studentId,
+      correlationToken: attempt.correlationToken || ''
+    });
+
+    // Log the attempt creation for billing tracking
+    if (student.user.isAdmin) {
+      console.log(`[BILLING] Admin simulation attempt created. ID: ${attempt.id}, Token: ${correlationToken} - NO CHARGES APPLY`);
+    } else {
+      console.log(`[BILLING] Simulation attempt created without upfront charge. ID: ${attempt.id}, Token: ${correlationToken}`);
     }
-  })
 
-  const voiceToken = voiceTokenService.generateToken({
-    attemptId: attempt.id,
-    studentId: attempt.studentId,
-    correlationToken: attempt.correlationToken || ''
-  });
-
-  // Log the attempt creation for billing tracking
-  console.log(`[BILLING] Simulation attempt created without upfront charge. ID: ${attempt.id}, Token: ${correlationToken}`);
-
-  return {
-    ...attempt,
-    voiceToken
+    return {
+      ...attempt,
+      voiceToken,
+      isAdmin: student.user.isAdmin // Include admin flag in response
+    }
   }
-}
 
   async complete(id: string, data: CompleteSimulationAttemptInput) {
     // Check if attempt exists and is not already completed
@@ -413,20 +424,26 @@ async create(data: CreateSimulationAttemptInput) {
     // Check if attempt exists
     const attempt = await this.findById(id)
 
-    // If attempt was not completed, refund credits to student
-    if (!attempt.isCompleted) {
+    // Check if student is admin
+    const student = await this.prisma.student.findUnique({
+      where: { id: attempt.studentId },
+      include: { user: true }
+    })
+
+    // If attempt was not completed and student is not admin, refund credits
+    if (!attempt.isCompleted && !student?.user.isAdmin) {
       await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Get current student credit balance
-        const student = await tx.student.findUnique({
+        const currentStudent = await tx.student.findUnique({
           where: { id: attempt.studentId }
         })
 
-        if (student) {
+        if (currentStudent) {
           // Refund credits
           await tx.student.update({
             where: { id: attempt.studentId },
             data: {
-              creditBalance: student.creditBalance + attempt.simulation.creditCost
+              creditBalance: currentStudent.creditBalance + attempt.simulation.creditCost
             }
           })
         }
@@ -437,7 +454,7 @@ async create(data: CreateSimulationAttemptInput) {
         })
       })
     } else {
-      // Just delete if completed (no refund)
+      // Just delete if completed or admin (no refund)
       await this.prisma.simulationAttempt.delete({
         where: { id }
       })
@@ -448,7 +465,8 @@ async create(data: CreateSimulationAttemptInput) {
 
   async getStudentStats(studentId: string) {
     const student = await this.prisma.student.findUnique({
-      where: { id: studentId }
+      where: { id: studentId },
+      include: { user: true }
     })
 
     if (!student) {
@@ -482,7 +500,8 @@ async create(data: CreateSimulationAttemptInput) {
     return {
       studentId,
       studentName: `${student.firstName} ${student.lastName}`,
-      currentCreditBalance: student.creditBalance,
+      currentCreditBalance: student.user.isAdmin ? 999999 : student.creditBalance,
+      isAdmin: student.user.isAdmin,
       totalAttempts,
       completedAttempts,
       incompleteAttempts,
@@ -548,18 +567,18 @@ async create(data: CreateSimulationAttemptInput) {
       }
     }
   }
+
   private transformTranscript = (
     api: VoiceAssistantTranscriptApi,
   ): TranscriptClean => ({
     messages: api.messages.map(({ timestamp, speaker, message }) => ({
       timestamp,
-      speaker: speaker === 'participant' ? 'student' : 'ai_patient', // Map speakers properly
+      speaker: speaker === 'participant' ? 'student' : 'ai_patient',
       message,
     })),
     duration: api.duration_seconds ?? 0,
     totalMessages: api.total_messages,
   });
-  
 
   async completeWithTranscript(
     attemptId: string, 
@@ -569,7 +588,11 @@ async create(data: CreateSimulationAttemptInput) {
     const existingAttempt = await this.prisma.simulationAttempt.findUnique({
       where: { id: attemptId },
       include: {
-        student: true,
+        student: {
+          include: {
+            user: true // Include user to check isAdmin
+          }
+        },
         simulation: {
           include: {
             courseCase: {
@@ -579,9 +602,7 @@ async create(data: CreateSimulationAttemptInput) {
                     exam: true
                   }
                 },
-                // Include ALL case tabs (not just MARKING_CRITERIA)
                 caseTabs: true,
-                // Include the new separate marking criteria
                 markingCriteria: {
                   include: {
                     markingDomain: true
@@ -730,7 +751,8 @@ async create(data: CreateSimulationAttemptInput) {
           },
           totalMarkingCriteria: existingAttempt.simulation.courseCase.markingCriteria.length,
           markingDomainsCount: markingDomainsWithCriteria.length,
-          markingStructure: markingStructure // Include the original structure
+          markingStructure: markingStructure,
+          isAdminAttempt: existingAttempt.student.user.isAdmin // Add admin flag
         } as unknown as Prisma.InputJsonValue;
         
         score = calculatedScore;
@@ -742,7 +764,8 @@ async create(data: CreateSimulationAttemptInput) {
           analysisStatus: 'failed',
           error: aiError instanceof Error ? aiError.message : 'Unknown AI error',
           generatedAt: new Date().toISOString(),
-          markingStructure: markingDomainsWithCriteria // Include even on failure
+          markingStructure: markingDomainsWithCriteria,
+          isAdminAttempt: existingAttempt.student.user.isAdmin
         } as unknown as Prisma.InputJsonValue;
       }
   
@@ -810,7 +833,7 @@ async create(data: CreateSimulationAttemptInput) {
           feedback: "Analysis pending due to technical issue"
         }
       ],
-      analysisStatus: "failed" // Flag to indicate AI analysis failed
+      analysisStatus: "failed"
     };
   }
 
@@ -821,7 +844,8 @@ async create(data: CreateSimulationAttemptInput) {
   ) {
     // Verify student exists
     const student = await this.prisma.student.findUnique({
-      where: { id: studentId }
+      where: { id: studentId },
+      include: { user: true }
     })
   
     if (!student) {
@@ -904,7 +928,8 @@ async create(data: CreateSimulationAttemptInput) {
       student: {
         id: student.id,
         name: `${student.firstName} ${student.lastName}`,
-        creditBalance: student.creditBalance
+        creditBalance: student.user.isAdmin ? 999999 : student.creditBalance,
+        isAdmin: student.user.isAdmin
       },
       case: {
         id: courseCase.id,

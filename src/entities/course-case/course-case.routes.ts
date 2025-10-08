@@ -1,6 +1,8 @@
+// src/entities/course-case/course-case.routes.ts
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { CourseCaseService } from './course-case.service'
+import { CourseService } from '../course/course.service'
 import { 
   createCourseCaseSchema, 
   updateCourseCaseSchema, 
@@ -8,10 +10,9 @@ import {
   courseCaseCourseParamsSchema,
   reorderCourseCaseSchema,
   PatientGenderEnum,
-  createCompleteCourseCaseSchema,  // NEW
-  updateCompleteCourseCaseSchema   // NEW
+  createCompleteCourseCaseSchema,
+  updateCompleteCourseCaseSchema
 } from './course-case.schema'
-
 import {
   assignSpecialtiesSchema,
   assignCurriculumsSchema,
@@ -25,10 +26,8 @@ import {
   curriculumRemoveParamsSchema,
   filterQuerySchema
 } from '../../shared/junction-tables.schema'
+import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 
-import { MarkingCriterionService } from '../marking-criterion/marking-criterion.service'
-
-// Additional schemas for query parameters
 const genderParamsSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
   gender: PatientGenderEnum
@@ -36,12 +35,55 @@ const genderParamsSchema = z.object({
 
 export default async function courseCaseRoutes(fastify: FastifyInstance) {
   const courseCaseService = new CourseCaseService(fastify.prisma)
-  const markingCriterionService = new MarkingCriterionService(fastify.prisma)
+  const courseService = new CourseService(fastify.prisma)
 
-  // GET /course-cases - Get all course cases
+  // GET /course-cases - Get course cases based on user role
   fastify.get('/course-cases', async (request, reply) => {
     try {
-      const courseCases = await courseCaseService.findAll()
+      let isUserAdmin = false
+      let currentInstructorId = null
+      
+      try {
+        await request.jwtVerify()
+        isUserAdmin = isAdmin(request)
+        currentInstructorId = getCurrentInstructorId(request)
+      } catch {
+        // Not authenticated
+      }
+      
+      let courseCases
+      if (isUserAdmin) {
+        // Admin sees ALL cases
+        courseCases = await courseCaseService.findAll()
+      } else if (currentInstructorId) {
+        // Instructor sees cases from their courses
+        const instructorCourses = await courseService.findByInstructor(currentInstructorId)
+        const courseIds = instructorCourses.map(c => c.id)
+        courseCases = await fastify.prisma.courseCase.findMany({
+          where: { courseId: { in: courseIds } },
+          include: courseCaseService.getStandardInclude(),
+          orderBy: [
+            { courseId: 'asc' },
+            { displayOrder: 'asc' }
+          ]
+        })
+      } else {
+        // Public sees only free cases from published courses
+        const publishedCourses = await courseService.findPublished()
+        const courseIds = publishedCourses.map(c => c.id)
+        courseCases = await fastify.prisma.courseCase.findMany({
+          where: { 
+            courseId: { in: courseIds },
+            isFree: true 
+          },
+          include: courseCaseService.getStandardInclude(),
+          orderBy: [
+            { courseId: 'asc' },
+            { displayOrder: 'asc' }
+          ]
+        })
+      }
+      
       reply.send(courseCases)
     } catch (error) {
       reply.status(500).send({ error: 'Failed to fetch course cases' })
@@ -63,7 +105,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/course/:courseId/free - Get free cases by course
+  // GET /course-cases/course/:courseId/free
   fastify.get('/course-cases/course/:courseId/free', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
@@ -74,7 +116,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/course/:courseId/paid - Get paid cases by course
+  // GET /course-cases/course/:courseId/paid
   fastify.get('/course-cases/course/:courseId/paid', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
@@ -85,7 +127,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/course/:courseId/gender/:gender - Get cases by patient gender
+  // GET /course-cases/course/:courseId/gender/:gender
   fastify.get('/course-cases/course/:courseId/gender/:gender', async (request, reply) => {
     try {
       const { courseId, gender } = genderParamsSchema.parse(request.params)
@@ -96,7 +138,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/course/:courseId/stats - Get course case statistics
+  // GET /course-cases/course/:courseId/stats
   fastify.get('/course-cases/course/:courseId/stats', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
@@ -107,7 +149,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/course/:courseId/age-range - Get age range statistics
+  // GET /course-cases/course/:courseId/age-range
   fastify.get('/course-cases/course/:courseId/age-range', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
@@ -118,7 +160,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/:id - Get course case by ID
+  // GET /course-cases/:id
   fastify.get('/course-cases/:id', async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
@@ -134,9 +176,22 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   })
 
   // POST /course-cases - Create new course case
-  fastify.post('/course-cases', async (request, reply) => {
+  fastify.post('/course-cases', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const data = createCourseCaseSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(data.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only create cases for your own courses' })
+          return
+        }
+      }
+      
       const courseCase = await courseCaseService.create(data)
       reply.status(201).send(courseCase)
     } catch (error) {
@@ -157,10 +212,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   })
 
   // PUT /course-cases/:id - Update course case
-  fastify.put('/course-cases/:id', async (request, reply) => {
+  fastify.put('/course-cases/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
       const data = updateCourseCaseSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(id)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only edit cases for your own courses' })
+          return
+        }
+      }
+      
       const courseCase = await courseCaseService.update(id, data)
       reply.send(courseCase)
     } catch (error) {
@@ -178,10 +247,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /course-cases/:id/toggle-free - Toggle case free status
-  fastify.patch('/course-cases/:id/toggle-free', async (request, reply) => {
+  // PATCH /course-cases/:id/toggle-free
+  fastify.patch('/course-cases/:id/toggle-free', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(id)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+          return
+        }
+      }
+      
       const courseCase = await courseCaseService.toggleFree(id)
       reply.send({
         message: `Case ${courseCase.isFree ? 'marked as free' : 'marked as paid'} successfully`,
@@ -196,11 +279,25 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /course-cases/:id/reorder - Reorder course case
-  fastify.patch('/course-cases/:id/reorder', async (request, reply) => {
+  // PATCH /course-cases/:id/reorder
+  fastify.patch('/course-cases/:id/reorder', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
       const { newOrder } = reorderCourseCaseSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(id)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only reorder cases for your own courses' })
+          return
+        }
+      }
+      
       const courseCase = await courseCaseService.reorder(id, newOrder)
       reply.send({
         message: `Case reordered to position ${newOrder} successfully`,
@@ -221,10 +318,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // DELETE /course-cases/:id - Delete course case
-  fastify.delete('/course-cases/:id', async (request, reply) => {
+  // DELETE /course-cases/:id
+  fastify.delete('/course-cases/:id', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(id)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only delete cases from your own courses' })
+          return
+        }
+      }
+      
       await courseCaseService.delete(id)
       reply.status(204).send()
     } catch (error) {
@@ -236,7 +347,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/course/:courseId/filtered - Get filtered cases
+  // GET /course-cases/course/:courseId/filtered
   fastify.get('/course-cases/course/:courseId/filtered', async (request, reply) => {
     try {
       const { courseId } = courseParamsSchema.parse(request.params)
@@ -255,7 +366,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/:courseCaseId/specialties - Get case specialties
+  // GET /course-cases/:courseCaseId/specialties
   fastify.get('/course-cases/:courseCaseId/specialties', async (request, reply) => {
     try {
       const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
@@ -270,7 +381,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/:courseCaseId/curriculums - Get case curriculum items
+  // GET /course-cases/:courseCaseId/curriculums
   fastify.get('/course-cases/:courseCaseId/curriculums', async (request, reply) => {
     try {
       const { courseCaseId } = junctionCourseCaseParamsSchema.parse(request.params)
@@ -285,10 +396,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // POST /course-cases/assign-specialties - Assign specialties to case
-  fastify.post('/course-cases/assign-specialties', async (request, reply) => {
+  // POST /course-cases/assign-specialties
+  fastify.post('/course-cases/assign-specialties', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { courseCaseId, specialtyIds } = assignSpecialtiesSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+          return
+        }
+      }
+      
       const result = await courseCaseService.assignSpecialties(courseCaseId, specialtyIds)
       reply.send({
         message: 'Specialties assigned successfully',
@@ -311,10 +436,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // POST /course-cases/assign-curriculums - Assign curriculum items to case
-  fastify.post('/course-cases/assign-curriculums', async (request, reply) => {
+  // POST /course-cases/assign-curriculums
+  fastify.post('/course-cases/assign-curriculums', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { courseCaseId, curriculumIds } = assignCurriculumsSchema.parse(request.body)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+          return
+        }
+      }
+      
       const result = await courseCaseService.assignCurriculums(courseCaseId, curriculumIds)
       reply.send({
         message: 'Curriculum items assigned successfully',
@@ -337,10 +476,27 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // POST /course-cases/bulk-assign-filters - Bulk assign filters to multiple cases
-  fastify.post('/course-cases/bulk-assign-filters', async (request, reply) => {
+  // POST /course-cases/bulk-assign-filters
+  fastify.post('/course-cases/bulk-assign-filters', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { assignments } = bulkAssignFiltersSchema.parse(request.body)
+      
+      // Check permissions for each case
+      if (!isAdmin(request)) {
+        for (const assignment of assignments) {
+          const courseCase = await courseCaseService.findById(assignment.courseCaseId)
+          const course = await courseService.findById(courseCase.courseId)
+          const currentInstructorId = getCurrentInstructorId(request)
+          
+          if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+            reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+            return
+          }
+        }
+      }
+      
       const result = await courseCaseService.bulkAssignFilters(assignments)
       reply.send({
         message: 'Bulk assignment completed successfully',
@@ -356,10 +512,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // DELETE /course-cases/:courseCaseId/specialties/:specialtyId - Remove specialty
-  fastify.delete('/course-cases/:courseCaseId/specialties/:specialtyId', async (request, reply) => {
+  // DELETE /course-cases/:courseCaseId/specialties/:specialtyId
+  fastify.delete('/course-cases/:courseCaseId/specialties/:specialtyId', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { courseCaseId, specialtyId } = specialtyRemoveParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+          return
+        }
+      }
+      
       const result = await courseCaseService.removeSpecialty(courseCaseId, specialtyId)
       reply.send(result)
     } catch (error) {
@@ -377,10 +547,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // DELETE /course-cases/:courseCaseId/curriculums/:curriculumId - Remove curriculum
-  fastify.delete('/course-cases/:courseCaseId/curriculums/:curriculumId', async (request, reply) => {
+  // DELETE /course-cases/:courseCaseId/curriculums/:curriculumId
+  fastify.delete('/course-cases/:courseCaseId/curriculums/:curriculumId', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const { courseCaseId, curriculumId } = curriculumRemoveParamsSchema.parse(request.params)
+      
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+          return
+        }
+      }
+      
       const result = await courseCaseService.removeCurriculum(courseCaseId, curriculumId)
       reply.send(result)
     } catch (error) {
@@ -398,7 +582,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/course/:courseId/filtering-stats - Get filtering statistics
+  // GET /course-cases/course/:courseId/filtering-stats
   fastify.get('/course-cases/course/:courseId/filtering-stats', async (request, reply) => {
     try {
       const { courseId } = courseParamsSchema.parse(request.params)
@@ -409,12 +593,11 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // Helper endpoint for available filters
+  // GET /course-cases/course/:courseId/available-filters
   fastify.get('/course-cases/course/:courseId/available-filters', async (request, reply) => {
     try {
       const { courseId } = courseParamsSchema.parse(request.params)
       
-      // Get all specialties and curriculums used in this course
       const courseCases = await courseCaseService.findByCourse(courseId)
       
       const uniqueSpecialties = new Set()
@@ -422,10 +605,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       const availableGenders = new Set()
       
       courseCases.forEach((courseCase: any) => {
-        // Add patient gender
         availableGenders.add(courseCase.patientGender)
         
-        // Add specialties
         if (courseCase.caseSpecialties) {
           courseCase.caseSpecialties.forEach((cs: any) => {
             uniqueSpecialties.add(JSON.stringify({
@@ -435,7 +616,6 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           })
         }
         
-        // Add curriculums
         if (courseCase.caseCurriculums) {
           courseCase.caseCurriculums.forEach((cc: any) => {
             uniqueCurriculums.add(JSON.stringify({
@@ -460,14 +640,24 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // ===== NEW COMPLETE COURSE CASE ROUTES =====
-
-  // POST /course-cases/create-complete - Create course case with all relations
-  fastify.post('/course-cases/create-complete', async (request, reply) => {
+  // POST /course-cases/create-complete
+  fastify.post('/course-cases/create-complete', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const data = createCompleteCourseCaseSchema.parse(request.body)
-      const result = await courseCaseService.createCompleteCourseCase(data)
       
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(data.courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only create cases for your own courses' })
+          return
+        }
+      }
+      
+      const result = await courseCaseService.createCompleteCourseCase(data)
       reply.status(201).send({
         message: 'Course case created and configured successfully',
         ...result
@@ -493,12 +683,25 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PUT /course-cases/update-complete - Update course case with all relations
-  fastify.put('/course-cases/update-complete', async (request, reply) => {
+  // PUT /course-cases/update-complete
+  fastify.put('/course-cases/update-complete', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
       const data = updateCompleteCourseCaseSchema.parse(request.body)
-      const result = await courseCaseService.updateCompleteCourseCase(data)
       
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(data.courseCaseId)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only update cases for your own courses' })
+          return
+        }
+      }
+      
+      const result = await courseCaseService.updateCompleteCourseCase(data)
       reply.send({
         message: 'Course case updated successfully',
         ...result
@@ -522,116 +725,111 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /course-cases/:id/complete - Get course case with all relations
-  // GET /course-cases/:id/complete - Get course case with all relations
-fastify.get('/course-cases/:id/complete', async (request, reply) => {
-  try {
-    const { id } = courseCaseParamsSchema.parse(request.params)
-    
-    // Fetch complete course case data with all relations
-    const courseCase = await fastify.prisma.courseCase.findUnique({
-      where: { id },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
+  // GET /course-cases/:id/complete
+  fastify.get('/course-cases/:id/complete', async (request, reply) => {
+    try {
+      const { id } = courseCaseParamsSchema.parse(request.params)
+      
+      const courseCase = await fastify.prisma.courseCase.findUnique({
+        where: { id },
+        include: {
+          course: {
+            include: {
+              exam: {
+                select: {
+                  id: true,
+                  title: true,
+                  slug: true
+                }
               }
             }
-          }
-        },
-        simulation: true,
-        caseTabs: true,
-        markingCriteria: {
-          include: {
-            markingDomain: true
           },
-          orderBy: [
-            { markingDomain: { name: 'asc' } },
-            { displayOrder: 'asc' }
-          ]
-        },
-        caseSpecialties: {
-          include: {
-            specialty: true
-          }
-        },
-        caseCurriculums: {
-          include: {
-            curriculum: true
+          simulation: true,
+          caseTabs: true,
+          markingCriteria: {
+            include: {
+              markingDomain: true
+            },
+            orderBy: [
+              { markingDomain: { name: 'asc' } },
+              { displayOrder: 'asc' }
+            ]
+          },
+          caseSpecialties: {
+            include: {
+              specialty: true
+            }
+          },
+          caseCurriculums: {
+            include: {
+              curriculum: true
+            }
           }
         }
-      }
-    })
-    
-    if (!courseCase) {
-      reply.status(404).send({ error: 'Course case not found' })
-      return
-    }
-    
-    // Format tabs response
-    const tabsResponse: any = {}
-    for (const tab of courseCase.caseTabs) {
-      tabsResponse[tab.tabType] = {
-        id: tab.id,
-        content: tab.content,
-        hasContent: tab.content.length > 0
-      }
-    }
-    
-    // Group marking criteria by domain
-    const markingCriteriaGrouped = courseCase.markingCriteria.reduce((acc, criterion) => {
-      const domainId = criterion.markingDomain.id
-      const domainName = criterion.markingDomain.name
-      
-      let group = acc.find((g: any) => g.domainId === domainId)
-      if (!group) {
-        group = { domainId, domainName, criteria: [] }
-        acc.push(group)
-      }
-      
-      group.criteria.push({
-        id: criterion.id,
-        text: criterion.text,
-        points: criterion.points,
-        displayOrder: criterion.displayOrder
       })
       
-      return acc
-    }, [] as any[])
-    
-    // Extract specialties and curriculums
-    const specialties = courseCase.caseSpecialties.map((cs: any) => cs.specialty)
-    const curriculums = courseCase.caseCurriculums.map((cc: any) => cc.curriculum)
-    
-    reply.send({
-      courseCase: {
-        id: courseCase.id,
-        courseId: courseCase.courseId,
-        title: courseCase.title,
-        diagnosis: courseCase.diagnosis,
-        patientName: courseCase.patientName,
-        patientAge: courseCase.patientAge,
-        patientGender: courseCase.patientGender,
-        description: courseCase.description,
-        isFree: courseCase.isFree,
-        displayOrder: courseCase.displayOrder,
-        createdAt: courseCase.createdAt,
-        updatedAt: courseCase.updatedAt
-      },
-      tabs: tabsResponse,
-      markingCriteria: markingCriteriaGrouped,
-      specialties,
-      curriculums,
-      simulation: courseCase.simulation,
-      course: courseCase.course
-    })
-  } catch (error) {
-    console.error('Error fetching complete course case:', error)
-    reply.status(400).send({ error: 'Invalid request' })
-  }
-})
+      if (!courseCase) {
+        reply.status(404).send({ error: 'Course case not found' })
+        return
+      }
+      
+      const tabsResponse: any = {}
+      for (const tab of courseCase.caseTabs) {
+        tabsResponse[tab.tabType] = {
+          id: tab.id,
+          content: tab.content,
+          hasContent: tab.content.length > 0
+        }
+      }
+      
+      const markingCriteriaGrouped = courseCase.markingCriteria.reduce((acc, criterion) => {
+        const domainId = criterion.markingDomain.id
+        const domainName = criterion.markingDomain.name
+        
+        let group = acc.find((g: any) => g.domainId === domainId)
+        if (!group) {
+          group = { domainId, domainName, criteria: [] }
+          acc.push(group)
+        }
+        
+        group.criteria.push({
+          id: criterion.id,
+          text: criterion.text,
+          points: criterion.points,
+          displayOrder: criterion.displayOrder
+        })
+        
+        return acc
+      }, [] as any[])
+      
+      const specialties = courseCase.caseSpecialties.map((cs: any) => cs.specialty)
+      const curriculums = courseCase.caseCurriculums.map((cc: any) => cc.curriculum)
+      
+      reply.send({
+        courseCase: {
+          id: courseCase.id,
+          courseId: courseCase.courseId,
+          title: courseCase.title,
+          diagnosis: courseCase.diagnosis,
+          patientName: courseCase.patientName,
+          patientAge: courseCase.patientAge,
+          patientGender: courseCase.patientGender,
+          description: courseCase.description,
+          isFree: courseCase.isFree,
+          displayOrder: courseCase.displayOrder,
+          createdAt: courseCase.createdAt,
+          updatedAt: courseCase.updatedAt
+        },
+        tabs: tabsResponse,
+        markingCriteria: markingCriteriaGrouped,
+        specialties,
+        curriculums,
+        simulation: courseCase.simulation,
+        course: courseCase.course
+      })
+    } catch (error) {
+      console.error('Error fetching complete course case:', error)
+      reply.status(400).send({ error: 'Invalid request' })
+    }
+  })
 }
