@@ -13,6 +13,12 @@ const creditOperationSchema = z.object({
   reason: z.string().optional()
 })
 
+// Schema for setting credits (allows 0 to reset)
+const setCreditSchema = z.object({
+  amount: z.number().min(0, 'Amount cannot be negative'),
+  reason: z.string().optional()
+})
+
 export default async function studentRoutes(fastify: FastifyInstance) {
   const studentService = new StudentService(fastify.prisma)
 
@@ -155,6 +161,31 @@ export default async function studentRoutes(fastify: FastifyInstance) {
       if (error instanceof Error && (error.message === 'Student not found' || error.message === 'Insufficient credits')) {
         const status = error.message === 'Student not found' ? 404 : 400
         reply.status(status).send({ error: error.message })
+      } else {
+        reply.status(400).send({ error: error instanceof Error ? error.message : 'Invalid request' })
+      }
+    }
+  })
+
+  // NEW ENDPOINT: PUT /students/:userId/credits - Set credit balance to specific value
+  fastify.put('/students/:userId/credits', async (request, reply) => {
+    try {
+      const { userId } = studentUserParamsSchema.parse(request.params)
+      const { amount, reason } = setCreditSchema.parse(request.body)
+      
+      const student = await studentService.setCredits(userId, amount, reason)
+      reply.send({
+        message: 'Credits set successfully',
+        student,
+        operation: {
+          type: 'set',
+          amount,
+          reason: reason || 'Manual credit balance update'
+        }
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Student not found') {
+        reply.status(404).send({ error: 'Student not found' })
       } else {
         reply.status(400).send({ error: error instanceof Error ? error.message : 'Invalid request' })
       }

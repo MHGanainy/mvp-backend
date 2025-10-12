@@ -158,6 +158,26 @@ export class StudentService {
     })
   }
 
+  // NEW METHOD: Set credits to a specific value
+  async setCredits(userId: number, amount: number, reason?: string) {
+    if (amount < 0) {
+      throw new Error('Credit amount cannot be negative')
+    }
+
+    // Verify student exists
+    await this.findByUserId(userId)
+    
+    return await this.prisma.student.update({
+      where: { userId },
+      data: {
+        creditBalance: amount
+      },
+      include: {
+        user: true
+      }
+    })
+  }
+
   async getCreditBalance(userId: number): Promise<number> {
     const student = await this.findByUserId(userId)
     return student.creditBalance
