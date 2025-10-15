@@ -553,4 +553,34 @@ fastify.post('/simulation-attempts/test-ai-feedback', async (request, reply) => 
     });
   }
 });
+
+// PATCH /simulation-attempts/:id/cancel - Cancel and force close connection
+fastify.patch('/simulation-attempts/:id/cancel', async (request, reply) => {
+  try {
+    const { id } = simulationAttemptParamsSchema.parse(request.params);
+    
+    // This will close the WebSocket connection and mark as incomplete
+    await simulationAttemptService.cancel(id);
+    
+    reply.send({
+      message: 'Simulation attempt cancelled and connection closed',
+      attemptId: id,
+      connectionClosed: true,
+      status: 'cancelled'
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Simulation attempt not found') {
+        reply.status(404).send({ error: 'Simulation attempt not found' });
+      } else if (error.message === 'Cannot cancel a completed simulation attempt') {
+        reply.status(400).send({ error: 'Cannot cancel a completed simulation attempt' });
+      } else {
+        console.error('Error cancelling simulation attempt:', error);
+        reply.status(400).send({ error: 'Failed to cancel simulation attempt', details: error.message });
+      }
+    } else {
+      reply.status(500).send({ error: 'Internal server error' });
+    }
+  }
+});
 }

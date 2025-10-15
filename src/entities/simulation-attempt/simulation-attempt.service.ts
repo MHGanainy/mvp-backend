@@ -9,6 +9,7 @@ import {
 import { aiFeedbackService } from './ai-feedback.service' 
 import { createAIFeedbackService, AIProvider } from './ai-feedback.service' 
 import { voiceTokenService } from '../../services/voice-token.service';
+import { voiceAgentService } from '../../services/voice-agent.service';
 
 export class SimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
@@ -136,6 +137,17 @@ export class SimulationAttemptService {
       throw new Error('Simulation attempt is already completed')
     }
 
+    // Close the voice agent connection if it exists
+    if (attempt.correlationToken) {
+      console.log(`[SimulationAttempt] Closing voice connection for attempt ${id} (correlation: ${attempt.correlationToken})`);
+      const closed = await voiceAgentService.closeConnection(attempt.correlationToken);
+      if (closed) {
+        console.log(`[SimulationAttempt] Successfully closed voice connection`);
+      } else {
+        console.log(`[SimulationAttempt] Voice connection was not found or already closed`);
+      }
+    }
+
     const endTime = new Date()
     const durationSeconds = Math.floor((endTime.getTime() - attempt.startedAt.getTime()) / 1000)
 
@@ -174,6 +186,63 @@ export class SimulationAttemptService {
         }
       }
     })
+  }
+
+  async cancel(id: string): Promise<void> {
+    const attempt = await this.prisma.simulationAttempt.findUnique({
+      where: { id },
+      include: {
+        student: {
+          include: {
+            user: true
+          }
+        },
+        simulation: true
+      }
+    });
+
+    if (!attempt) {
+      throw new Error('Simulation attempt not found');
+    }
+
+    if (attempt.isCompleted) {
+      throw new Error('Cannot cancel a completed simulation attempt');
+    }
+
+    // Force close the WebSocket connection
+    if (attempt.correlationToken) {
+      console.log(`[SimulationAttempt] Cancelling attempt ${id}, closing connection ${attempt.correlationToken}`);
+      const closed = await voiceAgentService.closeConnection(attempt.correlationToken);
+      
+      if (closed) {
+        console.log(`[SimulationAttempt] Voice connection closed successfully`);
+      } else {
+        console.log(`[SimulationAttempt] Voice connection was not found or already closed`);
+      }
+    }
+
+    // Mark as ended but not completed
+    const endedAt = new Date();
+    const durationSeconds = Math.floor(
+      (endedAt.getTime() - attempt.startedAt.getTime()) / 1000
+    );
+
+    await this.prisma.simulationAttempt.update({
+      where: { id },
+      data: {
+        endedAt,
+        durationSeconds,
+        isCompleted: false,
+        aiFeedback: {
+          cancelled: true,
+          reason: 'Manually cancelled',
+          timestamp: endedAt.toISOString(),
+          isAdminAttempt: attempt.student.user.isAdmin
+        }
+      }
+    });
+
+    console.log(`[SimulationAttempt] Attempt ${id} cancelled successfully`);
   }
 
   async findAll(query?: { completed?: boolean; limit?: number; offset?: number }) {
@@ -430,6 +499,12 @@ export class SimulationAttemptService {
       include: { user: true }
     })
 
+    // Close the voice agent connection if it exists
+    if (attempt.correlationToken) {
+      console.log(`[SimulationAttempt] Deleting attempt ${id}, closing connection ${attempt.correlationToken}`);
+      await voiceAgentService.closeConnection(attempt.correlationToken);
+    }
+
     // If attempt was not completed and student is not admin, refund credits
     if (!attempt.isCompleted && !student?.user.isAdmin) {
       await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -459,6 +534,8 @@ export class SimulationAttemptService {
         where: { id }
       })
     }
+    
+    console.log(`[SimulationAttempt] Attempt ${id} deleted successfully`);
   }
 
   // BUSINESS LOGIC METHODS
@@ -584,6 +661,20 @@ export class SimulationAttemptService {
     attemptId: string, 
     correlationToken: string
   ): Promise<any> {
+    console.log(`[SimulationAttempt] Completing attempt ${attemptId} with transcript fetch`);
+    
+    // First, close the voice connection
+    console.log(`[SimulationAttempt] Closing voice connection for correlation token: ${correlationToken}`);
+    const connectionClosed = await voiceAgentService.closeConnection(correlationToken);
+    
+    if (connectionClosed) {
+      console.log(`[SimulationAttempt] Voice connection closed successfully`);
+      // Small delay to ensure connection is fully closed and transcript is saved
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } else {
+      console.log(`[SimulationAttempt] Voice connection was not found or already closed`);
+    }
+
     // Fetch attempt with all necessary relations
     const existingAttempt = await this.prisma.simulationAttempt.findUnique({
       where: { id: attemptId },
@@ -629,26 +720,16 @@ export class SimulationAttemptService {
   
     try {
       // 1. Fetch transcript from voice assistant API
-      const transcriptResponse = await fetch(
-        `${process.env.VOICE_ASSISTANT_API_URL}/api/transcripts/correlation/${correlationToken}`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-  
-      if (!transcriptResponse.ok) {
-        throw new Error(`Failed to retrieve transcript: ${transcriptResponse.statusText}`);
-      }
-  
-      const apiResponse = await transcriptResponse.json() as VoiceAssistantTranscriptApi;
-      const transcriptData: TranscriptClean = this.transformTranscript(apiResponse);
+      console.log(`[SimulationAttempt] Fetching transcript from voice assistant`);
+      const transcriptData = await voiceAgentService.getTranscript(correlationToken);
+      
+      const transcript: TranscriptClean = this.transformTranscript(transcriptData);
       
       const endTime = new Date();
       const durationSeconds = Math.floor((endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
   
+      console.log(`[SimulationAttempt] Transcript fetched successfully with ${transcript.totalMessages} messages`);
+      
       // 2. Extract case tabs (doctor's notes, patient script, medical notes)
       interface CaseTabs {
         doctorsNote: string[];
@@ -725,6 +806,9 @@ export class SimulationAttemptService {
       let aiPrompt: Prisma.InputJsonValue | null = null;
     
       try {
+        console.log(`[SimulationAttempt] Generating AI feedback...`);
+        console.log(`[SimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`);
+        
         // Generate AI feedback with the new structure
         const { 
           feedback, 
@@ -732,7 +816,7 @@ export class SimulationAttemptService {
           prompts,
           markingStructure 
         } = await this.aiFeedbackService.generateFeedback(
-          transcriptData,
+          transcript,
           caseInfo,
           caseTabs,
           durationSeconds,
@@ -758,14 +842,17 @@ export class SimulationAttemptService {
         score = calculatedScore;
         aiPrompt = prompts as unknown as Prisma.InputJsonValue;
         
+        console.log(`[SimulationAttempt] AI feedback generated successfully with score: ${score}`);
+        
       } catch (aiError) {
-        console.error('AI feedback generation failed:', aiError);
+        console.error('[SimulationAttempt] AI feedback generation failed:', aiError);
         aiFeedback = {
           analysisStatus: 'failed',
           error: aiError instanceof Error ? aiError.message : 'Unknown AI error',
           generatedAt: new Date().toISOString(),
           markingStructure: markingDomainsWithCriteria,
-          isAdminAttempt: existingAttempt.student.user.isAdmin
+          isAdminAttempt: existingAttempt.student.user.isAdmin,
+          fallbackFeedback: this.generateFallbackFeedback()
         } as unknown as Prisma.InputJsonValue;
       }
   
@@ -776,7 +863,7 @@ export class SimulationAttemptService {
           endedAt: endTime,
           durationSeconds,
           isCompleted: true,
-          transcript: transcriptData as unknown as Prisma.InputJsonValue,
+          transcript: transcript as unknown as Prisma.InputJsonValue,
           aiFeedback,
           aiPrompt: aiPrompt || undefined,
           score
@@ -795,11 +882,51 @@ export class SimulationAttemptService {
         }
       });
   
+      console.log(`[SimulationAttempt] Attempt ${attemptId} completed successfully`);
       return updatedAttempt;
   
     } catch (error) {
-      console.error('Error in completeWithTranscript:', error);
-      throw error;
+      console.error('[SimulationAttempt] Error in completeWithTranscript:', error);
+      
+      // Still try to complete the attempt even if transcript fetch fails
+      const endTime = new Date();
+      const durationSeconds = Math.floor((endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
+      
+      const fallbackAttempt = await this.prisma.simulationAttempt.update({
+        where: { id: attemptId },
+        data: {
+          endedAt: endTime,
+          durationSeconds,
+          isCompleted: true,
+          transcript: {
+            error: 'Failed to retrieve transcript',
+            errorDetails: error instanceof Error ? error.message : 'Unknown error',
+            correlationToken,
+            timestamp: new Date().toISOString()
+          } as unknown as Prisma.InputJsonValue,
+          aiFeedback: {
+            analysisStatus: 'failed',
+            error: 'Transcript retrieval failed',
+            fallbackFeedback: this.generateFallbackFeedback(),
+            isAdminAttempt: existingAttempt.student.user.isAdmin
+          } as unknown as Prisma.InputJsonValue
+        },
+        include: {
+          student: true,
+          simulation: {
+            include: {
+              courseCase: {
+                include: {
+                  course: true
+                }
+              }
+            }
+          }
+        }
+      });
+      
+      console.log(`[SimulationAttempt] Attempt ${attemptId} completed with errors`);
+      return fallbackAttempt;
     }
   }
   
