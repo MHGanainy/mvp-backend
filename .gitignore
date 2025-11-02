@@ -6,3 +6,4 @@ node_modules
 db-backups/prod_backup_20251026_144453.sql
 .DS_Store
 .gitignore
+logs/billing.log

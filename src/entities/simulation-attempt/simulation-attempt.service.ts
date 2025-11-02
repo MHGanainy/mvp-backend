@@ -6,10 +6,9 @@ import {
   VoiceAssistantTranscriptApi,
   TranscriptClean,
 } from '../../shared/types';
-import { aiFeedbackService } from './ai-feedback.service' 
-import { createAIFeedbackService, AIProvider } from './ai-feedback.service' 
+import { aiFeedbackService } from './ai-feedback.service'
+import { createAIFeedbackService, AIProvider } from './ai-feedback.service'
 import { voiceTokenService } from '../../services/voice-token.service';
-import { voiceAgentService } from '../../services/voice-agent.service';
 import { livekitVoiceService } from '../../services/livekit-voice.service';
 
 export class SimulationAttemptService {
@@ -134,14 +133,7 @@ export class SimulationAttemptService {
           token: livekitConfig.token,           // LiveKit JWT
           correlationToken: correlationToken,    // Our correlation token
           wsEndpoint: livekitConfig.serverUrl,  // LiveKit server URL
-          roomName: livekitConfig.roomName,     // LiveKit room name
-          sessionConfig: {
-            // Keep for frontend compatibility (will remove in Phase 2)
-            stt_provider: 'assemblyai',
-            llm_provider: 'groq',
-            tts_provider: 'inworld',
-            system_prompt: attempt.simulation.casePrompt
-          }
+          roomName: livekitConfig.roomName      // LiveKit room name (from Python orchestrator)
         },
         isAdmin: student.user.isAdmin
       };
@@ -168,15 +160,11 @@ export class SimulationAttemptService {
       throw new Error('Simulation attempt is already completed')
     }
 
-    // Close the voice agent connection if it exists
+    // Close the LiveKit session if it exists
     if (attempt.correlationToken) {
-      console.log(`[SimulationAttempt] Closing voice connection for attempt ${id} (correlation: ${attempt.correlationToken})`);
-      const closed = await voiceAgentService.closeConnection(attempt.correlationToken);
-      if (closed) {
-        console.log(`[SimulationAttempt] Successfully closed voice connection`);
-      } else {
-        console.log(`[SimulationAttempt] Voice connection was not found or already closed`);
-      }
+      console.log(`[SimulationAttempt] Closing LiveKit session for attempt ${id} (correlation: ${attempt.correlationToken})`);
+      await livekitVoiceService.endSession(attempt.correlationToken);
+      console.log(`[SimulationAttempt] LiveKit session end request sent`);
     }
 
     const endTime = new Date()
@@ -240,16 +228,11 @@ export class SimulationAttemptService {
       throw new Error('Cannot cancel a completed simulation attempt');
     }
 
-    // Force close the WebSocket connection
+    // Force close the LiveKit session
     if (attempt.correlationToken) {
-      console.log(`[SimulationAttempt] Cancelling attempt ${id}, closing connection ${attempt.correlationToken}`);
-      const closed = await voiceAgentService.closeConnection(attempt.correlationToken);
-      
-      if (closed) {
-        console.log(`[SimulationAttempt] Voice connection closed successfully`);
-      } else {
-        console.log(`[SimulationAttempt] Voice connection was not found or already closed`);
-      }
+      console.log(`[SimulationAttempt] Cancelling attempt ${id}, closing LiveKit session ${attempt.correlationToken}`);
+      await livekitVoiceService.endSession(attempt.correlationToken);
+      console.log(`[SimulationAttempt] LiveKit session end request sent`);
     }
 
     // Mark as ended but not completed
@@ -530,10 +513,10 @@ export class SimulationAttemptService {
       include: { user: true }
     })
 
-    // Close the voice agent connection if it exists
+    // Close the LiveKit session if it exists
     if (attempt.correlationToken) {
-      console.log(`[SimulationAttempt] Deleting attempt ${id}, closing connection ${attempt.correlationToken}`);
-      await voiceAgentService.closeConnection(attempt.correlationToken);
+      console.log(`[SimulationAttempt] Deleting attempt ${id}, closing LiveKit session ${attempt.correlationToken}`);
+      await livekitVoiceService.endSession(attempt.correlationToken);
     }
 
     // If attempt was not completed and student is not admin, refund credits

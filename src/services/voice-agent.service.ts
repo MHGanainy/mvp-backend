@@ -1,6 +1,22 @@
 // src/services/voice-agent.service.ts
+//
+// ⚠️ DEPRECATED - LEGACY CODE
+// This service is from the old Python voice assistant architecture.
+// It is NO LONGER USED as of the LiveKit migration.
+//
+// The system now uses:
+// - livekitVoiceService for session management
+// - Python LiveKit orchestrator for voice sessions
+//
+// This file is kept for reference only and may be removed in the future.
+// All functionality has been replaced by livekit-voice.service.ts
+//
+
 import axios, { AxiosInstance } from 'axios';
 
+/**
+ * @deprecated Use livekitVoiceService instead
+ */
 export class VoiceAgentService {
   private client: AxiosInstance;
   private sharedSecret: string;

@@ -33,38 +33,58 @@ export class LiveKitVoiceService {
     try {
       const voiceId = config.voiceId || 'Ashley';  // Use provided voice or default to Ashley
 
-      console.log(`[LiveKitVoice] Creating session for correlation token: ${correlationToken}`);
-      console.log(`[LiveKitVoice] User: ${userName}`);
-      console.log(`[LiveKitVoice] Voice: ${voiceId}`);
+      const requestPayload = {
+        userName,
+        correlationToken,
+        voiceId: voiceId,
+        openingLine: config.openingLine,
+        systemPrompt: config.systemPrompt
+      };
+
+      console.log(`[LiveKitVoice] Creating session with payload:`, {
+        userName,
+        correlationToken,
+        voiceId,
+        openingLine: config.openingLine.substring(0, 50) + '...',
+        systemPromptLength: config.systemPrompt.length
+      });
 
       const response = await this.client.post(
         '/orchestrator/session/start',
-        {
-          userName,
-          correlationToken,
-          voiceId: voiceId,
-          openingLine: config.openingLine,
-          systemPrompt: config.systemPrompt
-        }
+        requestPayload
       );
 
-      console.log(`[LiveKitVoice] Session created successfully:`, {
-        token: response.data.token ? 'PRESENT' : 'MISSING',
+      // Python orchestrator should return the same correlationToken as sessionId/roomName
+      const returnedSessionId = response.data.sessionId || response.data.roomName;
+
+      console.log(`[LiveKitVoice] Session created - Response from Python orchestrator:`, {
+        token: response.data.token ? `PRESENT (${response.data.token.substring(0, 20)}...)` : 'MISSING',
         serverUrl: response.data.serverUrl,
-        roomName: correlationToken,  // Use correlation token as room name
-        orchestratorRoomName: response.data.roomName || response.data.sessionId
+        sessionId: response.data.sessionId,
+        roomName: response.data.roomName,
+        correlationTokenSent: correlationToken
       });
+
+      // Validate that Python returned the same ID we sent
+      if (returnedSessionId && returnedSessionId !== correlationToken) {
+        console.warn(`[LiveKitVoice] WARNING: Python returned different sessionId/roomName!`, {
+          sent: correlationToken,
+          received: returnedSessionId
+        });
+      }
 
       return {
         token: response.data.token,
         serverUrl: response.data.serverUrl,
-        roomName: correlationToken  // Use correlation token as room name for consistency
+        // Use Python's returned roomName, fallback to sessionId, or use correlationToken if neither present
+        roomName: response.data.roomName || response.data.sessionId || correlationToken
       };
     } catch (error: any) {
       console.error(`[LiveKitVoice] Failed to create session:`, {
         message: error.message,
         response: error.response?.data,
-        status: error.response?.status
+        status: error.response?.status,
+        correlationToken
       });
       throw new Error(`Failed to create LiveKit session: ${error.message}`);
     }
