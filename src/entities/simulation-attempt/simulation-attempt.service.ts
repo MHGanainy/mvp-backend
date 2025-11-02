@@ -10,6 +10,7 @@ import { aiFeedbackService } from './ai-feedback.service'
 import { createAIFeedbackService, AIProvider } from './ai-feedback.service' 
 import { voiceTokenService } from '../../services/voice-token.service';
 import { voiceAgentService } from '../../services/voice-agent.service';
+import { livekitVoiceService } from '../../services/livekit-voice.service';
 
 export class SimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
@@ -100,12 +101,6 @@ export class SimulationAttemptService {
       }
     })
 
-    const voiceToken = voiceTokenService.generateToken({
-      attemptId: attempt.id,
-      studentId: attempt.studentId,
-      correlationToken: attempt.correlationToken || ''
-    });
-
     // Log the attempt creation for billing tracking
     if (student.user.isAdmin) {
       console.log(`[BILLING] Admin simulation attempt created. ID: ${attempt.id}, Token: ${correlationToken} - NO CHARGES APPLY`);
@@ -113,10 +108,46 @@ export class SimulationAttemptService {
       console.log(`[BILLING] Simulation attempt created without upfront charge. ID: ${attempt.id}, Token: ${correlationToken}`);
     }
 
-    return {
-      ...attempt,
-      voiceToken,
-      isAdmin: student.user.isAdmin // Include admin flag in response
+    // Create LiveKit session
+    try {
+      // Use voiceId from frontend request, fallback to Ashley if not provided
+      const voiceId = data.voiceId || 'Ashley';
+
+      console.log(`[SimulationAttempt] Voice requested: ${voiceId}`);
+      console.log(`[SimulationAttempt] Correlation token: ${correlationToken}`);
+
+      const livekitConfig = await livekitVoiceService.createSession(
+        correlationToken,
+        String(student.user.email || student.user.id),
+        {
+          systemPrompt: attempt.simulation.casePrompt,
+          openingLine: attempt.simulation.openingLine,
+          voiceId: voiceId
+        }
+      );
+
+      console.log(`[LiveKit] Session created for attempt ${attempt.id} with voice: ${voiceId}`);
+
+      return {
+        ...attempt,
+        voiceAssistantConfig: {
+          token: livekitConfig.token,           // LiveKit JWT
+          correlationToken: correlationToken,    // Our correlation token
+          wsEndpoint: livekitConfig.serverUrl,  // LiveKit server URL
+          roomName: livekitConfig.roomName,     // LiveKit room name
+          sessionConfig: {
+            // Keep for frontend compatibility (will remove in Phase 2)
+            stt_provider: 'assemblyai',
+            llm_provider: 'groq',
+            tts_provider: 'inworld',
+            system_prompt: attempt.simulation.casePrompt
+          }
+        },
+        isAdmin: student.user.isAdmin
+      };
+    } catch (error: any) {
+      console.error(`[LiveKit] Failed to create session:`, error.message);
+      throw new Error(`Failed to start voice session: ${error.message}`);
     }
   }
 
@@ -661,19 +692,15 @@ export class SimulationAttemptService {
     attemptId: string, 
     correlationToken: string
   ): Promise<any> {
-    console.log(`[SimulationAttempt] Completing attempt ${attemptId} with transcript fetch`);
-    
-    // First, close the voice connection
-    console.log(`[SimulationAttempt] Closing voice connection for correlation token: ${correlationToken}`);
-    const connectionClosed = await voiceAgentService.closeConnection(correlationToken);
-    
-    if (connectionClosed) {
-      console.log(`[SimulationAttempt] Voice connection closed successfully`);
-      // Small delay to ensure connection is fully closed and transcript is saved
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    } else {
-      console.log(`[SimulationAttempt] Voice connection was not found or already closed`);
-    }
+    console.log(`[SimulationAttempt] Completing attempt ${attemptId} with LiveKit session end`);
+
+    // End the LiveKit session
+    console.log(`[SimulationAttempt] Ending LiveKit session for correlation token: ${correlationToken}`);
+    await livekitVoiceService.endSession(correlationToken);
+    console.log(`[SimulationAttempt] LiveKit session end request sent`);
+
+    // Small delay to ensure session cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Fetch attempt with all necessary relations
     const existingAttempt = await this.prisma.simulationAttempt.findUnique({
@@ -717,9 +744,58 @@ export class SimulationAttemptService {
     if (existingAttempt.isCompleted) {
       throw new Error('Simulation attempt is already completed');
     }
-  
+
+    // For now, skip transcript retrieval and just mark as complete
+    // TODO: Implement LiveKit transcript retrieval in Phase 2
+    console.log(`[SimulationAttempt] Skipping transcript retrieval - marking as complete`);
+
+    const endTime = new Date();
+    const durationSeconds = Math.floor((endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
+
     try {
-      // 1. Fetch transcript from voice assistant API
+      const updatedAttempt = await this.prisma.simulationAttempt.update({
+        where: { id: attemptId },
+        data: {
+          endedAt: endTime,
+          durationSeconds,
+          isCompleted: true,
+          transcript: {
+            status: 'pending_livekit_integration',
+            message: 'Transcript retrieval will be implemented in Phase 2',
+            correlationToken,
+            timestamp: new Date().toISOString()
+          } as unknown as Prisma.InputJsonValue
+        },
+        include: {
+          student: true,
+          simulation: {
+            include: {
+              courseCase: {
+                include: {
+                  course: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      console.log(`[SimulationAttempt] Attempt ${attemptId} marked as complete (transcript pending)`);
+      return updatedAttempt;
+    } catch (error) {
+      console.error('[SimulationAttempt] Error completing attempt:', error);
+      throw error;
+    }
+  }
+
+  // COMMENTED OUT - Will re-enable in Phase 2 with LiveKit transcript integration
+  /*
+  async completeWithTranscript_LEGACY(
+    attemptId: string,
+    correlationToken: string
+  ): Promise<any> {
+    try {
+      // OLD CODE - Fetch transcript from voice assistant API
       console.log(`[SimulationAttempt] Fetching transcript from voice assistant`);
       const transcriptData = await voiceAgentService.getTranscript(correlationToken);
       
@@ -929,7 +1005,8 @@ export class SimulationAttemptService {
       return fallbackAttempt;
     }
   }
-  
+  */
+
   // Helper method for fallback feedback when AI model fails
   private generateFallbackFeedback() {
     return {

@@ -146,44 +146,7 @@ fastify.post('/simulation-attempts', async (request, reply) => {
   try {
     const data = createSimulationAttemptSchema.parse(request.body)
     const attempt = await simulationAttemptService.create(data)
-    const criticalRules = `CRITICAL RULES:
-You are roleplaying. Everything you write will be spoken aloud by a text-to-speech system, so follow these rules strictly:
-Keep answers short and only answer when asked about a specific point; do not provide unrequested information.
-NEVER include:
-
-
-Stage directions like "looks anxious," "appears worried," "seems uncomfortable"
-Actions in asterisks like sighs, pauses, fidgets
-Any descriptive text about body language or appearance Brackets except for the emotion tags below
-ONLY output accepted:
-Actual spoken words the actor would say
-occasional use of Emotion tags at the START of sentences (when needed): [happy], [sad], [angry], [surprised], [fearful], [disgusted]
-No other emotional tags are supported or allowed to use such as [anxious].PLEASE DO NOT USE  UNSUPPORTED TAGS at any circumstances.
-Speaking style:
-Keep responses short and conversational (1-2 sentences max)
-Only answer what the doctor/candidate specifically asks
-Don't volunteer extra information unless it's asked specifically about it (Keep information you have in the script until it is asked)
-Speak like a real person, not like you're describing a scene.
-`;
-
-    
-    // Build voice assistant configuration
-    const voiceAssistantConfig = {
-      token: attempt.voiceToken,
-      correlationToken: attempt.correlationToken,
-      wsEndpoint: process.env.VOICE_ASSISTANT_WS_URL || 'ws://localhost:8000/ws/conversation',
-      sessionConfig: {
-        stt_provider: 'deepgram',
-        llm_provider: 'deepinfra',
-        tts_provider: 'deepinfra',
-        system_prompt: `
-        ${criticalRules}
-        ${attempt.simulation.casePrompt}
-         `
-      }
-    }
- 
-    
+    // The attempt now includes voiceAssistantConfig from LiveKit service
     reply.status(201).send({
       message: 'Simulation attempt started successfully. Credits will be charged per minute during conversation.',
       attempt,
@@ -193,7 +156,7 @@ Speak like a real person, not like you're describing a scene.
         chargeRate: '1 credit per minute',
         minimumRequired: 1
       },
-      voiceAssistantConfig
+      voiceAssistantConfig: attempt.voiceAssistantConfig
     })
   } catch (error) {
     if (error instanceof Error) {

@@ -3,7 +3,8 @@ import { z } from 'zod'
 // Create SimulationAttempt Schema (start session)
 export const createSimulationAttemptSchema = z.object({
   studentId: z.string().uuid('Invalid student ID'),
-  simulationId: z.string().uuid('Invalid simulation ID')
+  simulationId: z.string().uuid('Invalid simulation ID'),
+  voiceId: z.string().optional()  // Optional voice ID from frontend
   // startedAt will be auto-set to now()
   // endedAt, score, feedback will be set when session completes
 })
