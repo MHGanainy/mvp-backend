@@ -1,164 +1,187 @@
 // src/server.ts
-import Fastify from 'fastify'
-import { PrismaClient } from '@prisma/client'
-import fastifyJwt from '@fastify/jwt'
-import fastifyCors from '@fastify/cors'
-import './shared/types'
-import { optionalAuth } from './middleware/auth.middleware'
+import Fastify from "fastify";
+import { PrismaClient } from "@prisma/client";
+import fastifyJwt from "@fastify/jwt";
+import fastifyCors from "@fastify/cors";
+import "./shared/types";
+import { optionalAuth } from "./middleware/auth.middleware";
 
 // Add all imports
-import authRoutes from './entities/auth/auth.routes'
-import subscriptionRoutes from './entities/subscription/subscription.routes'
-import specialtyRoutes from './entities/specialty/specialty.routes'
-import curriculumRoutes from './entities/curriculum/curriculum.routes'
-import markingDomainRoutes from './entities/marking-domain/marking-domain.routes'
-import instructorRoutes from './entities/instructor/instructor.routes'
-import studentRoutes from './entities/student/student.routes'
-import examRoutes from './entities/exam/exam.routes'
-import courseRoutes from './entities/course/course.routes'
-import courseCaseRoutes from './entities/course-case/course-case.routes'
-import caseTabRoutes from './entities/case-tab/case-tab.routes'  
-import simulationRoutes from './entities/simulation/simulation.routes'
-import simulationAttemptRoutes from './entities/simulation-attempt/simulation-attempt.routes'
-import paymentRoutes from './entities/payment/payment.routes'
-import markingCriterionRoutes from './entities/marking-criterion/marking-criterion.routes'
-import billingRoutes from './entities/billing/billing.routes'
-import { seedAdminUser } from './services/seed-admin'
+import authRoutes from "./entities/auth/auth.routes";
+import subscriptionRoutes from "./entities/subscription/subscription.routes";
+import specialtyRoutes from "./entities/specialty/specialty.routes";
+import curriculumRoutes from "./entities/curriculum/curriculum.routes";
+import markingDomainRoutes from "./entities/marking-domain/marking-domain.routes";
+import instructorRoutes from "./entities/instructor/instructor.routes";
+import studentRoutes from "./entities/student/student.routes";
+import examRoutes from "./entities/exam/exam.routes";
+import courseRoutes from "./entities/course/course.routes";
+import courseCaseRoutes from "./entities/course-case/course-case.routes";
+import caseTabRoutes from "./entities/case-tab/case-tab.routes";
+import simulationRoutes from "./entities/simulation/simulation.routes";
+import simulationAttemptRoutes from "./entities/simulation-attempt/simulation-attempt.routes";
+import paymentRoutes from "./entities/payment/payment.routes";
+import markingCriterionRoutes from "./entities/marking-criterion/marking-criterion.routes";
+import billingRoutes from "./entities/billing/billing.routes";
+import { seedAdminUser } from "./services/seed-admin";
+import { CleanupService } from "./services/cleanup.service";
 
-const fastify = Fastify({ logger: true })
-const prisma = new PrismaClient()
+const fastify = Fastify({ logger: true });
+const prisma = new PrismaClient();
 
 // Register prisma on fastify instance
-fastify.decorate('prisma', prisma)
+fastify.decorate("prisma", prisma);
 
 // Register JWT plugin
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production'
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  "your-super-secret-jwt-key-change-this-in-production";
 fastify.register(fastifyJwt, {
   secret: JWT_SECRET,
   sign: {
-    expiresIn: '1h'
-  }
-})
+    expiresIn: "1h",
+  },
+});
 
 // Register CORS plugin - Allow ALL origins
 fastify.register(fastifyCors, {
   origin: true, // This allows ALL origins
   credentials: true, // Allow cookies/credentials
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] // Allowed methods
-})
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Allowed methods
+});
 
 // GLOBAL AUTHENTICATION HOOK - Runs on EVERY request
 // This attempts to authenticate but doesn't block if no token
 // Ensures admin users are always identified
-fastify.addHook('onRequest', async (request, reply) => {
+fastify.addHook("onRequest", async (request, reply) => {
   // Skip for health check and other system endpoints
-  if (request.url === '/health' || request.url === '/favicon.ico') {
-    return
+  if (request.url === "/health" || request.url === "/favicon.ico") {
+    return;
   }
-  
+
   // Attempt to authenticate on every request
-  await optionalAuth(request, reply)
-})
+  await optionalAuth(request, reply);
+});
 
 // Health check
-fastify.get('/health', async () => {
-  return { status: 'OK', timestamp: new Date().toISOString() }
-})
+fastify.get("/health", async () => {
+  return { status: "OK", timestamp: new Date().toISOString() };
+});
 
 // Clean User routes
-fastify.get('/users', async (request) => {
+fastify.get("/users", async (request) => {
   // Admin check will work because of global hook
   if (!request.isAdmin) {
-    throw new Error('Admin access required')
+    throw new Error("Admin access required");
   }
-  
+
   const users = await prisma.user.findMany({
-    include: { 
+    include: {
       instructor: true,
-      student: true
-    }
-  })
-  return users
-})
+      student: true,
+    },
+  });
+  return users;
+});
 
-fastify.post('/users', async (request, reply) => {
+fastify.post("/users", async (request, reply) => {
   // Admin check will work because of global hook
   if (!request.isAdmin) {
-    reply.status(403).send({ error: 'Admin access required' })
-    return
+    reply.status(403).send({ error: "Admin access required" });
+    return;
   }
-  
-  const { email, name } = request.body as { email: string; name?: string }
-  
+
+  const { email, name } = request.body as { email: string; name?: string };
+
   const user = await prisma.user.create({
-    data: { email, name }
-  })
-  return user
-})
+    data: { email, name },
+  });
+  return user;
+});
 
-fastify.get('/users/:id', async (request, reply) => {
+fastify.get("/users/:id", async (request, reply) => {
   // Admin check will work because of global hook
   if (!request.isAdmin) {
-    reply.status(403).send({ error: 'Admin access required' })
-    return
+    reply.status(403).send({ error: "Admin access required" });
+    return;
   }
-  
-  const { id } = request.params as { id: string }
-  
+
+  const { id } = request.params as { id: string };
+
   const user = await prisma.user.findUnique({
     where: { id: parseInt(id) },
-    include: { 
+    include: {
       instructor: true,
-      student: true
-    }
-  })
-  
+      student: true,
+    },
+  });
+
   if (!user) {
-    throw new Error('User not found')
+    throw new Error("User not found");
   }
-  
-  return user
-})
+
+  return user;
+});
 
 // Start server
 const start = async () => {
   try {
-    await seedAdminUser()
-    
-    // Register auth routes FIRST (no prefix needed)
-    await fastify.register(authRoutes, { prefix: '/api' })
-    
-    // Register subscription routes (also at root level for easier access)
-    await fastify.register(subscriptionRoutes, { prefix: '/api' })
-    
-    // Register all other route sets
-    await fastify.register(specialtyRoutes, { prefix: '/api' })
-    await fastify.register(curriculumRoutes, { prefix: '/api' })
-    await fastify.register(markingDomainRoutes, { prefix: '/api' })
-    await fastify.register(instructorRoutes, { prefix: '/api' })
-    await fastify.register(studentRoutes, { prefix: '/api' })
-    await fastify.register(examRoutes, { prefix: '/api' })
-    await fastify.register(courseRoutes, { prefix: '/api' })
-    await fastify.register(courseCaseRoutes, { prefix: '/api' })
-    await fastify.register(caseTabRoutes, { prefix: '/api' })  
-    await fastify.register(simulationRoutes, { prefix: '/api' })
-    await fastify.register(simulationAttemptRoutes, { prefix: '/api' })
-    await fastify.register(paymentRoutes, { prefix: '/api' })
-    await fastify.register(markingCriterionRoutes, { prefix: '/api' })
-    await fastify.register(billingRoutes, { prefix: '/api' })
-    
-    const port = Number(process.env.PORT) || 3000
-    const host = process.env.HOST || '0.0.0.0'
-    
-    await fastify.listen({ port, host })
-    console.log(`🚀 Server running on ${host}:${port}`)
-    console.log(`🔐 JWT authentication enabled with global auth hook`)
-    console.log(`👤 Admin users automatically identified on all routes`)
-    console.log(`🌐 CORS enabled for ALL origins`)
-  } catch (err) {
-    fastify.log.error(err)
-    process.exit(1)
-  }
-}
+    await seedAdminUser();
 
-start()
+    // Register auth routes FIRST (no prefix needed)
+    await fastify.register(authRoutes, { prefix: "/api" });
+
+    // Register subscription routes (also at root level for easier access)
+    await fastify.register(subscriptionRoutes, { prefix: "/api" });
+
+    // Register all other route sets
+    await fastify.register(specialtyRoutes, { prefix: "/api" });
+    await fastify.register(curriculumRoutes, { prefix: "/api" });
+    await fastify.register(markingDomainRoutes, { prefix: "/api" });
+    await fastify.register(instructorRoutes, { prefix: "/api" });
+    await fastify.register(studentRoutes, { prefix: "/api" });
+    await fastify.register(examRoutes, { prefix: "/api" });
+    await fastify.register(courseRoutes, { prefix: "/api" });
+    await fastify.register(courseCaseRoutes, { prefix: "/api" });
+    await fastify.register(caseTabRoutes, { prefix: "/api" });
+    await fastify.register(simulationRoutes, { prefix: "/api" });
+    await fastify.register(simulationAttemptRoutes, { prefix: "/api" });
+    await fastify.register(paymentRoutes, { prefix: "/api" });
+    await fastify.register(markingCriterionRoutes, { prefix: "/api" });
+    await fastify.register(billingRoutes, { prefix: "/api" });
+
+    const port = Number(process.env.PORT) || 3000;
+    const host = process.env.HOST || "0.0.0.0";
+
+    await fastify.listen({ port, host });
+    console.log(`🚀 Server running on ${host}:${port}`);
+    console.log(`🔐 JWT authentication enabled with global auth hook`);
+    console.log(`👤 Admin users automatically identified on all routes`);
+    console.log(`🌐 CORS enabled for ALL origins`);
+
+    // Start cleanup service for pending registrations
+    const cleanupService = new CleanupService(prisma);
+
+    // Run initial cleanup
+    console.log("🧹 Running initial cleanup...");
+    await cleanupService.cleanupExpiredOTPs();
+
+    // Run cleanup every 6 hours
+    setInterval(async () => {
+      console.log("🧹 Running scheduled cleanup...");
+      try {
+        await cleanupService.cleanupExpiredOTPs();
+        await cleanupService.cleanupExpiredPendingRegistrations();
+      } catch (error) {
+        console.error("❌ Cleanup failed:", error);
+      }
+    }, 6 * 60 * 60 * 1000); // 6 hours
+
+    console.log("🧹 Cleanup service started (runs every 6 hours)");
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
+};
+
+start();
