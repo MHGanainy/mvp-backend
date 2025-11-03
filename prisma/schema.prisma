@@ -8,18 +8,45 @@ datasource db {
 }
 
 model User {
-  id            Int         @id @default(autoincrement())
-  email         String      @unique
-  name          String?
-  createdAt     DateTime    @default(now()) @map("created_at")
-  emailVerified Boolean     @default(true) @map("email_verified")
-  passwordHash  String?     @map("password_hash")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  isAdmin       Boolean     @default(false) @map("is_admin")
-  instructor    Instructor?
-  student       Student?
+  id                    Int         @id @default(autoincrement())
+  email                 String      @unique
+  name                  String?
+  createdAt             DateTime    @default(now()) @map("created_at")
+  emailVerified         Boolean     @default(false) @map("email_verified")
+  passwordHash          String?     @map("password_hash")
+  updatedAt             DateTime    @updatedAt @map("updated_at")
+  isAdmin               Boolean     @default(false) @map("is_admin")
+  // OAuth fields
+  oauthProvider         String?     @map("oauth_provider")
+  oauthProviderId       String?     @map("oauth_provider_id")
+  // Email verification OTP
+  emailVerificationOtp  String?     @map("email_verification_otp")
+  otpExpiresAt          DateTime?   @map("otp_expires_at")
+  // Password reset
+  passwordResetToken    String?     @unique @map("password_reset_token")
+  passwordResetExpires  DateTime?   @map("password_reset_expires")
+  
+  instructor            Instructor?
+  student               Student?
 
+  @@unique([oauthProvider, oauthProviderId])
   @@map("users")
+}
+
+model PendingRegistration {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  name         String?
+  userType     String   @map("user_type") // 'student' or 'instructor'
+  bio          String?  // For instructors
+  otp          String
+  otpExpiresAt DateTime @map("otp_expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("pending_registrations")
 }
 
 model Instructor {
