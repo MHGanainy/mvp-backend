@@ -2,14 +2,9 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { CreateSimulationAttemptInput, CompleteSimulationAttemptInput, UpdateSimulationAttemptInput } from './simulation-attempt.schema'
 import { randomBytes } from 'crypto'
-import {
-  VoiceAssistantTranscriptApi,
-  TranscriptClean,
-} from '../../shared/types';
-import { aiFeedbackService } from './ai-feedback.service'
 import { createAIFeedbackService, AIProvider } from './ai-feedback.service'
-import { voiceTokenService } from '../../services/voice-token.service';
 import { livekitVoiceService } from '../../services/livekit-voice.service';
+import { TranscriptProcessorService, VoiceAgentTranscript } from '../../services/transcript-processor.service';
 
 export class SimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
@@ -228,11 +223,33 @@ export class SimulationAttemptService {
       throw new Error('Cannot cancel a completed simulation attempt');
     }
 
-    // Force close the LiveKit session
+    // Force close the LiveKit session (this commits transcript to database)
     if (attempt.correlationToken) {
       console.log(`[SimulationAttempt] Cancelling attempt ${id}, closing LiveKit session ${attempt.correlationToken}`);
       await livekitVoiceService.endSession(attempt.correlationToken);
-      console.log(`[SimulationAttempt] LiveKit session end request sent`);
+      console.log(`[SimulationAttempt] LiveKit session ended`);
+    }
+
+    // Fetch the attempt again to get the transcript that was just saved by session end
+    const attemptWithTranscript = await this.prisma.simulationAttempt.findUnique({
+      where: { id }
+    });
+
+    // Process transcript to clean format for consistency (same as completeWithTranscript)
+    let cleanTranscript: Prisma.InputJsonValue | null = null;
+
+    if (attemptWithTranscript?.transcript) {
+      try {
+        console.log(`[SimulationAttempt] Processing transcript to clean format...`);
+        const voiceTranscript = attemptWithTranscript.transcript as unknown as VoiceAgentTranscript;
+        const processedTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
+        cleanTranscript = processedTranscript as unknown as Prisma.InputJsonValue;
+        console.log(`[SimulationAttempt] Transcript processed: ${processedTranscript.totalMessages} messages, ${processedTranscript.duration}s duration`);
+      } catch (error) {
+        console.error(`[SimulationAttempt] Failed to process transcript:`, error);
+        // Keep original transcript if processing fails
+        cleanTranscript = attemptWithTranscript.transcript;
+      }
     }
 
     // Mark as ended but not completed
@@ -247,12 +264,13 @@ export class SimulationAttemptService {
         endedAt,
         durationSeconds,
         isCompleted: false,
+        transcript: cleanTranscript || undefined, // Save clean transcript format (undefined if no transcript)
         aiFeedback: {
           cancelled: true,
           reason: 'Manually cancelled',
           timestamp: endedAt.toISOString(),
           isAdminAttempt: attempt.student.user.isAdmin
-        }
+        } as unknown as Prisma.InputJsonValue
       }
     });
 
@@ -659,6 +677,9 @@ export class SimulationAttemptService {
     }
   }
 
+  // DEPRECATED: Now using TranscriptProcessorService.transformToCleanFormat()
+  // This method was used with the old API-based transcript fetching
+  /*
   private transformTranscript = (
     api: VoiceAssistantTranscriptApi,
   ): TranscriptClean => ({
@@ -670,22 +691,25 @@ export class SimulationAttemptService {
     duration: api.duration_seconds ?? 0,
     totalMessages: api.total_messages,
   });
+  */
 
   async completeWithTranscript(
-    attemptId: string, 
+    attemptId: string,
     correlationToken: string
   ): Promise<any> {
-    console.log(`[SimulationAttempt] Completing attempt ${attemptId} with LiveKit session end`);
+    console.log(`[SimulationAttempt] Completing attempt ${attemptId} with transcript processing`);
 
-    // End the LiveKit session
+    // Step 1: End the LiveKit session (this commits transcript to database)
     console.log(`[SimulationAttempt] Ending LiveKit session for correlation token: ${correlationToken}`);
-    await livekitVoiceService.endSession(correlationToken);
-    console.log(`[SimulationAttempt] LiveKit session end request sent`);
+    const endResult = await livekitVoiceService.endSession(correlationToken);
 
-    // Small delay to ensure session cleanup
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (endResult.status === 'error') {
+      console.warn(`[SimulationAttempt] Session end failed (${endResult.message}). Will check if transcript is already in database.`);
+    } else {
+      console.log(`[SimulationAttempt] LiveKit session ended successfully. Transcript should now be in database.`);
+    }
 
-    // Fetch attempt with all necessary relations
+    // Step 2: Fetch attempt with all necessary relations (transcript should now be present)
     const existingAttempt = await this.prisma.simulationAttempt.findUnique({
       where: { id: attemptId },
       include: {
@@ -719,34 +743,203 @@ export class SimulationAttemptService {
         }
       }
     });
-  
+
     if (!existingAttempt) {
       throw new Error('Simulation attempt not found');
     }
-  
+
     if (existingAttempt.isCompleted) {
       throw new Error('Simulation attempt is already completed');
     }
 
-    // For now, skip transcript retrieval and just mark as complete
-    // TODO: Implement LiveKit transcript retrieval in Phase 2
-    console.log(`[SimulationAttempt] Skipping transcript retrieval - marking as complete`);
+    // Step 3: Check if transcript was saved by orchestrator
+    if (!existingAttempt.transcript) {
+      throw new Error('No transcript found in database after session end. The orchestrator may have failed to save the transcript.');
+    }
+
+    console.log(`[SimulationAttempt] Transcript found in database`);
+    const voiceTranscript = existingAttempt.transcript as unknown as VoiceAgentTranscript;
 
     const endTime = new Date();
     const durationSeconds = Math.floor((endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
 
     try {
+      // Step 4: Process the transcript - transform and merge split messages
+      console.log(`[SimulationAttempt] Processing transcript...`);
+      const cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
+      console.log(`[SimulationAttempt] Transcript processed: ${cleanTranscript.totalMessages} messages, ${cleanTranscript.duration}s duration`);
+
+      // Extract case tabs (doctor's notes, patient script, medical notes)
+      interface CaseTabs {
+        doctorsNote: string[];
+        patientScript: string[];
+        medicalNotes: string[];
+      }
+
+      const caseTabs: CaseTabs = {
+        doctorsNote: [],
+        patientScript: [],
+        medicalNotes: []
+      };
+
+      existingAttempt.simulation.courseCase.caseTabs.forEach(tab => {
+        switch(tab.tabType) {
+          case 'DOCTORS_NOTE':
+            caseTabs.doctorsNote = tab.content;
+            break;
+          case 'PATIENT_SCRIPT':
+            caseTabs.patientScript = tab.content;
+            break;
+          case 'MEDICAL_NOTES':
+            caseTabs.medicalNotes = tab.content;
+            break;
+        }
+      });
+
+      // Group marking criteria by domain
+      interface MarkingDomainWithCriteria {
+        domainId: string;
+        domainName: string;
+        criteria: {
+          id: string;
+          text: string;
+          points: number;
+          displayOrder: number;
+        }[];
+      }
+
+      const domainsMap = new Map<string, MarkingDomainWithCriteria>();
+
+      existingAttempt.simulation.courseCase.markingCriteria.forEach(criterion => {
+        const domainId = criterion.markingDomain.id;
+
+        if (!domainsMap.has(domainId)) {
+          domainsMap.set(domainId, {
+            domainId: criterion.markingDomain.id,
+            domainName: criterion.markingDomain.name,
+            criteria: []
+          });
+        }
+
+        domainsMap.get(domainId)!.criteria.push({
+          id: criterion.id,
+          text: criterion.text,
+          points: criterion.points,
+          displayOrder: criterion.displayOrder
+        });
+      });
+
+      const markingDomainsWithCriteria = Array.from(domainsMap.values());
+
+      // Prepare case info
+      const caseInfo = {
+        patientName: existingAttempt.simulation.courseCase.patientName,
+        diagnosis: existingAttempt.simulation.courseCase.diagnosis,
+        caseTitle: existingAttempt.simulation.courseCase.title,
+        patientAge: existingAttempt.simulation.courseCase.patientAge,
+        patientGender: existingAttempt.simulation.courseCase.patientGender
+      };
+
+      let aiFeedback: Prisma.InputJsonValue | null = null;
+      let score: number | null = null;
+      let aiPrompt: Prisma.InputJsonValue | null = null;
+
+      // Generate AI feedback
+      try {
+        console.log(`[SimulationAttempt] Generating AI feedback...`);
+        console.log(`[SimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`);
+
+        const {
+          feedback,
+          score: calculatedScore,
+          prompts,
+          markingStructure
+        } = await this.aiFeedbackService.generateFeedback(
+          cleanTranscript,
+          caseInfo,
+          caseTabs,
+          durationSeconds,
+          markingDomainsWithCriteria
+        );
+
+        // Include full marking structure in the feedback
+        aiFeedback = {
+          ...feedback,
+          analysisStatus: 'success',
+          generatedAt: new Date().toISOString(),
+          caseTabsProvided: {
+            doctorsNote: caseTabs.doctorsNote.length > 0,
+            patientScript: caseTabs.patientScript.length > 0,
+            medicalNotes: caseTabs.medicalNotes.length > 0
+          },
+          totalMarkingCriteria: existingAttempt.simulation.courseCase.markingCriteria.length,
+          markingDomainsCount: markingDomainsWithCriteria.length,
+          markingStructure: markingStructure,
+          isAdminAttempt: existingAttempt.student.user.isAdmin
+        } as unknown as Prisma.InputJsonValue;
+
+        score = calculatedScore;
+        aiPrompt = prompts as unknown as Prisma.InputJsonValue;
+
+        console.log(`[SimulationAttempt] AI feedback generated successfully with score: ${score}`);
+
+      } catch (aiError) {
+        console.error('[SimulationAttempt] AI feedback generation failed:', aiError);
+        aiFeedback = {
+          analysisStatus: 'failed',
+          error: aiError instanceof Error ? aiError.message : 'Unknown AI error',
+          generatedAt: new Date().toISOString(),
+          markingStructure: markingDomainsWithCriteria,
+          isAdminAttempt: existingAttempt.student.user.isAdmin,
+          fallbackFeedback: this.generateFallbackFeedback()
+        } as unknown as Prisma.InputJsonValue;
+      }
+
+      // Update the simulation attempt with feedback
       const updatedAttempt = await this.prisma.simulationAttempt.update({
         where: { id: attemptId },
         data: {
           endedAt: endTime,
           durationSeconds,
           isCompleted: true,
-          transcript: {
-            status: 'pending_livekit_integration',
-            message: 'Transcript retrieval will be implemented in Phase 2',
-            correlationToken,
-            timestamp: new Date().toISOString()
+          transcript: cleanTranscript as unknown as Prisma.InputJsonValue,
+          aiFeedback,
+          aiPrompt: aiPrompt || undefined,
+          score
+        },
+        include: {
+          student: true,
+          simulation: {
+            include: {
+              courseCase: {
+                include: {
+                  course: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      console.log(`[SimulationAttempt] Attempt ${attemptId} completed successfully with AI feedback`);
+      return updatedAttempt;
+
+    } catch (error) {
+      console.error('[SimulationAttempt] Error processing transcript and generating feedback:', error);
+
+      // Still mark as complete but with error status
+      const fallbackAttempt = await this.prisma.simulationAttempt.update({
+        where: { id: attemptId },
+        data: {
+          endedAt: endTime,
+          durationSeconds,
+          isCompleted: true,
+          aiFeedback: {
+            analysisStatus: 'failed',
+            error: 'Transcript processing or feedback generation failed',
+            errorDetails: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date().toISOString(),
+            fallbackFeedback: this.generateFallbackFeedback()
           } as unknown as Prisma.InputJsonValue
         },
         include: {
@@ -763,11 +956,8 @@ export class SimulationAttemptService {
         }
       });
 
-      console.log(`[SimulationAttempt] Attempt ${attemptId} marked as complete (transcript pending)`);
-      return updatedAttempt;
-    } catch (error) {
-      console.error('[SimulationAttempt] Error completing attempt:', error);
-      throw error;
+      console.log(`[SimulationAttempt] Attempt ${attemptId} marked as complete with error`);
+      return fallbackAttempt;
     }
   }
 

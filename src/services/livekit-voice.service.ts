@@ -101,7 +101,7 @@ export class LiveKitVoiceService {
         }
       );
 
-      console.log(`[LiveKitVoice] Session ended successfully:`, response.data);
+      console.log(`[LiveKitVoice] Session ended successfully. Transcript saved to database.`, response.data);
       return response.data;
     } catch (error: any) {
       console.error(`[LiveKitVoice] Failed to end session:`, {
@@ -110,7 +110,7 @@ export class LiveKitVoiceService {
         status: error.response?.status
       });
 
-      // Don't throw - session might already be ended
+      // Return error status so caller can handle it
       return { status: 'error', message: error.message };
     }
   }
