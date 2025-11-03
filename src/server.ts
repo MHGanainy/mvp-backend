@@ -126,8 +126,6 @@ fastify.get("/users/:id", async (request, reply) => {
 // Start server
 const start = async () => {
   try {
-    await seedAdminUser();
-
     // Register auth routes FIRST (no prefix needed)
     await fastify.register(authRoutes, { prefix: "/api" });
 
