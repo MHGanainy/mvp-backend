@@ -1,20 +1,116 @@
-node_modules
-# Keep environment variables out of version control
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Environment Variables
 .env
 .env.*
 .env.local
+.env.*.local
+!.env.example
 
-# Generated files
-/src/generated/prisma
+# Build Output
 dist/
 build/
+out/
+*.tsbuildinfo
 
-# Database backups
+# Prisma Generated Files
+/src/generated/
+/prisma/generated/
+
+# Database Files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
 db-backups/*.sql
+db-backups/*.dump
+*.dump
 
-# System files
-.DS_Store
-*.log
-
-# Logs directory
+# Logs
 logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+lerna-debug.log*
+
+# System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.project
+.classpath
+.settings/
+*.sublime-*
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Temporary Files
+tmp/
+temp/
+*.tmp
+*.bak
+*.cache
+
+# Test & Debug Files
+test-*.ts
+test-*.js
+check-*.ts
+check-*.js
+debug-*.ts
+debug-*.js
+
+# Documentation (generated)
+FEEDBACK_ANALYSIS.md
+DURATION_DOCUMENTATION.md
+MIGRATION_NOTES.md
+
+# OS Files
+.bash_history
+.zsh_history
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Backup files
+*.backup
+*.old
+*.orig
+
+# Railway/Deployment
+.railway/
+
+# Misc
+.cache/
+.next/
+.nuxt/
+.vercel/
