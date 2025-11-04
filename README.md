@@ -53,3 +53,7 @@ echo 'DATABASE_URL="postgresql://postgres:IBdHmFwKDoDzMYEyVyhuYBwgdaWayUiJ@caboo
 
 npx prisma generate
 
+
+stripe listen --forward-to https://staging.simsbuddy.com/api/webhooks/stripe
+
+stripe listen --forward-to http://localhost:3000/api/webhooks/stripe
