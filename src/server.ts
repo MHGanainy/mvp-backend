@@ -68,6 +68,11 @@ fastify.get("/api/health", async () => {
   return { status: "OK", timestamp: new Date().toISOString() };
 });
 
+// Health check with
+fastify.get("/api/health", async () => {
+  return { status: "OK", timestamp: new Date().toISOString() };
+});
+
 // Clean User routes
 fastify.get("/users", async (request) => {
   // Admin check will work because of global hook
