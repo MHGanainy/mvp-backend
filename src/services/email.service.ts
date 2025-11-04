@@ -230,6 +230,92 @@ export class EmailService {
     await this.transporter.sendMail(mailOptions);
   }
 
+  async sendCreditPurchaseConfirmation(
+    email: string,
+    name: string,
+    credits: number,
+    amountInPence: number,
+    packageName: string
+  ): Promise<void> {
+    const amountInPounds = (amountInPence / 100).toFixed(2);
+
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || "Your App"}" <${
+        process.env.SMTP_USER
+      }>`,
+      to: email,
+      subject: `Payment Successful - ${credits} Credits Added`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+            .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
+            .receipt { background-color: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
+            .receipt-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+            .receipt-row:last-child { border-bottom: none; font-weight: bold; }
+            .credits-badge { background-color: #4CAF50; color: white; padding: 15px 30px; border-radius: 5px; text-align: center; font-size: 24px; font-weight: bold; margin: 20px 0; }
+            .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🎉 Payment Successful!</h1>
+            </div>
+            <div class="content">
+              <p>Hi ${name},</p>
+              <p>Thank you for your purchase! Your payment has been processed successfully.</p>
+
+              <div class="credits-badge">
+                +${credits} Credits Added
+              </div>
+
+              <div class="receipt">
+                <h3 style="margin-top: 0;">Receipt</h3>
+                <div class="receipt-row">
+                  <span>Package:</span>
+                  <span><strong>${packageName}</strong></span>
+                </div>
+                <div class="receipt-row">
+                  <span>Credits:</span>
+                  <span><strong>${credits}</strong></span>
+                </div>
+                <div class="receipt-row">
+                  <span>Amount Paid:</span>
+                  <span><strong>£${amountInPounds} GBP</strong></span>
+                </div>
+              </div>
+
+              <p>Your credits have been added to your account and are ready to use immediately.</p>
+              <p>Start using them now to practice with voice simulations!</p>
+
+              <p style="margin-top: 30px;">
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}"
+                   style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                  Go to Dashboard
+                </a>
+              </p>
+            </div>
+            <div class="footer">
+              <p>This is an automated email. Please do not reply.</p>
+              <p>Need help? Contact our support team.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `Hi ${name},\n\nThank you for your purchase! Your payment has been processed successfully.\n\n${credits} credits have been added to your account.\n\nReceipt:\nPackage: ${packageName}\nCredits: ${credits}\nAmount Paid: £${amountInPounds} GBP\n\nYour credits are ready to use immediately. Start using them now to practice with voice simulations!\n\nVisit: ${
+        process.env.FRONTEND_URL || "http://localhost:5173"
+      }`,
+    };
+
+    await this.transporter.sendMail(mailOptions);
+  }
+
   // Test email configuration
   async verifyConnection(): Promise<boolean> {
     try {
