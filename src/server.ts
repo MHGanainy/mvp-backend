@@ -23,6 +23,8 @@ import simulationAttemptRoutes from "./entities/simulation-attempt/simulation-at
 import paymentRoutes from "./entities/payment/payment.routes";
 import markingCriterionRoutes from "./entities/marking-criterion/marking-criterion.routes";
 import billingRoutes from "./entities/billing/billing.routes";
+import creditPackageRoutes from "./entities/credit-package/credit-package.routes";
+import webhookRoutes from "./entities/webhook/webhook.routes";
 import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
@@ -50,12 +52,30 @@ fastify.register(fastifyCors, {
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Allowed methods
 });
 
+// Add raw body support for Stripe webhook signature verification
+// MUST be added before any routes are registered
+fastify.addContentTypeParser(
+  'application/json',
+  { parseAs: 'buffer' },
+  async (req: any, body: Buffer) => {
+    // Store raw body for webhook signature verification
+    if (req.url?.includes('/webhooks/stripe')) {
+      req.rawBody = body.toString('utf-8');
+    }
+    return JSON.parse(body.toString('utf-8'));
+  }
+);
+
 // GLOBAL AUTHENTICATION HOOK - Runs on EVERY request
 // This attempts to authenticate but doesn't block if no token
 // Ensures admin users are always identified
 fastify.addHook("onRequest", async (request, reply) => {
-  // Skip for health check and other system endpoints
-  if (request.url === "/health" || request.url === "/favicon.ico") {
+  // Skip for health check, webhooks, and other system endpoints
+  if (
+    request.url === "/health" ||
+    request.url === "/favicon.ico" ||
+    request.url?.includes("/webhooks/")
+  ) {
     return;
   }
 
@@ -126,7 +146,10 @@ fastify.get("/users/:id", async (request, reply) => {
 // Start server
 const start = async () => {
   try {
-    // Register auth routes FIRST (no prefix needed)
+    // Register webhook routes FIRST (needs raw body, no auth)
+    await fastify.register(webhookRoutes, { prefix: "/api/webhooks" });
+
+    // Register auth routes
     await fastify.register(authRoutes, { prefix: "/api" });
 
     // Register subscription routes (also at root level for easier access)
@@ -147,6 +170,7 @@ const start = async () => {
     await fastify.register(paymentRoutes, { prefix: "/api" });
     await fastify.register(markingCriterionRoutes, { prefix: "/api" });
     await fastify.register(billingRoutes, { prefix: "/api" });
+    await fastify.register(creditPackageRoutes, { prefix: "/api/credit-packages" });
 
     const port = Number(process.env.PORT) || 3000;
     const host = process.env.HOST || "0.0.0.0";
