@@ -64,7 +64,7 @@ fastify.addHook("onRequest", async (request, reply) => {
 });
 
 // Health check
-fastify.get("/health", async () => {
+fastify.get("/api/health", async () => {
   return { status: "OK", timestamp: new Date().toISOString() };
 });
 
