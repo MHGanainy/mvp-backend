@@ -118,7 +118,8 @@ export const simulationAttemptResponseSchema = z.object({
       patientName: z.string(),
       course: z.object({
         id: z.string(),
-        title: z.string()
+        title: z.string(),
+        examId: z.string()
       })
     })
   })

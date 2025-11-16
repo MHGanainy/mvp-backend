@@ -422,7 +422,8 @@ export class SimulationAttemptService {
                 course: {
                   select: {
                     id: true,
-                    title: true
+                    title: true,
+                    examId: true
                   }
                 }
               }
