@@ -464,7 +464,7 @@ export class AuthService {
               userId: user.id,
               firstName: pending.firstName,
               lastName: pending.lastName,
-              creditBalance: 100, // Welcome credits
+              creditBalance: 20, // Welcome credits
             },
           });
 
@@ -473,10 +473,10 @@ export class AuthService {
             data: {
               studentId: student.id,
               transactionType: "CREDIT",
-              amount: 100,
-              balanceAfter: 100,
+              amount: 20,
+              balanceAfter: 20,
               sourceType: "MANUAL",
-              description: "Welcome bonus - 100 complimentary credits",
+              description: "Welcome bonus - 20 complimentary credits",
             },
           });
 
@@ -654,7 +654,7 @@ export class AuthService {
                 firstName: googleProfile.name.split(" ")[0] || "User",
                 lastName:
                   googleProfile.name.split(" ").slice(1).join(" ") || "",
-                creditBalance: 100, // Welcome credits
+                creditBalance: 20, // Welcome credits
               },
             });
 
@@ -663,10 +663,10 @@ export class AuthService {
               data: {
                 studentId: student.id,
                 transactionType: "CREDIT",
-                amount: 100,
-                balanceAfter: 100,
+                amount: 20,
+                balanceAfter: 20,
                 sourceType: "MANUAL",
-                description: "Welcome bonus - 100 complimentary credits",
+                description: "Welcome bonus - 20 complimentary credits",
               },
             });
 
@@ -708,7 +708,7 @@ export class AuthService {
               userId: user!.id,
               firstName: googleProfile.name.split(" ")[0] || "User",
               lastName: googleProfile.name.split(" ").slice(1).join(" ") || "",
-              creditBalance: 100,
+              creditBalance: 20,
             },
           });
 
@@ -716,10 +716,10 @@ export class AuthService {
             data: {
               studentId: student.id,
               transactionType: "CREDIT",
-              amount: 100,
-              balanceAfter: 100,
+              amount: 20,
+              balanceAfter: 20,
               sourceType: "MANUAL",
-              description: "Welcome bonus - 100 complimentary credits",
+              description: "Welcome bonus - 20 complimentary credits",
             },
           });
         });
