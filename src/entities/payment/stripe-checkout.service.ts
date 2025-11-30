@@ -39,6 +39,17 @@ export class StripeCheckoutService {
     // 3. Get or create Stripe customer
     let stripeCustomerId = student.stripeCustomerId;
 
+    // Validate existing customer ID (handles test/live mode mismatch)
+    if (stripeCustomerId) {
+      const existingCustomer = await this.stripeService.validateCustomer(stripeCustomerId);
+      if (!existingCustomer) {
+        // Customer doesn't exist in current Stripe environment (e.g., test vs live mode)
+        // Clear the stale ID so we create a new one
+        console.log(`⚠️ Stripe customer ${stripeCustomerId} not found in current environment, creating new customer`);
+        stripeCustomerId = null;
+      }
+    }
+
     if (!stripeCustomerId) {
       // Create Stripe customer
       const stripeCustomer = await this.stripeService.createCustomer({
