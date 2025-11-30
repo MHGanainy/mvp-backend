@@ -39,6 +39,27 @@ export class StripeService {
   }
 
   /**
+   * Check if a Stripe Customer exists and is valid
+   * Returns the customer if valid, null if not found or deleted
+   */
+  async validateCustomer(customerId: string): Promise<Stripe.Customer | null> {
+    try {
+      const customer = await this.stripe.customers.retrieve(customerId);
+      // Check if customer is deleted
+      if (customer.deleted) {
+        return null;
+      }
+      return customer as Stripe.Customer;
+    } catch (error: any) {
+      // Handle "resource_missing" error (customer doesn't exist in this environment)
+      if (error.type === 'StripeInvalidRequestError' && error.code === 'resource_missing') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Retrieve a Checkout Session
    */
   async getCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
