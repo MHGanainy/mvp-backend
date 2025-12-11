@@ -114,3 +114,4 @@ MIGRATION_NOTES.md
 .next/
 .nuxt/
 .vercel/
+.claude/*
