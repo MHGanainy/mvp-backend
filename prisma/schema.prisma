@@ -50,36 +50,39 @@ model PendingRegistration {
 }
 
 model Instructor {
-  id        String   @id @default(uuid())
-  userId    Int      @unique @map("user_id")
-  firstName String   @map("first_name")
-  lastName  String   @map("last_name")
-  bio       String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  courses   Course[]
-  exams     Exam[]
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String            @id @default(uuid())
+  userId           Int               @unique @map("user_id")
+  firstName        String            @map("first_name")
+  lastName         String            @map("last_name")
+  bio              String?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  courses          Course[]
+  exams            Exam[]
+  interviews       Interview[]
+  interviewCourses InterviewCourse[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("instructors")
 }
 
 model Student {
-  id                   String                  @id @default(uuid())
-  userId               Int                     @unique @map("user_id")
-  firstName            String                  @map("first_name")
-  lastName             String                  @map("last_name")
-  creditBalance        Int                     @default(0) @map("credit_balance")
-  stripeCustomerId     String?                 @unique @map("stripe_customer_id")
-  defaultPaymentMethod String?                 @map("default_payment_method")
-  createdAt            DateTime                @default(now()) @map("created_at")
-  updatedAt            DateTime                @updatedAt @map("updated_at")
-  creditTransactions   CreditTransaction[]
-  payments             Payment[]
-  simulationAttempts   SimulationAttempt[]
-  user                 User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subscriptions        Subscription[]
-  checkoutSessions     StripeCheckoutSession[]
+  id                          String                       @id @default(uuid())
+  userId                      Int                          @unique @map("user_id")
+  firstName                   String                       @map("first_name")
+  lastName                    String                       @map("last_name")
+  creditBalance               Int                          @default(0) @map("credit_balance")
+  stripeCustomerId            String?                      @unique @map("stripe_customer_id")
+  defaultPaymentMethod        String?                      @map("default_payment_method")
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  creditTransactions          CreditTransaction[]
+  payments                    Payment[]
+  simulationAttempts          SimulationAttempt[]
+  interviewSimulationAttempts InterviewSimulationAttempt[]
+  user                        User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions               Subscription[]
+  checkoutSessions            StripeCheckoutSession[]
 
   @@map("students")
 }
@@ -218,6 +221,144 @@ model SimulationAttempt {
   @@map("simulation_attempts")
 }
 
+// ============================================
+// INTERVIEW ENTITIES (Mirror Exam Structure)
+// ============================================
+
+model Interview {
+  id                      String                   @id @default(uuid())
+  instructorId            String                   @map("instructor_id")
+  title                   String
+  slug                    String                   @unique
+  description             String?
+  isActive                Boolean                  @default(true) @map("is_active")
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  updatedAt               DateTime                 @updatedAt @map("updated_at")
+  interviewCourses        InterviewCourse[]
+  interviewCurriculums    InterviewCurriculum[]
+  interviewMarkingDomains InterviewMarkingDomain[]
+  interviewSpecialties    InterviewSpecialty[]
+  instructor              Instructor               @relation(fields: [instructorId], references: [id])
+
+  @@map("interviews")
+}
+
+model InterviewCourse {
+  id              String          @id @default(uuid())
+  interviewId     String          @map("interview_id")
+  instructorId    String          @map("instructor_id")
+  title           String
+  description     String?
+  style           CourseStyle     @default(RANDOM)
+  price3Months    Decimal         @map("price_3_months") @db.Decimal(10, 2)
+  price6Months    Decimal         @map("price_6_months") @db.Decimal(10, 2)
+  price12Months   Decimal         @map("price_12_months") @db.Decimal(10, 2)
+  credits3Months  Int             @map("credits_3_months")
+  credits6Months  Int             @map("credits_6_months")
+  credits12Months Int             @map("credits_12_months")
+  isPublished     Boolean         @default(false) @map("is_published")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  infoPoints      String[]        @default([]) @map("info_points")
+  interviewCases  InterviewCase[]
+  interview       Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  instructor      Instructor      @relation(fields: [instructorId], references: [id])
+
+  @@map("interview_courses")
+}
+
+model InterviewCase {
+  id                       String                      @id @default(uuid())
+  interviewCourseId        String                      @map("interview_course_id")
+  title                    String
+  diagnosis                String
+  patientName              String                      @map("patient_name")
+  patientAge               Int                         @map("patient_age")
+  patientGender            PatientGender               @map("patient_gender")
+  description              String
+  isFree                   Boolean                     @default(false) @map("is_free")
+  displayOrder             Int                         @map("display_order")
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  updatedAt                DateTime                    @updatedAt @map("updated_at")
+  interviewCaseCurriculums InterviewCaseCurriculum[]
+  interviewCaseSpecialties InterviewCaseSpecialty[]
+  interviewCaseTabs        InterviewCaseTab[]
+  interviewCourse          InterviewCourse             @relation(fields: [interviewCourseId], references: [id], onDelete: Cascade)
+  interviewMarkingCriteria InterviewMarkingCriterion[]
+  interviewSimulation      InterviewSimulation?
+
+  @@map("interview_cases")
+}
+
+model InterviewCaseTab {
+  id              String        @id @default(uuid())
+  interviewCaseId String        @map("interview_case_id")
+  tabType         CaseTabType   @map("tab_type")
+  content         String[]      @default([])
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  interviewCase   InterviewCase @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewCaseId, tabType])
+  @@map("interview_case_tabs")
+}
+
+model InterviewMarkingCriterion {
+  id              String        @id @default(uuid())
+  interviewCaseId String        @map("interview_case_id")
+  markingDomainId String        @map("marking_domain_id")
+  text            String
+  points          Int           @default(0)
+  displayOrder    Int           @default(0) @map("display_order")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  interviewCase   InterviewCase @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+  markingDomain   MarkingDomain @relation(fields: [markingDomainId], references: [id], onDelete: Cascade)
+
+  @@map("interview_marking_criteria")
+}
+
+model InterviewSimulation {
+  id                          String                       @id @default(uuid())
+  interviewCaseId             String                       @unique @map("interview_case_id")
+  casePrompt                  String                       @map("case_prompt")
+  openingLine                 String                       @map("opening_line")
+  timeLimitMinutes            Int                          @map("time_limit_minutes")
+  voiceModel                  VoiceModel                   @map("voice_model")
+  warningTimeMinutes          Int?                         @map("warning_time_minutes")
+  creditCost                  Int                          @default(1) @map("credit_cost")
+  llmProviderKey              String?                      @map("llm_provider_key")
+  sttProviderKey              String?                      @map("stt_provider_key")
+  ttsProviderKey              String?                      @map("tts_provider_key")
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  interviewSimulationAttempts InterviewSimulationAttempt[]
+  interviewCase               InterviewCase                @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+
+  @@map("interview_simulations")
+}
+
+model InterviewSimulationAttempt {
+  id                    String              @id @default(uuid())
+  studentId             String              @map("student_id")
+  interviewSimulationId String              @map("interview_simulation_id")
+  startedAt             DateTime            @map("started_at")
+  endedAt               DateTime?           @map("ended_at")
+  durationSeconds       Int?                @map("duration_seconds")
+  isCompleted           Boolean             @default(false) @map("is_completed")
+  score                 Decimal?            @db.Decimal(5, 2)
+  aiFeedback            Json?               @map("ai_feedback")
+  transcript            Json?
+  correlationToken      String?             @unique
+  aiPrompt              Json?               @map("ai_prompt")
+  minutesBilled         Int?                @default(0) @map("minutes_billed")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  interviewSimulation   InterviewSimulation @relation(fields: [interviewSimulationId], references: [id], onDelete: Cascade)
+  student               Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("interview_simulation_attempts")
+}
+
 model Payment {
   id                      String        @id @default(uuid())
   studentId               String        @map("student_id")
@@ -274,31 +415,37 @@ model CreditTransaction {
 }
 
 model Specialty {
-  id              String          @id @default(uuid())
-  name            String          @unique
-  createdAt       DateTime        @default(now()) @map("created_at")
-  caseSpecialties CaseSpecialty[]
-  examSpecialties ExamSpecialty[]
+  id                       String                   @id @default(uuid())
+  name                     String                   @unique
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  caseSpecialties          CaseSpecialty[]
+  examSpecialties          ExamSpecialty[]
+  interviewSpecialties     InterviewSpecialty[]
+  interviewCaseSpecialties InterviewCaseSpecialty[]
 
   @@map("specialties")
 }
 
 model Curriculum {
-  id              String           @id @default(uuid())
-  name            String           @unique
-  createdAt       DateTime         @default(now()) @map("created_at")
-  caseCurriculums CaseCurriculum[]
-  examCurriculums ExamCurriculum[]
+  id                       String                    @id @default(uuid())
+  name                     String                    @unique
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  caseCurriculums          CaseCurriculum[]
+  examCurriculums          ExamCurriculum[]
+  interviewCurriculums     InterviewCurriculum[]
+  interviewCaseCurriculums InterviewCaseCurriculum[]
 
   @@map("curriculums")
 }
 
 model MarkingDomain {
-  id                 String              @id @default(uuid())
-  name               String              @unique
-  createdAt          DateTime            @default(now()) @map("created_at")
-  examMarkingDomains ExamMarkingDomain[]
-  markingCriteria    MarkingCriterion[]
+  id                       String                      @id @default(uuid())
+  name                     String                      @unique
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  examMarkingDomains       ExamMarkingDomain[]
+  markingCriteria          MarkingCriterion[]
+  interviewMarkingDomains  InterviewMarkingDomain[]
+  interviewMarkingCriteria InterviewMarkingCriterion[]
 
   @@map("marking_domains")
 }
@@ -358,6 +505,65 @@ model CaseCurriculum {
   @@map("case_curriculums")
 }
 
+// ============================================
+// INTERVIEW JUNCTION TABLES
+// ============================================
+
+model InterviewSpecialty {
+  interviewId String    @map("interview_id")
+  specialtyId String    @map("specialty_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  specialty   Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+
+  @@id([interviewId, specialtyId])
+  @@map("interview_specialties")
+}
+
+model InterviewCurriculum {
+  interviewId  String     @map("interview_id")
+  curriculumId String     @map("curriculum_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  curriculum   Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+  interview    Interview  @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@id([interviewId, curriculumId])
+  @@map("interview_curriculums")
+}
+
+model InterviewMarkingDomain {
+  interviewId     String        @map("interview_id")
+  markingDomainId String        @map("marking_domain_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  interview       Interview     @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  markingDomain   MarkingDomain @relation(fields: [markingDomainId], references: [id], onDelete: Cascade)
+
+  @@id([interviewId, markingDomainId])
+  @@map("interview_marking_domains")
+}
+
+model InterviewCaseSpecialty {
+  interviewCaseId String        @map("interview_case_id")
+  specialtyId     String        @map("specialty_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  interviewCase   InterviewCase @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+  specialty       Specialty     @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+
+  @@id([interviewCaseId, specialtyId])
+  @@map("interview_case_specialties")
+}
+
+model InterviewCaseCurriculum {
+  interviewCaseId String        @map("interview_case_id")
+  curriculumId    String        @map("curriculum_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  interviewCase   InterviewCase @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+  curriculum      Curriculum    @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+
+  @@id([interviewCaseId, curriculumId])
+  @@map("interview_case_curriculums")
+}
+
 enum CourseStyle {
   RANDOM
   STRUCTURED
@@ -401,6 +607,7 @@ enum CreditTransactionSource {
   PURCHASE
   SIMULATION
   MANUAL
+  INTERVIEW
 }
 
 enum CheckoutSessionStatus {
