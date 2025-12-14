@@ -366,23 +366,53 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
     }
   })
 
+  // POST /courses/create-structured-complete - Create STRUCTURED course with sections and subsections
+  fastify.post('/courses/create-structured-complete', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const data = request.body as any
+
+      if (!isAdmin(request)) {
+        const currentInstructorId = getCurrentInstructorId(request)
+        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
+          reply.status(403).send({ error: 'You can only create courses for yourself' })
+          return
+        }
+      }
+
+      const result = await courseService.createStructuredComplete(data)
+      reply.status(201).send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else {
+          reply.status(400).send({ error: error.message })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
   // DELETE /courses/:id - Delete course
   fastify.delete('/courses/:id', {
     preHandler: authenticate
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
-      
+
       if (!isAdmin(request)) {
         const course = await courseService.findById(id)
         const currentInstructorId = getCurrentInstructorId(request)
-        
+
         if (!currentInstructorId || course.instructorId !== currentInstructorId) {
           reply.status(403).send({ error: 'You can only delete your own courses' })
           return
         }
       }
-      
+
       await courseService.delete(id)
       reply.status(204).send()
     } catch (error) {

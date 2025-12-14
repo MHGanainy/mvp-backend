@@ -410,7 +410,7 @@ export class CourseService {
 
   async getPricingInfo(id: string) {
     const course = await this.findById(id)
-    
+
     return {
       courseId: course.id,
       title: course.title,
@@ -433,5 +433,122 @@ export class CourseService {
         }
       }
     }
+  }
+
+  async createStructuredComplete(data: {
+    examId: string
+    instructorId: string
+    title: string
+    description?: string
+    price3Months: number
+    price6Months: number
+    price12Months: number
+    credits3Months: number
+    credits6Months: number
+    credits12Months: number
+    infoPoints?: string[]
+    isPublished?: boolean
+    sections: Array<{
+      title: string
+      description?: string
+      displayOrder?: number
+      subsections: Array<{
+        title: string
+        description?: string
+        contentType: 'VIDEO' | 'PDF' | 'TEXT' | 'QUIZ'
+        content: string
+        displayOrder?: number
+        estimatedDuration?: number
+      }>
+    }>
+  }) {
+    // Verify instructor and exam
+    const instructor = await this.prisma.instructor.findUnique({
+      where: { id: data.instructorId }
+    })
+    if (!instructor) {
+      throw new Error('Instructor not found')
+    }
+
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: data.examId }
+    })
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
+
+    if (exam.instructorId !== data.instructorId) {
+      throw new Error('Instructor can only create courses for their own exams')
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      // Create course with STRUCTURED style
+      const course = await tx.course.create({
+        data: {
+          examId: data.examId,
+          instructorId: data.instructorId,
+          title: data.title,
+          description: data.description,
+          style: 'STRUCTURED',
+          price3Months: data.price3Months,
+          price6Months: data.price6Months,
+          price12Months: data.price12Months,
+          credits3Months: data.credits3Months,
+          credits6Months: data.credits6Months,
+          credits12Months: data.credits12Months,
+          infoPoints: data.infoPoints || [],
+          isPublished: data.isPublished || false
+        }
+      })
+
+      // Create sections with subsections
+      const createdSections = []
+      for (let sIdx = 0; sIdx < data.sections.length; sIdx++) {
+        const sectionData = data.sections[sIdx]
+
+        const section = await tx.courseSection.create({
+          data: {
+            courseId: course.id,
+            title: sectionData.title,
+            description: sectionData.description,
+            displayOrder: sectionData.displayOrder || (sIdx + 1)
+          }
+        })
+
+        const createdSubsections = []
+        for (let subIdx = 0; subIdx < sectionData.subsections.length; subIdx++) {
+          const subData = sectionData.subsections[subIdx]
+
+          const subsection = await tx.courseSubsection.create({
+            data: {
+              sectionId: section.id,
+              title: subData.title,
+              description: subData.description,
+              contentType: subData.contentType,
+              content: subData.content,
+              displayOrder: subData.displayOrder || (subIdx + 1),
+              estimatedDuration: subData.estimatedDuration
+            }
+          })
+          createdSubsections.push(subsection)
+        }
+
+        createdSections.push({
+          ...section,
+          subsections: createdSubsections
+        })
+      }
+
+      return {
+        course,
+        sections: createdSections,
+        summary: {
+          sectionsCreated: createdSections.length,
+          totalSubsections: createdSections.reduce(
+            (sum, s) => sum + s.subsections.length, 0
+          )
+        }
+      }
+    })
   }
 }

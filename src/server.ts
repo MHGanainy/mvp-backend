@@ -30,6 +30,10 @@ import markingCriterionRoutes from "./entities/marking-criterion/marking-criteri
 import billingRoutes from "./entities/billing/billing.routes";
 import creditPackageRoutes from "./entities/credit-package/credit-package.routes";
 import webhookRoutes from "./entities/webhook/webhook.routes";
+import courseSectionRoutes from "./entities/course-section/course-section.routes";
+import courseSubsectionRoutes from "./entities/course-subsection/course-subsection.routes";
+import courseEnrollmentRoutes from "./entities/course-enrollment/course-enrollment.routes";
+import subsectionProgressRoutes from "./entities/subsection-progress/subsection-progress.routes";
 import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
@@ -175,6 +179,10 @@ const start = async () => {
     await fastify.register(interviewRoutes, { prefix: "/api" });
     await fastify.register(interviewCourseRoutes, { prefix: "/api" });
     await fastify.register(courseRoutes, { prefix: "/api" });
+    await fastify.register(courseSectionRoutes, { prefix: "/api" });
+    await fastify.register(courseSubsectionRoutes, { prefix: "/api" });
+    await fastify.register(courseEnrollmentRoutes, { prefix: "/api" });
+    await fastify.register(subsectionProgressRoutes, { prefix: "/api" });
     await fastify.register(courseCaseRoutes, { prefix: "/api" });
     await fastify.register(interviewCaseRoutes, { prefix: "/api" });
     await fastify.register(caseTabRoutes, { prefix: "/api" });

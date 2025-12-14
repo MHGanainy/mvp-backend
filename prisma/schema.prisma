@@ -83,6 +83,7 @@ model Student {
   user                        User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   subscriptions               Subscription[]
   checkoutSessions            StripeCheckoutSession[]
+  enrollments                 CourseEnrollment[]
 
   @@map("students")
 }
@@ -126,6 +127,8 @@ model Course {
   exam            Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
   instructor      Instructor     @relation(fields: [instructorId], references: [id])
   subscriptions   Subscription[]
+  courseSections  CourseSection[]
+  enrollments     CourseEnrollment[]
 
   @@map("courses")
 }
@@ -219,6 +222,80 @@ model SimulationAttempt {
   student          Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("simulation_attempts")
+}
+
+// ============================================
+// STRUCTURED COURSE MODELS
+// ============================================
+
+model CourseSection {
+  id           String             @id @default(uuid())
+  courseId     String             @map("course_id")
+  title        String
+  description  String?
+  displayOrder Int                @map("display_order")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  course       Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  subsections  CourseSubsection[]
+
+  @@map("course_sections")
+}
+
+model CourseSubsection {
+  id                String               @id @default(uuid())
+  sectionId         String               @map("section_id")
+  title             String
+  description       String?
+  contentType       ContentType          @map("content_type")
+  content           String
+  displayOrder      Int                  @map("display_order")
+  estimatedDuration Int?                 @map("estimated_duration")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  section           CourseSection        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  progress          SubsectionProgress[]
+
+  @@map("course_subsections")
+}
+
+model CourseEnrollment {
+  id                 String               @id @default(uuid())
+  studentId          String               @map("student_id")
+  courseId           String               @map("course_id")
+  progressPercent    Int                  @default(0) @map("progress_percent")
+  isCompleted        Boolean              @default(false) @map("is_completed")
+  enrolledAt         DateTime             @default(now()) @map("enrolled_at")
+  completedAt        DateTime?            @map("completed_at")
+  lastAccessedAt     DateTime?            @map("last_accessed_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  student            Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course             Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  subsectionProgress SubsectionProgress[]
+
+  @@unique([studentId, courseId])
+  @@map("course_enrollments")
+}
+
+model SubsectionProgress {
+  id               String           @id @default(uuid())
+  enrollmentId     String           @map("enrollment_id")
+  subsectionId     String           @map("subsection_id")
+  isStarted        Boolean          @default(false) @map("is_started")
+  isCompleted      Boolean          @default(false) @map("is_completed")
+  startedAt        DateTime?        @map("started_at")
+  completedAt      DateTime?        @map("completed_at")
+  timeSpentSeconds Int              @default(0) @map("time_spent_seconds")
+  quizScore        Int?             @map("quiz_score")
+  lastAccessedAt   DateTime?        @map("last_accessed_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  enrollment       CourseEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  subsection       CourseSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, subsectionId])
+  @@map("subsection_progress")
 }
 
 // ============================================
@@ -567,6 +644,13 @@ model InterviewCaseCurriculum {
 enum CourseStyle {
   RANDOM
   STRUCTURED
+}
+
+enum ContentType {
+  VIDEO
+  PDF
+  TEXT
+  QUIZ
 }
 
 enum PatientGender {
