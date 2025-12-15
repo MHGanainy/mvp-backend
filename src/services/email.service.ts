@@ -241,7 +241,7 @@ export class EmailService {
               <div style="text-align: center; margin-top: 30px;">
                 <a href="${
                   process.env.FRONTEND_URL || "http://localhost:5173"
-                }" class="cta-button">
+                }" style="display: inline-block; padding: 12px 30px; background-color: #003180; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
                   Get Started
                 </a>
               </div>
