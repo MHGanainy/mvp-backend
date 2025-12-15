@@ -42,9 +42,9 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+            .header { background-color: #003180; color: white; padding: 20px; text-align: center; }
             .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
-            .otp-code { font-size: 32px; font-weight: bold; color: #4CAF50; text-align: center; letter-spacing: 5px; padding: 20px; background-color: white; border-radius: 5px; margin: 20px 0; }
+            .otp-code { font-size: 32px; font-weight: bold; color: #3b82f6; text-align: center; letter-spacing: 5px; padding: 20px; background-color: white; border-radius: 5px; margin: 20px 0; }
             .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
           </style>
         </head>
@@ -97,9 +97,9 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #2196F3; color: white; padding: 20px; text-align: center; }
+            .header { background-color: #003180; color: white; padding: 20px; text-align: center; }
             .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
-            .button { display: inline-block; padding: 12px 30px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .button { display: inline-block; padding: 12px 30px; background-color: #003180; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
             .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
             .warning { background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; }
           </style>
@@ -116,7 +116,7 @@ export class EmailService {
                 <a href="${resetUrl}" class="button">Reset Password</a>
               </div>
               <p>Or copy and paste this link into your browser:</p>
-              <p style="word-break: break-all; color: #2196F3;">${resetUrl}</p>
+              <p style="word-break: break-all; color: #3b82f6;">${resetUrl}</p>
               <div class="warning">
                 <strong>⚠️ Important:</strong> This link will expire in <strong>1 hour</strong>.
               </div>
@@ -151,7 +151,7 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+            .header { background-color: #003180; color: white; padding: 20px; text-align: center; }
             .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
             .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
             .warning { background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 20px 0; }
@@ -185,7 +185,29 @@ export class EmailService {
     await this.transporter.sendMail(mailOptions);
   }
 
-  async sendWelcomeEmail(email: string, name?: string): Promise<void> {
+  async sendWelcomeEmail(
+    email: string,
+    name?: string,
+    freeCredits?: number
+  ): Promise<void> {
+    const creditsSection =
+      freeCredits && freeCredits > 0
+        ? `
+              <div style="background-color: #dbeafe; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #3b82f6;">
+                <h2 style="margin-top: 0; color: #003180;">🎁 Free Credits on Us!</h2>
+                <p style="font-size: 18px; margin: 10px 0;">
+                  <strong>We're giving you <span style="color: #3b82f6; font-size: 24px;">${freeCredits} free credits</span> to try out our product!</strong>
+                </p>
+                <p>These credits are already in your account and ready to use. Start exploring our platform and experience all the amazing features we have to offer.</p>
+              </div>
+            `
+        : "";
+
+    const creditsText =
+      freeCredits && freeCredits > 0
+        ? `\n\n🎁 Great news! We're giving you ${freeCredits} free credits to try out our product! These credits are already in your account and ready to use.`
+        : "";
+
     const mailOptions = {
       from: `"${process.env.APP_NAME || "Your App"}" <${
         process.env.SMTP_USER
@@ -199,9 +221,10 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+            .header { background-color: #003180; color: white; padding: 20px; text-align: center; }
             .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
             .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
+            .cta-button { display: inline-block; padding: 12px 30px; background-color: #003180; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
           </style>
         </head>
         <body>
@@ -213,7 +236,15 @@ export class EmailService {
               <p>Hi ${name || "there"},</p>
               <p>Welcome to ${process.env.APP_NAME || "our platform"}! 🎉</p>
               <p>Your email has been successfully verified and your account is now active.</p>
+              ${creditsSection}
               <p>You can now enjoy all the features of our platform.</p>
+              <div style="text-align: center; margin-top: 30px;">
+                <a href="${
+                  process.env.FRONTEND_URL || "http://localhost:5173"
+                }" class="cta-button">
+                  Get Started
+                </a>
+              </div>
             </div>
             <div class="footer">
               <p>This is an automated email. Please do not reply.</p>
@@ -224,7 +255,9 @@ export class EmailService {
       `,
       text: `Hi ${name || "there"},\n\nWelcome to ${
         process.env.APP_NAME || "our platform"
-      }!\n\nYour email has been successfully verified and your account is now active.\n\nYou can now enjoy all the features of our platform.`,
+      }!\n\nYour email has been successfully verified and your account is now active.${creditsText}\n\nYou can now enjoy all the features of our platform.\n\nVisit: ${
+        process.env.FRONTEND_URL || "http://localhost:5173"
+      }`,
     };
 
     await this.transporter.sendMail(mailOptions);
@@ -252,12 +285,12 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+            .header { background-color: #003180; color: white; padding: 20px; text-align: center; }
             .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
             .receipt { background-color: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
             .receipt-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
             .receipt-row:last-child { border-bottom: none; font-weight: bold; }
-            .credits-badge { background-color: #4CAF50; color: white; padding: 15px 30px; border-radius: 5px; text-align: center; font-size: 24px; font-weight: bold; margin: 20px 0; }
+            .credits-badge { background-color: #003180; color: white; padding: 15px 30px; border-radius: 5px; text-align: center; font-size: 24px; font-weight: bold; margin: 20px 0; }
             .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
           </style>
         </head>
@@ -294,8 +327,8 @@ export class EmailService {
               <p>Start using them now to practice with voice simulations!</p>
 
               <p style="margin-top: 30px;">
-                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}"
-                   style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                <a href="${process.env.FRONTEND_URL || "http://localhost:5173"}"
+                   style="background-color: #003180; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
                   Go to Dashboard
                 </a>
               </p>

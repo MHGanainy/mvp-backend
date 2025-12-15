@@ -17,6 +17,7 @@ import {
 import { emailService } from "../../services/email.service";
 import { otpService } from "../../services/otp.service";
 import { oauthService } from "../../services/oauth.service";
+import { CREDITS } from "../../shared/constants";
 
 export class AuthService {
   private fastify: FastifyInstance;
@@ -464,7 +465,7 @@ export class AuthService {
               userId: user.id,
               firstName: pending.firstName,
               lastName: pending.lastName,
-              creditBalance: 20, // Welcome credits
+              creditBalance: CREDITS.WELCOME_BONUS,
             },
           });
 
@@ -473,10 +474,10 @@ export class AuthService {
             data: {
               studentId: student.id,
               transactionType: "CREDIT",
-              amount: 20,
-              balanceAfter: 20,
+              amount: CREDITS.WELCOME_BONUS,
+              balanceAfter: CREDITS.WELCOME_BONUS,
               sourceType: "MANUAL",
-              description: "Welcome bonus - 20 complimentary credits",
+              description: `Welcome bonus - ${CREDITS.WELCOME_BONUS} complimentary credits`,
             },
           });
 
@@ -506,11 +507,14 @@ export class AuthService {
       }
     );
 
-    // Send welcome email
+    // Send welcome email with free credits info for students
     try {
+      const freeCredits =
+        data.userType === "student" ? CREDITS.WELCOME_BONUS : undefined;
       await emailService.sendWelcomeEmail(
         normalizedEmail,
-        result.user.name || undefined
+        result.user.name || undefined,
+        freeCredits
       );
     } catch (error) {
       console.error("Failed to send welcome email:", error);
@@ -654,7 +658,7 @@ export class AuthService {
                 firstName: googleProfile.name.split(" ")[0] || "User",
                 lastName:
                   googleProfile.name.split(" ").slice(1).join(" ") || "",
-                creditBalance: 20, // Welcome credits
+                creditBalance: CREDITS.WELCOME_BONUS,
               },
             });
 
@@ -663,10 +667,10 @@ export class AuthService {
               data: {
                 studentId: student.id,
                 transactionType: "CREDIT",
-                amount: 20,
-                balanceAfter: 20,
+                amount: CREDITS.WELCOME_BONUS,
+                balanceAfter: CREDITS.WELCOME_BONUS,
                 sourceType: "MANUAL",
-                description: "Welcome bonus - 20 complimentary credits",
+                description: `Welcome bonus - ${CREDITS.WELCOME_BONUS} complimentary credits`,
               },
             });
 
@@ -698,6 +702,19 @@ export class AuthService {
       if (!user) {
         throw new Error("User creation failed");
       }
+
+      // Send welcome email for new user registration
+      try {
+        const freeCredits =
+          data.userType === "student" ? CREDITS.WELCOME_BONUS : undefined;
+        await emailService.sendWelcomeEmail(
+          normalizedEmail,
+          user.name || undefined,
+          freeCredits
+        );
+      } catch (error) {
+        console.error("Failed to send welcome email:", error);
+      }
     } else {
       // User exists - check if they have the required profile
       if (data.userType === "student" && !user.student) {
@@ -708,7 +725,7 @@ export class AuthService {
               userId: user!.id,
               firstName: googleProfile.name.split(" ")[0] || "User",
               lastName: googleProfile.name.split(" ").slice(1).join(" ") || "",
-              creditBalance: 20,
+              creditBalance: CREDITS.WELCOME_BONUS,
             },
           });
 
@@ -716,10 +733,10 @@ export class AuthService {
             data: {
               studentId: student.id,
               transactionType: "CREDIT",
-              amount: 20,
-              balanceAfter: 20,
+              amount: CREDITS.WELCOME_BONUS,
+              balanceAfter: CREDITS.WELCOME_BONUS,
               sourceType: "MANUAL",
-              description: "Welcome bonus - 20 complimentary credits",
+              description: `Welcome bonus - ${CREDITS.WELCOME_BONUS} complimentary credits`,
             },
           });
         });
@@ -728,6 +745,9 @@ export class AuthService {
           where: { id: user.id },
           include: { student: true, instructor: true },
         });
+
+        // Note: We don't send a welcome email here because this is an existing user
+        // who is just adding a new profile type. Welcome emails are only for new registrations.
       } else if (data.userType === "instructor" && !user.instructor) {
         // Create instructor profile
         await this.prisma.instructor.create({
