@@ -116,3 +116,4 @@ MIGRATION_NOTES.md
 .vercel/
 .claude/*
 thoughts/*
+*.sql
