@@ -318,17 +318,17 @@ export class AIFeedbackService {
     caseTabs: CaseTabs,
     markingDomainsWithCriteria: MarkingDomainWithCriteria[]
   ): string {
-    
-    const totalPossiblePoints = markingDomainsWithCriteria.reduce((sum, domain) => 
+
+    const totalPossiblePoints = markingDomainsWithCriteria.reduce((sum, domain) =>
       sum + domain.criteria.reduce((domainSum, criterion) => domainSum + criterion.points, 0), 0
     );
-    
-    const totalCriteria = markingDomainsWithCriteria.reduce((sum, domain) => 
+
+    const totalCriteria = markingDomainsWithCriteria.reduce((sum, domain) =>
       sum + domain.criteria.length, 0
     );
 
     // Add explicit JSON instruction for Groq since it doesn't have response_format
-    const jsonInstruction = this.provider === AIProvider.GROQ 
+    const jsonInstruction = this.provider === AIProvider.GROQ
       ? '\n\nCRITICAL: Return ONLY the raw JSON object. Do NOT wrap it in markdown code blocks (no ```json or ```). Do NOT add any text before or after the JSON. Start directly with { and end with }.'
       : '';
 
@@ -340,19 +340,6 @@ PATIENT CASE CONTEXT:
 - Diagnosis: ${caseInfo.diagnosis}
 ${caseInfo.patientAge ? `- Patient Age: ${caseInfo.patientAge}` : ''}
 ${caseInfo.patientGender ? `- Patient Gender: ${caseInfo.patientGender}` : ''}
-
-================================
-CASE PREPARATION MATERIALS:
-================================
-
-DOCTOR'S NOTES (What the examiner expects):
-${caseTabs.doctorsNote.length > 0 ? caseTabs.doctorsNote.map((note, i) => `${i + 1}. ${note}`).join('\n') : 'No specific doctor notes provided'}
-
-PATIENT SCRIPT (How the patient should present):
-${caseTabs.patientScript.length > 0 ? caseTabs.patientScript.map((script, i) => `${i + 1}. ${script}`).join('\n') : 'No specific patient script provided'}
-
-MEDICAL NOTES (Key medical information):
-${caseTabs.medicalNotes.length > 0 ? caseTabs.medicalNotes.map((note, i) => `${i + 1}. ${note}`).join('\n') : 'No specific medical notes provided'}
 
 ================================
 MARKING CRITERIA:
@@ -371,7 +358,7 @@ Criteria to Evaluate:
 ${domain.criteria.map((criterion, cIndex) => `
   ${cIndex + 1}. [ID: ${criterion.id}] ${criterion.text}
      Points: ${criterion.points}
-     Evaluate if MET or NOT MET based on the transcript AND case materials.`).join('')}`;
+     Evaluate if MET or NOT MET based on the transcript.`).join('')}`;
 }).join('\n')}
 
 ================================
@@ -379,33 +366,28 @@ PERFORMANCE CLASSIFICATION RULES:
 ================================
 Based on the percentage of criteria MET:
 - Clear Pass: More than 75% of criteria met
-- Borderline Pass: 50% - 75% of criteria met 
+- Borderline Pass: 50% - 75% of criteria met
 - Borderline Fail: 25% - 50% of criteria met
 - Clear Fail: Less than 25% of criteria met
 
 
 EVALUATION INSTRUCTIONS:
-1. Use the DOCTOR'S NOTES to understand what the examiner expects from the student
-2. Use the PATIENT SCRIPT to assess if the student elicited the correct information
-3. Use the MEDICAL NOTES to verify the student's clinical knowledge and approach
-4. For EACH criterion:
-  - Determine if it was MET (demonstrated) or NOT MET (not/partially demonstrated).If a criterion is partially demonstrated at >75% completion, accept it as MET.
+1. For EACH criterion:
+  - Determine if it was MET (demonstrated) or NOT MET (not/partially demonstrated). If a criterion is partially demonstrated at >75% completion, accept it as MET.
   - Provide 1-3 EXACT quotes from the transcript supporting your decision
-  - Consider the case materials when making your determination
   - Provide feedback explaining your decision
 
-
-5. Criteria are binary - either MET (full points) or NOT MET (0 points)
-6. Be strict but fair - the student must demonstrate competency based on the expected standards
-7. Count the total number of criteria MET vs NOT MET for classification
-8. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
-9. If information elicited by the actor without the student asking then student does not need to gather this information again as it is said and condition will be met
+2. Criteria are binary - either MET (full points) or NOT MET (0 points)
+3. Be strict but fair - the student must demonstrate competency based on the expected standards
+4. Count the total number of criteria MET vs NOT MET for classification
+5. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
+6. If information is volunteered by the patient without the student asking, the student does not need to gather this information again - the criterion can still be met.
 
 
 RESPONSE FORMAT:${jsonInstruction}
 You must respond with a valid JSON object in this exact structure:
 {
- "overallFeedback": "2-3 sentence summary comparing performance to case expectations",
+ "overallFeedback": "2-3 sentence summary of the student's performance",
  "markingDomains": [
 ${markingDomainsWithCriteria.map(domain => {
  const domainPoints = domain.criteria.reduce((sum, c) => sum + c.points, 0);
@@ -422,7 +404,7 @@ ${domain.criteria.map(criterion => `        {
          "points": ${criterion.points},
          "met": true_or_false,
          "transcriptReferences": ["exact quote 1", "exact quote 2"],
-         "feedback": "Explanation referencing case materials where relevant"
+         "feedback": "Explanation of your evaluation"
        }`).join(',\n')}
      ]
    }`}).join(',\n')}
@@ -436,7 +418,7 @@ ${domain.criteria.map(criterion => `        {
    caseInfo: CaseInfo,
    sessionDuration: number
  ): string {
-  
+
    const conversationText = transcript.messages
      .map(msg => {
        const speaker = msg.speaker.toLowerCase().includes('student') || msg.speaker.toLowerCase().includes('doctor')
@@ -467,13 +449,12 @@ SESSION DETAILS:
 
 
 CRITICAL INSTRUCTIONS:
-1. Compare the student's performance against the marking criteria expectations
-2. Check if the student elicited information mentioned in the PATIENT SCRIPT (If information elicited by the actor without the student asking then student does not need to gather this information again as it is said and condition will be met)
-3. Evaluate EACH criterion as either MET or NOT MET (binary decision). If a criterion is partially demonstrated at >80% completion, accept it as MET
-4. Provide 1-3 EXACT quotes from the transcript for each criterion
-5. Calculate points: MET = full points, NOT MET = 0 points
-6. Be aware that the overall classification depends on the percentage of criteria MET
-7. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
+1. Compare the student's performance against the marking criteria provided
+2. Evaluate EACH criterion as either MET or NOT MET (binary decision). If a criterion is partially demonstrated at >75% completion, accept it as MET
+3. Provide 1-3 EXACT quotes from the transcript for each criterion
+4. Calculate points: MET = full points, NOT MET = 0 points
+5. Be aware that the overall classification depends on the percentage of criteria MET
+6. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
 
 
 Remember:
