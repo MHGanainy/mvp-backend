@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-import { CreateCourseInput, UpdateCourseInput, CourseStyle } from './course.schema'
+import { CreateCourseInput, UpdateCourseInput, UpdateStructuredCourseCompleteInput, CourseStyle } from './course.schema'
 
 export class CourseService {
   constructor(private prisma: PrismaClient) {}
@@ -544,6 +544,116 @@ export class CourseService {
         sections: createdSections,
         summary: {
           sectionsCreated: createdSections.length,
+          totalSubsections: createdSections.reduce(
+            (sum, s) => sum + s.subsections.length, 0
+          )
+        }
+      }
+    })
+  }
+
+  async updateStructuredComplete(id: string, data: UpdateStructuredCourseCompleteInput) {
+    // Verify course exists and is STRUCTURED style
+    const course = await this.findById(id)
+    
+    if (course.style !== 'STRUCTURED') {
+      throw new Error('This endpoint can only be used for STRUCTURED style courses')
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      // Build update object with only provided fields
+      const courseUpdateData: any = {}
+      if (data.title !== undefined) courseUpdateData.title = data.title
+      if (data.description !== undefined) courseUpdateData.description = data.description
+      if (data.infoPoints !== undefined) courseUpdateData.infoPoints = data.infoPoints
+      if (data.price3Months !== undefined) courseUpdateData.price3Months = data.price3Months
+      if (data.price6Months !== undefined) courseUpdateData.price6Months = data.price6Months
+      if (data.price12Months !== undefined) courseUpdateData.price12Months = data.price12Months
+      if (data.credits3Months !== undefined) courseUpdateData.credits3Months = data.credits3Months
+      if (data.credits6Months !== undefined) courseUpdateData.credits6Months = data.credits6Months
+      if (data.credits12Months !== undefined) courseUpdateData.credits12Months = data.credits12Months
+      if (data.isPublished !== undefined) courseUpdateData.isPublished = data.isPublished
+
+      // Update course entity (only if there are fields to update)
+      if (Object.keys(courseUpdateData).length > 0) {
+        await tx.course.update({
+          where: { id },
+          data: courseUpdateData
+        })
+      }
+
+      // Delete all existing sections (this will cascade delete subsections)
+      await tx.courseSection.deleteMany({
+        where: { courseId: id }
+      })
+
+      // Create new sections with subsections
+      const createdSections = []
+      const sections = data.sections || []
+      
+      for (let sIdx = 0; sIdx < sections.length; sIdx++) {
+        const sectionData = sections[sIdx]
+
+        const section = await tx.courseSection.create({
+          data: {
+            courseId: id,
+            title: sectionData.title,
+            description: sectionData.description,
+            displayOrder: sectionData.displayOrder || (sIdx + 1)
+          }
+        })
+
+        const createdSubsections = []
+        const subsections = sectionData.subsections || []
+        
+        for (let subIdx = 0; subIdx < subsections.length; subIdx++) {
+          const subData = subsections[subIdx]
+
+          const subsection = await tx.courseSubsection.create({
+            data: {
+              sectionId: section.id,
+              title: subData.title,
+              description: subData.description,
+              contentType: subData.contentType,
+              content: subData.content,
+              displayOrder: subData.displayOrder || (subIdx + 1),
+              estimatedDuration: subData.estimatedDuration
+            }
+          })
+          createdSubsections.push(subsection)
+        }
+
+        createdSections.push({
+          ...section,
+          subsections: createdSubsections
+        })
+      }
+
+      return {
+        course: await tx.course.findUnique({
+          where: { id },
+          include: {
+            exam: {
+              select: {
+                id: true,
+                title: true,
+                slug: true,
+                isActive: true
+              }
+            },
+            instructor: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                bio: true
+              }
+            }
+          }
+        }),
+        sections: createdSections,
+        summary: {
+          sectionsUpdated: createdSections.length,
           totalSubsections: createdSections.reduce(
             (sum, s) => sum + s.subsections.length, 0
           )

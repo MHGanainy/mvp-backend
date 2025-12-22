@@ -9,6 +9,7 @@ import {
   courseExamParamsSchema,
   courseInstructorParamsSchema,
   updateCourseInfoPointsSchema,
+  updateStructuredCourseCompleteSchema,
   CourseStyleEnum
 } from './course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
@@ -386,6 +387,44 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
     } catch (error) {
       if (error instanceof Error) {
         if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else {
+          reply.status(400).send({ error: error.message })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // PUT /courses/:id/update-structured-complete - Update STRUCTURED course with sections and subsections
+  fastify.put('/courses/:id/update-structured-complete', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const { id } = courseParamsSchema.parse(request.params)
+      const data = updateStructuredCourseCompleteSchema.parse(request.body)
+
+      // Verify ownership (same as normal course update)
+      if (!isAdmin(request)) {
+        const course = await courseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+        
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only edit your own courses' })
+          return
+        }
+      }
+
+      const result = await courseService.updateStructuredComplete(id, data)
+      reply.send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Course not found') {
+          reply.status(404).send({ error: 'Course not found' })
+        } else if (error.message === 'This endpoint can only be used for STRUCTURED style courses') {
+          reply.status(400).send({ error: error.message })
+        } else if (error.message.includes('not found')) {
           reply.status(404).send({ error: error.message })
         } else {
           reply.status(400).send({ error: error.message })
