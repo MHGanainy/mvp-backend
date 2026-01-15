@@ -3,15 +3,16 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { CourseCaseService } from './course-case.service'
 import { CourseService } from '../course/course.service'
-import { 
-  createCourseCaseSchema, 
-  updateCourseCaseSchema, 
+import {
+  createCourseCaseSchema,
+  updateCourseCaseSchema,
   courseCaseParamsSchema,
   courseCaseCourseParamsSchema,
   reorderCourseCaseSchema,
   PatientGenderEnum,
   createCompleteCourseCaseSchema,
-  updateCompleteCourseCaseSchema
+  updateCompleteCourseCaseSchema,
+  paginatedCourseCasesQuerySchema
 } from './course-case.schema'
 import {
   assignSpecialtiesSchema,
@@ -101,6 +102,32 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Course not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // GET /course-cases/course/:courseId/paginated - Get paginated cases with filtering and search
+  fastify.get('/course-cases/course/:courseId/paginated', async (request, reply) => {
+    try {
+      const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
+      const queryParams = paginatedCourseCasesQuerySchema.parse(request.query)
+
+      const result = await courseCaseService.findByCoursePaginated(courseId, {
+        page: queryParams.page,
+        limit: queryParams.limit,
+        specialtyIds: queryParams.specialtyIds,
+        curriculumIds: queryParams.curriculumIds,
+        search: queryParams.search
+      })
+
+      reply.send(result)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Course not found') {
+        reply.status(404).send({ error: 'Course not found' })
+      } else if (error instanceof z.ZodError) {
+        reply.status(400).send({ error: 'Invalid query parameters', details: error.errors })
+      } else {
+        reply.status(500).send({ error: 'Failed to fetch paginated course cases' })
       }
     }
   })

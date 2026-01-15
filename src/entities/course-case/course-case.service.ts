@@ -238,6 +238,94 @@ export class CourseCaseService {
     })
   }
 
+  /**
+   * Find course cases with server-side pagination, filtering, and search
+   */
+  async findByCoursePaginated(
+    courseId: string,
+    options: {
+      page: number
+      limit: number
+      specialtyIds?: string[]
+      curriculumIds?: string[]
+      search?: string
+    }
+  ) {
+    // Verify course exists
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId }
+    })
+
+    if (!course) {
+      throw new Error('Course not found')
+    }
+
+    const skip = (options.page - 1) * options.limit
+
+    // Build where conditions
+    const whereConditions: any = {
+      courseId
+    }
+
+    // Add specialty filter (cases that have ANY of the specified specialties)
+    if (options.specialtyIds && options.specialtyIds.length > 0) {
+      whereConditions.caseSpecialties = {
+        some: {
+          specialtyId: { in: options.specialtyIds }
+        }
+      }
+    }
+
+    // Add curriculum filter (cases that have ANY of the specified curriculums)
+    if (options.curriculumIds && options.curriculumIds.length > 0) {
+      whereConditions.caseCurriculums = {
+        some: {
+          curriculumId: { in: options.curriculumIds }
+        }
+      }
+    }
+
+    // Add search filter (search in title, description, and diagnosis)
+    if (options.search && options.search.trim()) {
+      const searchTerm = options.search.trim()
+      whereConditions.OR = [
+        { title: { contains: searchTerm, mode: 'insensitive' } },
+        { description: { contains: searchTerm, mode: 'insensitive' } },
+        { diagnosis: { contains: searchTerm, mode: 'insensitive' } }
+      ]
+    }
+
+    // Get total count for pagination
+    const total = await this.prisma.courseCase.count({
+      where: whereConditions
+    })
+
+    // Fetch paginated data
+    const data = await this.prisma.courseCase.findMany({
+      where: whereConditions,
+      include: this.getStandardInclude(),
+      orderBy: {
+        displayOrder: 'asc'
+      },
+      skip,
+      take: options.limit
+    })
+
+    const totalPages = Math.ceil(total / options.limit)
+
+    return {
+      data,
+      pagination: {
+        page: options.page,
+        limit: options.limit,
+        total,
+        totalPages,
+        hasNextPage: options.page < totalPages,
+        hasPreviousPage: options.page > 1
+      }
+    }
+  }
+
   async findFreeCases(courseId: string) {
     return await this.prisma.courseCase.findMany({
       where: {

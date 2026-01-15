@@ -113,6 +113,32 @@ export const courseCaseResponseSchema = z.object({
   })
 })
 
+// Pagination Query Schema for course cases
+export const paginatedCourseCasesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(12),
+  specialtyIds: z.string().optional().transform(val =>
+    val ? val.split(',').filter(id => id.length > 0) : undefined
+  ),
+  curriculumIds: z.string().optional().transform(val =>
+    val ? val.split(',').filter(id => id.length > 0) : undefined
+  ),
+  search: z.string().optional()
+})
+
+// Paginated response schema
+export const paginatedCourseCasesResponseSchema = z.object({
+  data: z.array(courseCaseResponseSchema),
+  pagination: z.object({
+    page: z.number(),
+    limit: z.number(),
+    total: z.number(),
+    totalPages: z.number(),
+    hasNextPage: z.boolean(),
+    hasPreviousPage: z.boolean()
+  })
+})
+
 // Complete Course Case Schemas
 export const createCompleteCourseCaseSchema = z.object({
   // Basic course case info
@@ -450,3 +476,5 @@ export type PatientGender = z.infer<typeof PatientGenderEnum>
 export type CreateCompleteCourseCaseInput = z.infer<typeof createCompleteCourseCaseSchema>
 export type UpdateCompleteCourseCaseInput = z.infer<typeof updateCompleteCourseCaseSchema>
 export type CompleteCourseCaseResponse = z.infer<typeof completeCourseCaseResponseSchema>
+export type PaginatedCourseCasesQuery = z.infer<typeof paginatedCourseCasesQuerySchema>
+export type PaginatedCourseCasesResponse = z.infer<typeof paginatedCourseCasesResponseSchema>
