@@ -34,6 +34,7 @@ import courseSectionRoutes from "./entities/course-section/course-section.routes
 import courseSubsectionRoutes from "./entities/course-subsection/course-subsection.routes";
 import courseEnrollmentRoutes from "./entities/course-enrollment/course-enrollment.routes";
 import subsectionProgressRoutes from "./entities/subsection-progress/subsection-progress.routes";
+import studentCasePracticeRoutes from "./entities/student-case-practice/student-case-practice.routes";
 import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
@@ -194,6 +195,7 @@ const start = async () => {
     await fastify.register(markingCriterionRoutes, { prefix: "/api" });
     await fastify.register(billingRoutes, { prefix: "/api" });
     await fastify.register(creditPackageRoutes, { prefix: "/api/credit-packages" });
+    await fastify.register(studentCasePracticeRoutes, { prefix: "/api" });
 
     const port = Number(process.env.PORT) || 3000;
     const host = process.env.HOST || "0.0.0.0";

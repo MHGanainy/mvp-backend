@@ -117,7 +117,10 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         limit: queryParams.limit,
         specialtyIds: queryParams.specialtyIds,
         curriculumIds: queryParams.curriculumIds,
-        search: queryParams.search
+        search: queryParams.search,
+        studentId: queryParams.studentId,
+        notPracticed: queryParams.notPracticed,
+        bookmarked: queryParams.bookmarked
       })
 
       reply.send(result)

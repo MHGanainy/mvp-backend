@@ -240,6 +240,7 @@ export class CourseCaseService {
 
   /**
    * Find course cases with server-side pagination, filtering, and search
+   * Includes student-specific status (practice & bookmark) if studentId provided
    */
   async findByCoursePaginated(
     courseId: string,
@@ -249,6 +250,9 @@ export class CourseCaseService {
       specialtyIds?: string[]
       curriculumIds?: string[]
       search?: string
+      studentId?: string
+      notPracticed?: boolean
+      bookmarked?: boolean
     }
   ) {
     // Verify course exists
@@ -295,20 +299,81 @@ export class CourseCaseService {
       ]
     }
 
+    // Add practice status filter (requires studentId)
+    if (options.studentId && options.notPracticed) {
+      // Show only cases that are NOT practiced by this student
+      whereConditions.studentPractice = {
+        none: {
+          studentId: options.studentId,
+          isPracticed: true
+        }
+      }
+    }
+
+    // Add bookmark filter (requires studentId)
+    if (options.studentId && options.bookmarked) {
+      whereConditions.studentPractice = {
+        some: {
+          studentId: options.studentId,
+          isBookmarked: true
+        }
+      }
+    }
+
     // Get total count for pagination
     const total = await this.prisma.courseCase.count({
       where: whereConditions
     })
 
+    // Build include with optional student practice data
+    const include: any = {
+      ...this.getStandardInclude()
+    }
+
+    // Include student practice data if studentId is provided
+    if (options.studentId) {
+      include.studentPractice = {
+        where: {
+          studentId: options.studentId
+        },
+        select: {
+          isPracticed: true,
+          practiceCount: true,
+          firstPracticedAt: true,
+          lastPracticedAt: true,
+          isBookmarked: true,
+          bookmarkedAt: true
+        }
+      }
+    }
+
     // Fetch paginated data
-    const data = await this.prisma.courseCase.findMany({
+    const rawData = await this.prisma.courseCase.findMany({
       where: whereConditions,
-      include: this.getStandardInclude(),
+      include,
       orderBy: {
         displayOrder: 'asc'
       },
       skip,
       take: options.limit
+    })
+
+    // Transform data to include studentStatus at top level
+    const data = rawData.map((caseItem: any) => {
+      const { studentPractice, ...rest } = caseItem
+      const status = studentPractice?.[0] || null
+
+      return {
+        ...rest,
+        studentStatus: status ? {
+          isPracticed: status.isPracticed,
+          practiceCount: status.practiceCount,
+          firstPracticedAt: status.firstPracticedAt,
+          lastPracticedAt: status.lastPracticedAt,
+          isBookmarked: status.isBookmarked,
+          bookmarkedAt: status.bookmarkedAt
+        } : null
+      }
     })
 
     const totalPages = Math.ceil(total / options.limit)

@@ -12,15 +12,18 @@ import {
   TranscriptProcessorService,
   VoiceAgentTranscript,
 } from "../../services/transcript-processor.service";
+import { StudentCasePracticeService } from "../student-case-practice/student-case-practice.service";
 
 export class SimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
+  private studentCasePracticeService: StudentCasePracticeService;
   constructor(private prisma: PrismaClient) {
     this.aiFeedbackService = createAIFeedbackService({
       provider: AIProvider.GROQ,
       apiKey: process.env.GROQ_API_KEY,
       model: "openai/gpt-oss-120b",
     });
+    this.studentCasePracticeService = new StudentCasePracticeService(prisma);
   }
 
   private generateCorrelationToken(): string {
@@ -1010,6 +1013,24 @@ export class SimulationAttemptService {
       console.log(
         `[SimulationAttempt] Attempt ${attemptId} completed successfully with AI feedback`
       );
+
+      // Update student's practice status for this case
+      try {
+        await this.studentCasePracticeService.updatePracticeStatus(
+          updatedAttempt.studentId,
+          updatedAttempt.simulation.courseCaseId
+        );
+        console.log(
+          `[SimulationAttempt] Updated practice status for student ${updatedAttempt.studentId} on case ${updatedAttempt.simulation.courseCaseId}`
+        );
+      } catch (practiceError) {
+        // Log but don't fail the main operation
+        console.error(
+          "[SimulationAttempt] Failed to update practice status:",
+          practiceError
+        );
+      }
+
       return updatedAttempt;
     } catch (error) {
       console.error(
@@ -1050,6 +1071,23 @@ export class SimulationAttemptService {
       console.log(
         `[SimulationAttempt] Attempt ${attemptId} marked as complete with error`
       );
+
+      // Still update practice status even for failed attempts
+      try {
+        await this.studentCasePracticeService.updatePracticeStatus(
+          fallbackAttempt.studentId,
+          fallbackAttempt.simulation.courseCaseId
+        );
+        console.log(
+          `[SimulationAttempt] Updated practice status for student ${fallbackAttempt.studentId} on case ${fallbackAttempt.simulation.courseCaseId}`
+        );
+      } catch (practiceError) {
+        console.error(
+          "[SimulationAttempt] Failed to update practice status:",
+          practiceError
+        );
+      }
+
       return fallbackAttempt;
     }
   }

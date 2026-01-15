@@ -84,6 +84,7 @@ model Student {
   subscriptions               Subscription[]
   checkoutSessions            StripeCheckoutSession[]
   enrollments                 CourseEnrollment[]
+  casePractice                StudentCasePractice[]
 
   @@map("students")
 }
@@ -136,25 +137,26 @@ model Course {
 }
 
 model CourseCase {
-  id              String             @id @default(uuid())
-  courseId        String             @map("course_id")
-  slug            String?            // Nullable initially, will be populated by migration script
+  id              String                @id @default(uuid())
+  courseId        String                @map("course_id")
+  slug            String?               // Nullable initially, will be populated by migration script
   title           String
   diagnosis       String
-  patientName     String             @map("patient_name")
-  patientAge      Int                @map("patient_age")
-  patientGender   PatientGender      @map("patient_gender")
+  patientName     String                @map("patient_name")
+  patientAge      Int                   @map("patient_age")
+  patientGender   PatientGender         @map("patient_gender")
   description     String
-  isFree          Boolean            @default(false) @map("is_free")
-  displayOrder    Int                @map("display_order")
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
+  isFree          Boolean               @default(false) @map("is_free")
+  displayOrder    Int                   @map("display_order")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
   caseCurriculums CaseCurriculum[]
   caseSpecialties CaseSpecialty[]
   caseTabs        CaseTab[]
-  course          Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course          Course                @relation(fields: [courseId], references: [id], onDelete: Cascade)
   markingCriteria MarkingCriterion[]
   simulation      Simulation?
+  studentPractice StudentCasePractice[]
 
   @@unique([courseId, slug])
   @@map("course_cases")
@@ -643,6 +645,38 @@ model InterviewCaseCurriculum {
 
   @@id([interviewCaseId, curriculumId])
   @@map("interview_case_curriculums")
+}
+
+// ============================================
+// STUDENT CASE PRACTICE & BOOKMARKS
+// ============================================
+
+model StudentCasePractice {
+  id               String     @id @default(uuid())
+  studentId        String     @map("student_id")
+  courseCaseId     String     @map("course_case_id")
+  // Practice Status Fields
+  isPracticed      Boolean    @default(false) @map("is_practiced")
+  practiceCount    Int        @default(0) @map("practice_count")
+  firstPracticedAt DateTime?  @map("first_practiced_at")
+  lastPracticedAt  DateTime?  @map("last_practiced_at")
+  // Bookmark Fields
+  isBookmarked     Boolean    @default(false) @map("is_bookmarked")
+  bookmarkedAt     DateTime?  @map("bookmarked_at")
+  // Future: Personal Notes & Review
+  markedForReview  Boolean    @default(false) @map("marked_for_review")
+  personalNotes    String?    @map("personal_notes")
+  // Timestamps
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  // Relations
+  student          Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseCase       CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseCaseId])
+  @@index([studentId, isPracticed])
+  @@index([studentId, isBookmarked])
+  @@map("student_case_practice")
 }
 
 enum CourseStyle {

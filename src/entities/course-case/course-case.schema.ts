@@ -123,7 +123,11 @@ export const paginatedCourseCasesQuerySchema = z.object({
   curriculumIds: z.string().optional().transform(val =>
     val ? val.split(',').filter(id => id.length > 0) : undefined
   ),
-  search: z.string().optional()
+  search: z.string().optional(),
+  // Student-specific filters
+  studentId: z.string().uuid().optional(),
+  notPracticed: z.string().optional().transform(val => val === 'true'),
+  bookmarked: z.string().optional().transform(val => val === 'true')
 })
 
 // Paginated response schema
