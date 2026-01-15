@@ -289,35 +289,62 @@ export class CourseCaseService {
       }
     }
 
+    // Build AND conditions array for complex filtering
+    const andConditions: any[] = []
+
     // Add search filter (search in title, description, and diagnosis)
     if (options.search && options.search.trim()) {
       const searchTerm = options.search.trim()
-      whereConditions.OR = [
-        { title: { contains: searchTerm, mode: 'insensitive' } },
-        { description: { contains: searchTerm, mode: 'insensitive' } },
-        { diagnosis: { contains: searchTerm, mode: 'insensitive' } }
-      ]
+      andConditions.push({
+        OR: [
+          { title: { contains: searchTerm, mode: 'insensitive' } },
+          { description: { contains: searchTerm, mode: 'insensitive' } },
+          { diagnosis: { contains: searchTerm, mode: 'insensitive' } }
+        ]
+      })
     }
 
-    // Add practice status filter (requires studentId)
-    if (options.studentId && options.notPracticed) {
-      // Show only cases that are NOT practiced by this student
-      whereConditions.studentPractice = {
-        none: {
-          studentId: options.studentId,
-          isPracticed: true
-        }
+    // Add practice status and bookmark filters (requires studentId)
+    if (options.studentId) {
+      if (options.notPracticed && options.bookmarked) {
+        // Both filters: show cases that are bookmarked AND not practiced
+        andConditions.push({
+          studentPractice: {
+            some: {
+              studentId: options.studentId,
+              isBookmarked: true,
+              isPracticed: false
+            }
+          }
+        })
+      } else if (options.notPracticed) {
+        // Show only cases that are NOT practiced by this student
+        andConditions.push({
+          NOT: {
+            studentPractice: {
+              some: {
+                studentId: options.studentId,
+                isPracticed: true
+              }
+            }
+          }
+        })
+      } else if (options.bookmarked) {
+        // Show only cases that are bookmarked by this student
+        andConditions.push({
+          studentPractice: {
+            some: {
+              studentId: options.studentId,
+              isBookmarked: true
+            }
+          }
+        })
       }
     }
 
-    // Add bookmark filter (requires studentId)
-    if (options.studentId && options.bookmarked) {
-      whereConditions.studentPractice = {
-        some: {
-          studentId: options.studentId,
-          isBookmarked: true
-        }
-      }
+    // Apply AND conditions if any
+    if (andConditions.length > 0) {
+      whereConditions.AND = andConditions
     }
 
     // Get total count for pagination
