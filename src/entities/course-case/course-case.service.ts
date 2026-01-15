@@ -1,6 +1,7 @@
 // course-case.service.ts
 import { PrismaClient, PatientGender, Prisma } from '@prisma/client'
 import { CreateCourseCaseInput, UpdateCourseCaseInput, CreateCompleteCourseCaseInput, UpdateCompleteCourseCaseInput } from './course-case.schema'
+import { generateSlug, generateUniqueSlug } from '../../shared/slug'
 
 // Define CaseTabType - should match your Prisma schema enum
 type CaseTabType = 'DOCTORS_NOTE' | 'PATIENT_SCRIPT' | 'MEDICAL_NOTES'
@@ -126,9 +127,18 @@ export class CourseCaseService {
       data.displayOrder = (maxOrder._max.displayOrder || 0) + 1
     }
 
+    // Generate unique slug for this course
+    const slug = await generateUniqueSlug(data.title, async (testSlug) => {
+      const existing = await this.prisma.courseCase.findFirst({
+        where: { courseId: data.courseId, slug: testSlug }
+      })
+      return existing !== null
+    })
+
     return await this.prisma.courseCase.create({
       data: {
         courseId: data.courseId,
+        slug,
         title: data.title,
         diagnosis: data.diagnosis,
         patientName: data.patientName,
@@ -155,6 +165,50 @@ export class CourseCaseService {
   async findById(id: string) {
     const courseCase = await this.prisma.courseCase.findUnique({
       where: { id },
+      include: this.getStandardInclude()
+    })
+
+    if (!courseCase) {
+      throw new Error('Course case not found')
+    }
+
+    return courseCase
+  }
+
+  /**
+   * Find a course case by its slug within a specific exam and course.
+   * @param examSlug - The slug of the exam
+   * @param courseSlug - The slug of the course
+   * @param caseSlug - The slug of the case
+   */
+  async findBySlug(examSlug: string, courseSlug: string, caseSlug: string) {
+    // First find the exam by slug
+    const exam = await this.prisma.exam.findUnique({
+      where: { slug: examSlug }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
+
+    // Then find the course by slug within the exam
+    const course = await this.prisma.course.findFirst({
+      where: {
+        examId: exam.id,
+        slug: courseSlug
+      }
+    })
+
+    if (!course) {
+      throw new Error('Course not found')
+    }
+
+    // Finally find the case by slug within the course
+    const courseCase = await this.prisma.courseCase.findFirst({
+      where: {
+        courseId: course.id,
+        slug: caseSlug
+      },
       include: this.getStandardInclude()
     })
 
@@ -695,11 +749,25 @@ export class CourseCaseService {
           throw new Error(`Display order ${data.courseCase.displayOrder} is already taken for this course`)
         }
       }
-  
+
+      // Generate unique slug for this course
+      const baseSlug = generateSlug(data.courseCase.title)
+      let slug = baseSlug
+      let counter = 1
+      while (true) {
+        const existing = await tx.courseCase.findFirst({
+          where: { courseId: data.courseCase.courseId, slug }
+        })
+        if (!existing) break
+        slug = `${baseSlug}-${counter}`
+        counter++
+      }
+
       // Step 2: Create the course case
       const courseCase = await tx.courseCase.create({
         data: {
           courseId: data.courseCase.courseId,
+          slug,
           title: data.courseCase.title,
           diagnosis: data.courseCase.diagnosis,
           patientName: data.courseCase.patientName,

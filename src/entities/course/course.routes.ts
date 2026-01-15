@@ -147,6 +147,27 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
   }
 })
 
+  // GET /exams/:examSlug/courses/:courseSlug - Get course by slugs (clean URL)
+  fastify.get('/exams/:examSlug/courses/:courseSlug', async (request, reply) => {
+    try {
+      const { examSlug, courseSlug } = request.params as { examSlug: string; courseSlug: string }
+      const course = await courseService.findBySlug(examSlug, courseSlug)
+      reply.send(course)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Exam not found') {
+          reply.status(404).send({ error: 'Exam not found' })
+        } else if (error.message === 'Course not found') {
+          reply.status(404).send({ error: 'Course not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
   // GET /courses/:id - Get course by ID
   fastify.get('/courses/:id', async (request, reply) => {
     try {

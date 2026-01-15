@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { CreateCourseInput, UpdateCourseInput, UpdateStructuredCourseCompleteInput, CourseStyle } from './course.schema'
+import { generateSlug, generateUniqueSlug } from '../../shared/slug'
 
 export class CourseService {
   constructor(private prisma: PrismaClient) {}
@@ -27,14 +28,23 @@ export class CourseService {
       throw new Error('Instructor can only create courses for their own exams')
     }
 
+    // Generate unique slug for this exam
+    const slug = await generateUniqueSlug(data.title, async (testSlug) => {
+      const existing = await this.prisma.course.findFirst({
+        where: { examId: data.examId, slug: testSlug }
+      })
+      return existing !== null
+    })
+
     return await this.prisma.course.create({
       data: {
         examId: data.examId,
         instructorId: data.instructorId,
+        slug,
         title: data.title,
         description: data.description,
         style: data.style,
-        infoPoints: data.infoPoints || [],  // ADDED THIS LINE
+        infoPoints: data.infoPoints || [],
         price3Months: data.price3Months,
         price6Months: data.price6Months,
         price12Months: data.price12Months,
@@ -154,6 +164,53 @@ export class CourseService {
   async findById(id: string) {
     const course = await this.prisma.course.findUnique({
       where: { id },
+      include: {
+        exam: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            isActive: true
+          }
+        },
+        instructor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            bio: true
+          }
+        }
+      }
+    })
+
+    if (!course) {
+      throw new Error('Course not found')
+    }
+
+    return course
+  }
+
+  /**
+   * Find a course by its slug within a specific exam.
+   * @param examSlug - The slug of the exam
+   * @param courseSlug - The slug of the course
+   */
+  async findBySlug(examSlug: string, courseSlug: string) {
+    // First find the exam by slug
+    const exam = await this.prisma.exam.findUnique({
+      where: { slug: examSlug }
+    })
+
+    if (!exam) {
+      throw new Error('Exam not found')
+    }
+
+    const course = await this.prisma.course.findFirst({
+      where: {
+        examId: exam.id,
+        slug: courseSlug
+      },
       include: {
         exam: {
           select: {
@@ -481,12 +538,21 @@ export class CourseService {
       throw new Error('Instructor can only create courses for their own exams')
     }
 
+    // Generate unique slug for this exam
+    const slug = await generateUniqueSlug(data.title, async (testSlug) => {
+      const existing = await this.prisma.course.findFirst({
+        where: { examId: data.examId, slug: testSlug }
+      })
+      return existing !== null
+    })
+
     return await this.prisma.$transaction(async (tx) => {
       // Create course with STRUCTURED style
       const course = await tx.course.create({
         data: {
           examId: data.examId,
           instructorId: data.instructorId,
+          slug,
           title: data.title,
           description: data.description,
           style: 'STRUCTURED',

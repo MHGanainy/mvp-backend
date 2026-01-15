@@ -110,6 +110,7 @@ model Course {
   id              String         @id @default(uuid())
   examId          String         @map("exam_id")
   instructorId    String         @map("instructor_id")
+  slug            String?        // Nullable initially, will be populated by migration script
   title           String
   description     String?
   style           CourseStyle    @default(RANDOM)
@@ -130,12 +131,14 @@ model Course {
   courseSections  CourseSection[]
   enrollments     CourseEnrollment[]
 
+  @@unique([examId, slug])
   @@map("courses")
 }
 
 model CourseCase {
   id              String             @id @default(uuid())
   courseId        String             @map("course_id")
+  slug            String?            // Nullable initially, will be populated by migration script
   title           String
   diagnosis       String
   patientName     String             @map("patient_name")
@@ -153,6 +156,7 @@ model CourseCase {
   markingCriteria MarkingCriterion[]
   simulation      Simulation?
 
+  @@unique([courseId, slug])
   @@map("course_cases")
 }
 

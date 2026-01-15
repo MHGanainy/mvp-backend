@@ -160,6 +160,33 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // GET /exams/:examSlug/courses/:courseSlug/cases/:caseSlug - Get case by slugs (clean URL)
+  fastify.get('/exams/:examSlug/courses/:courseSlug/cases/:caseSlug', async (request, reply) => {
+    try {
+      const { examSlug, courseSlug, caseSlug } = request.params as {
+        examSlug: string
+        courseSlug: string
+        caseSlug: string
+      }
+      const courseCase = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
+      reply.send(courseCase)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Exam not found') {
+          reply.status(404).send({ error: 'Exam not found' })
+        } else if (error.message === 'Course not found') {
+          reply.status(404).send({ error: 'Course not found' })
+        } else if (error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
   // GET /course-cases/:id
   fastify.get('/course-cases/:id', async (request, reply) => {
     try {
@@ -830,6 +857,137 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error fetching complete course case:', error)
       reply.status(400).send({ error: 'Invalid request' })
+    }
+  })
+
+  // GET /exams/:examSlug/courses/:courseSlug/cases/:caseSlug/complete - Get complete case data by slugs (clean URL)
+  fastify.get('/exams/:examSlug/courses/:courseSlug/cases/:caseSlug/complete', async (request, reply) => {
+    try {
+      const { examSlug, courseSlug, caseSlug } = request.params as {
+        examSlug: string
+        courseSlug: string
+        caseSlug: string
+      }
+
+      // Use findBySlug to get the case first
+      const caseLookup = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
+      const id = caseLookup.id
+
+      // Now get the complete data using the ID
+      const courseCase = await fastify.prisma.courseCase.findUnique({
+        where: { id },
+        include: {
+          course: {
+            include: {
+              exam: {
+                select: {
+                  id: true,
+                  title: true,
+                  slug: true
+                }
+              }
+            }
+          },
+          simulation: true,
+          caseTabs: true,
+          markingCriteria: {
+            include: {
+              markingDomain: true
+            },
+            orderBy: [
+              { markingDomain: { name: 'asc' } },
+              { displayOrder: 'asc' }
+            ]
+          },
+          caseSpecialties: {
+            include: {
+              specialty: true
+            }
+          },
+          caseCurriculums: {
+            include: {
+              curriculum: true
+            }
+          }
+        }
+      })
+
+      if (!courseCase) {
+        reply.status(404).send({ error: 'Course case not found' })
+        return
+      }
+
+      const tabsResponse: any = {}
+      for (const tab of courseCase.caseTabs) {
+        tabsResponse[tab.tabType] = {
+          id: tab.id,
+          content: tab.content,
+          hasContent: tab.content.length > 0
+        }
+      }
+
+      const markingCriteriaGrouped = courseCase.markingCriteria.reduce((acc, criterion) => {
+        const domainId = criterion.markingDomain.id
+        const domainName = criterion.markingDomain.name
+
+        let group = acc.find((g: any) => g.domainId === domainId)
+        if (!group) {
+          group = { domainId, domainName, criteria: [] }
+          acc.push(group)
+        }
+
+        group.criteria.push({
+          id: criterion.id,
+          text: criterion.text,
+          points: criterion.points,
+          displayOrder: criterion.displayOrder
+        })
+
+        return acc
+      }, [] as any[])
+
+      const specialties = courseCase.caseSpecialties.map((cs: any) => cs.specialty)
+      const curriculums = courseCase.caseCurriculums.map((cc: any) => cc.curriculum)
+
+      reply.send({
+        courseCase: {
+          id: courseCase.id,
+          courseId: courseCase.courseId,
+          slug: courseCase.slug,
+          title: courseCase.title,
+          diagnosis: courseCase.diagnosis,
+          patientName: courseCase.patientName,
+          patientAge: courseCase.patientAge,
+          patientGender: courseCase.patientGender,
+          description: courseCase.description,
+          isFree: courseCase.isFree,
+          displayOrder: courseCase.displayOrder,
+          createdAt: courseCase.createdAt,
+          updatedAt: courseCase.updatedAt
+        },
+        tabs: tabsResponse,
+        markingCriteria: markingCriteriaGrouped,
+        specialties,
+        curriculums,
+        simulation: courseCase.simulation,
+        course: courseCase.course
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Exam not found') {
+          reply.status(404).send({ error: 'Exam not found' })
+        } else if (error.message === 'Course not found') {
+          reply.status(404).send({ error: 'Course not found' })
+        } else if (error.message === 'Course case not found') {
+          reply.status(404).send({ error: 'Course case not found' })
+        } else {
+          console.error('Error fetching complete course case by slug:', error)
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        console.error('Error fetching complete course case by slug:', error)
+        reply.status(400).send({ error: 'Invalid request' })
+      }
     }
   })
 }
