@@ -240,6 +240,7 @@ model CourseSection {
   title        String
   description  String?
   displayOrder Int                @map("display_order")
+  isFree       Boolean            @default(false) @map("is_free")
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt @map("updated_at")
   course       Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -257,6 +258,7 @@ model CourseSubsection {
   content           String
   displayOrder      Int                  @map("display_order")
   estimatedDuration Int?                 @map("estimated_duration")
+  isFree            Boolean              @default(false) @map("is_free")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
   section           CourseSection        @relation(fields: [sectionId], references: [id], onDelete: Cascade)

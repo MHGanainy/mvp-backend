@@ -49,7 +49,8 @@ export class CourseSectionService {
         courseId: data.courseId,
         title: data.title,
         description: data.description,
-        displayOrder
+        displayOrder,
+        isFree: data.isFree ?? false
       },
       include: {
         course: {
@@ -93,7 +94,8 @@ export class CourseSectionService {
           courseId: data.courseId,
           title: data.title,
           description: data.description,
-          displayOrder: sectionDisplayOrder
+          displayOrder: sectionDisplayOrder,
+          isFree: data.isFree ?? false
         }
       })
 
@@ -110,7 +112,8 @@ export class CourseSectionService {
               contentType: sub.contentType,
               content: sub.content,
               displayOrder: sub.displayOrder || (i + 1),
-              estimatedDuration: sub.estimatedDuration
+              estimatedDuration: sub.estimatedDuration,
+              isFree: sub.isFree ?? false
             }
           })
           createdSubsections.push(subsection)
@@ -213,7 +216,8 @@ export class CourseSectionService {
       data: {
         title: data.title,
         description: data.description,
-        displayOrder: data.displayOrder
+        displayOrder: data.displayOrder,
+        isFree: data.isFree
       },
       include: {
         course: {

@@ -509,6 +509,7 @@ export class CourseService {
       title: string
       description?: string
       displayOrder?: number
+      isFree?: boolean
       subsections: Array<{
         title: string
         description?: string
@@ -516,6 +517,7 @@ export class CourseService {
         content: string
         displayOrder?: number
         estimatedDuration?: number
+        isFree?: boolean
       }>
     }>
   }) {
@@ -577,7 +579,8 @@ export class CourseService {
             courseId: course.id,
             title: sectionData.title,
             description: sectionData.description,
-            displayOrder: sectionData.displayOrder || (sIdx + 1)
+            displayOrder: sectionData.displayOrder || (sIdx + 1),
+            isFree: sectionData.isFree ?? false
           }
         })
 
@@ -593,7 +596,8 @@ export class CourseService {
               contentType: subData.contentType,
               content: subData.content,
               displayOrder: subData.displayOrder || (subIdx + 1),
-              estimatedDuration: subData.estimatedDuration
+              estimatedDuration: subData.estimatedDuration,
+              isFree: subData.isFree ?? false
             }
           })
           createdSubsections.push(subsection)
@@ -665,13 +669,14 @@ export class CourseService {
             courseId: id,
             title: sectionData.title,
             description: sectionData.description,
-            displayOrder: sectionData.displayOrder || (sIdx + 1)
+            displayOrder: sectionData.displayOrder || (sIdx + 1),
+            isFree: sectionData.isFree ?? false
           }
         })
 
         const createdSubsections = []
         const subsections = sectionData.subsections || []
-        
+
         for (let subIdx = 0; subIdx < subsections.length; subIdx++) {
           const subData = subsections[subIdx]
 
@@ -683,7 +688,8 @@ export class CourseService {
               contentType: subData.contentType,
               content: subData.content,
               displayOrder: subData.displayOrder || (subIdx + 1),
-              estimatedDuration: subData.estimatedDuration
+              estimatedDuration: subData.estimatedDuration,
+              isFree: subData.isFree ?? false
             }
           })
           createdSubsections.push(subsection)

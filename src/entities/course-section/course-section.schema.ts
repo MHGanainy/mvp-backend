@@ -17,7 +17,8 @@ export const createCourseSectionSchema = z.object({
   description: z.string()
     .max(1000, 'Description must be less than 1000 characters')
     .optional(),
-  displayOrder: z.number().int().min(1).optional() // Auto-assigned if not provided
+  displayOrder: z.number().int().min(1).optional(), // Auto-assigned if not provided
+  isFree: z.boolean().default(false).optional()
 })
 
 // Create section with subsections (one-shot creation)
@@ -31,13 +32,15 @@ export const createCourseSectionCompleteSchema = z.object({
     .max(1000, 'Description must be less than 1000 characters')
     .optional(),
   displayOrder: z.number().int().min(1).optional(),
+  isFree: z.boolean().default(false).optional(),
   subsections: z.array(z.object({
     title: z.string().min(1).max(200).trim(),
     description: z.string().max(1000).optional(),
     contentType: ContentTypeEnum,
     content: z.string().min(1, 'Content is required'),
     displayOrder: z.number().int().min(1).optional(),
-    estimatedDuration: z.number().int().min(1).optional()
+    estimatedDuration: z.number().int().min(1).optional(),
+    isFree: z.boolean().default(false).optional()
   })).optional().default([])
 })
 
@@ -48,7 +51,8 @@ export const createCourseSectionCompleteSchema = z.object({
 export const updateCourseSectionSchema = z.object({
   title: z.string().min(1).max(200).trim().optional(),
   description: z.string().max(1000).optional().nullable(),
-  displayOrder: z.number().int().min(1).optional()
+  displayOrder: z.number().int().min(1).optional(),
+  isFree: z.boolean().optional()
 })
 
 // ============================================

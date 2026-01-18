@@ -186,6 +186,7 @@ export const updateStructuredCourseCompleteSchema = z.object({
       .max(1000, 'Section description must be less than 1000 characters')
       .optional(),
     displayOrder: z.number().int().min(1).optional(),
+    isFree: z.boolean().default(false).optional(),
     subsections: z.array(z.object({
       title: z.string()
         .min(1, 'Subsection title is required')
@@ -197,7 +198,8 @@ export const updateStructuredCourseCompleteSchema = z.object({
       contentType: ContentTypeEnum,
       content: z.string().min(1, 'Content is required'),
       displayOrder: z.number().int().min(1).optional(),
-      estimatedDuration: z.number().int().min(1).optional()
+      estimatedDuration: z.number().int().min(1).optional(),
+      isFree: z.boolean().default(false).optional()
     })).optional().default([])
   })).optional().default([])
 })
