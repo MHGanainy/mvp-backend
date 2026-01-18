@@ -573,6 +573,7 @@ export class CourseService {
       const createdSections = []
       for (let sIdx = 0; sIdx < data.sections.length; sIdx++) {
         const sectionData = data.sections[sIdx]
+        const sectionIsFree = sectionData.isFree ?? false
 
         const section = await tx.courseSection.create({
           data: {
@@ -580,7 +581,7 @@ export class CourseService {
             title: sectionData.title,
             description: sectionData.description,
             displayOrder: sectionData.displayOrder || (sIdx + 1),
-            isFree: sectionData.isFree ?? false
+            isFree: sectionIsFree
           }
         })
 
@@ -597,7 +598,8 @@ export class CourseService {
               content: subData.content,
               displayOrder: subData.displayOrder || (subIdx + 1),
               estimatedDuration: subData.estimatedDuration,
-              isFree: subData.isFree ?? false
+              // If section is locked, subsection must be locked too
+              isFree: sectionIsFree ? (subData.isFree ?? false) : false
             }
           })
           createdSubsections.push(subsection)
@@ -660,9 +662,10 @@ export class CourseService {
       // Create new sections with subsections
       const createdSections = []
       const sections = data.sections || []
-      
+
       for (let sIdx = 0; sIdx < sections.length; sIdx++) {
         const sectionData = sections[sIdx]
+        const sectionIsFree = sectionData.isFree ?? false
 
         const section = await tx.courseSection.create({
           data: {
@@ -670,7 +673,7 @@ export class CourseService {
             title: sectionData.title,
             description: sectionData.description,
             displayOrder: sectionData.displayOrder || (sIdx + 1),
-            isFree: sectionData.isFree ?? false
+            isFree: sectionIsFree
           }
         })
 
@@ -689,7 +692,8 @@ export class CourseService {
               content: subData.content,
               displayOrder: subData.displayOrder || (subIdx + 1),
               estimatedDuration: subData.estimatedDuration,
-              isFree: subData.isFree ?? false
+              // If section is locked, subsection must be locked too
+              isFree: sectionIsFree ? (subData.isFree ?? false) : false
             }
           })
           createdSubsections.push(subsection)

@@ -100,6 +100,8 @@ export class CourseSectionService {
       })
 
       // Create subsections
+      // If section is locked (isFree=false), all subsections must also be locked
+      const sectionIsFree = data.isFree ?? false
       const createdSubsections = []
       if (data.subsections && data.subsections.length > 0) {
         for (let i = 0; i < data.subsections.length; i++) {
@@ -113,7 +115,8 @@ export class CourseSectionService {
               content: sub.content,
               displayOrder: sub.displayOrder || (i + 1),
               estimatedDuration: sub.estimatedDuration,
-              isFree: sub.isFree ?? false
+              // If section is locked, subsection must be locked too
+              isFree: sectionIsFree ? (sub.isFree ?? false) : false
             }
           })
           createdSubsections.push(subsection)
