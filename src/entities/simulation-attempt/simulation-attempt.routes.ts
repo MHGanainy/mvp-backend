@@ -517,6 +517,63 @@ export default async function simulationAttemptRoutes(
     }
   );
 
+  // PATCH /simulation-attempts/:id/generate-feedback - Regenerate feedback for existing attempt
+  fastify.patch(
+    "/simulation-attempts/:id/generate-feedback",
+    async (request, reply) => {
+      try {
+        const { id } = simulationAttemptParamsSchema.parse(request.params);
+
+        const updatedAttempt = await simulationAttemptService.generateFeedbackForExistingAttempt(id);
+
+        const aiFeedback = updatedAttempt.aiFeedback as any;
+        const aiAnalysisSuccessful = aiFeedback?.analysisStatus === "success";
+
+        reply.send({
+          message: aiAnalysisSuccessful
+            ? "Feedback regenerated successfully"
+            : "Feedback regeneration failed",
+          attempt: updatedAttempt,
+          duration: `${Math.floor(updatedAttempt.durationSeconds! / 60)}:${String(
+            updatedAttempt.durationSeconds! % 60
+          ).padStart(2, "0")}`,
+          score: updatedAttempt.score,
+          aiAnalysisStatus: aiAnalysisSuccessful ? "success" : "failed",
+          feedbackGenerated: aiAnalysisSuccessful,
+          markingSummary: aiFeedback?.markingStructure
+            ? {
+                totalDomains: aiFeedback.markingStructure.length,
+                totalCriteria: aiFeedback.overallResult?.totalCriteria,
+                criteriaMet: aiFeedback.overallResult?.criteriaMet,
+                criteriaNotMet: aiFeedback.overallResult?.criteriaNotMet,
+                classification: aiFeedback.overallResult?.classificationLabel,
+              }
+            : null,
+        });
+      } catch (error) {
+        console.error("Error regenerating feedback:", error);
+
+        if (error instanceof Error) {
+          if (error.message === "Simulation attempt not found") {
+            reply.status(404).send({ error: "Simulation attempt not found" });
+          } else if (error.message.includes("No transcript available")) {
+            reply.status(400).send({
+              error: "No transcript available",
+              details: "Cannot generate feedback without a transcript",
+            });
+          } else {
+            reply.status(400).send({
+              error: "Failed to regenerate feedback",
+              details: error.message,
+            });
+          }
+        } else {
+          reply.status(500).send({ error: "Internal server error" });
+        }
+      }
+    }
+  );
+
   // POST /simulation-attempts/test-ai-feedback - Test AI feedback generation
   fastify.post(
     "/simulation-attempts/test-ai-feedback",

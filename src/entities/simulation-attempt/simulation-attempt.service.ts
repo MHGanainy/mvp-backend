@@ -1038,6 +1038,19 @@ export class SimulationAttemptService {
         error
       );
 
+      // ⭐ CRITICAL: Try to save the cleaned transcript even if AI feedback fails
+      // This allows retroactive feedback generation later
+      let transcriptToSave: Prisma.InputJsonValue | undefined;
+      try {
+        const voiceTranscript = existingAttempt.transcript as unknown as VoiceAgentTranscript;
+        const cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
+        transcriptToSave = cleanTranscript as unknown as Prisma.InputJsonValue;
+        console.log(`[SimulationAttempt] Successfully saved cleaned transcript despite AI failure: ${cleanTranscript.totalMessages} messages`);
+      } catch (transcriptError) {
+        console.error(`[SimulationAttempt] Could not clean transcript, saving raw transcript:`, transcriptError);
+        transcriptToSave = existingAttempt.transcript || undefined;
+      }
+
       // Still mark as complete but with error status
       const fallbackAttempt = await this.prisma.simulationAttempt.update({
         where: { id: attemptId },
@@ -1045,6 +1058,7 @@ export class SimulationAttemptService {
           endedAt: endTime,
           durationSeconds,
           isCompleted: true,
+          transcript: transcriptToSave,  // ⭐ CRITICAL FIX: Save transcript even when feedback fails!
           aiFeedback: {
             analysisStatus: "failed",
             error: "Transcript processing or feedback generation failed",
@@ -1089,6 +1103,212 @@ export class SimulationAttemptService {
       }
 
       return fallbackAttempt;
+    }
+  }
+
+  /**
+   * ⭐ NEW METHOD: Regenerate feedback for an existing attempt that has a transcript
+   * This is used when feedback generation initially failed or needs to be re-run
+   */
+  async generateFeedbackForExistingAttempt(attemptId: string): Promise<any> {
+    console.log(`[SimulationAttempt] Regenerating feedback for attempt ${attemptId}`);
+
+    // Fetch attempt with all necessary relations
+    const existingAttempt = await this.prisma.simulationAttempt.findUnique({
+      where: { id: attemptId },
+      include: {
+        student: {
+          include: {
+            user: true,
+          },
+        },
+        simulation: {
+          include: {
+            courseCase: {
+              include: {
+                course: {
+                  include: {
+                    exam: true,
+                  },
+                },
+                caseTabs: true,
+                markingCriteria: {
+                  include: {
+                    markingDomain: true,
+                  },
+                  orderBy: [
+                    { markingDomain: { name: "asc" } },
+                    { displayOrder: "asc" },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!existingAttempt) {
+      throw new Error("Simulation attempt not found");
+    }
+
+    // Check if transcript exists
+    if (!existingAttempt.transcript) {
+      throw new Error(
+        "No transcript available for this attempt. Cannot generate feedback without a transcript."
+      );
+    }
+
+    console.log(`[SimulationAttempt] Transcript found, processing...`);
+    const voiceTranscript = existingAttempt.transcript as unknown as VoiceAgentTranscript;
+
+    // Process transcript to clean format
+    const cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
+    console.log(
+      `[SimulationAttempt] Transcript processed: ${cleanTranscript.totalMessages} messages, ${cleanTranscript.duration}s duration`
+    );
+
+    // Calculate duration
+    const durationSeconds = existingAttempt.durationSeconds ||
+      Math.floor((new Date(existingAttempt.endedAt || new Date()).getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
+
+    // Extract case tabs
+    interface CaseTabs {
+      doctorsNote: string[];
+      patientScript: string[];
+      medicalNotes: string[];
+    }
+
+    const caseTabs: CaseTabs = {
+      doctorsNote: [],
+      patientScript: [],
+      medicalNotes: [],
+    };
+
+    existingAttempt.simulation.courseCase.caseTabs.forEach((tab) => {
+      switch (tab.tabType) {
+        case "DOCTORS_NOTE":
+          caseTabs.doctorsNote = tab.content;
+          break;
+        case "PATIENT_SCRIPT":
+          caseTabs.patientScript = tab.content;
+          break;
+        case "MEDICAL_NOTES":
+          caseTabs.medicalNotes = tab.content;
+          break;
+      }
+    });
+
+    // Group marking criteria by domain
+    interface MarkingDomainWithCriteria {
+      domainId: string;
+      domainName: string;
+      criteria: {
+        id: string;
+        text: string;
+        points: number;
+        displayOrder: number;
+      }[];
+    }
+
+    const domainsMap = new Map<string, MarkingDomainWithCriteria>();
+
+    existingAttempt.simulation.courseCase.markingCriteria.forEach((criterion) => {
+      const domainId = criterion.markingDomain.id;
+
+      if (!domainsMap.has(domainId)) {
+        domainsMap.set(domainId, {
+          domainId: criterion.markingDomain.id,
+          domainName: criterion.markingDomain.name,
+          criteria: [],
+        });
+      }
+
+      domainsMap.get(domainId)!.criteria.push({
+        id: criterion.id,
+        text: criterion.text,
+        points: criterion.points,
+        displayOrder: criterion.displayOrder,
+      });
+    });
+
+    const markingDomainsWithCriteria = Array.from(domainsMap.values());
+
+    // Prepare case info
+    const caseInfo = {
+      patientName: existingAttempt.simulation.courseCase.patientName,
+      diagnosis: existingAttempt.simulation.courseCase.diagnosis,
+      caseTitle: existingAttempt.simulation.courseCase.title,
+      patientAge: existingAttempt.simulation.courseCase.patientAge,
+      patientGender: existingAttempt.simulation.courseCase.patientGender,
+    };
+
+    // Generate AI feedback
+    try {
+      console.log(`[SimulationAttempt] Generating AI feedback...`);
+      console.log(`[SimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`);
+
+      const { feedback, score: calculatedScore, prompts, markingStructure } =
+        await this.aiFeedbackService.generateFeedback(
+          cleanTranscript,
+          caseInfo,
+          caseTabs,
+          durationSeconds,
+          markingDomainsWithCriteria
+        );
+
+      // Include full marking structure in the feedback
+      const aiFeedback = {
+        ...feedback,
+        analysisStatus: "success",
+        generatedAt: new Date().toISOString(),
+        regenerated: true, // Flag to indicate this was regenerated
+        caseTabsProvided: {
+          doctorsNote: caseTabs.doctorsNote.length > 0,
+          patientScript: caseTabs.patientScript.length > 0,
+          medicalNotes: caseTabs.medicalNotes.length > 0,
+        },
+        totalMarkingCriteria: existingAttempt.simulation.courseCase.markingCriteria.length,
+        markingDomainsCount: markingDomainsWithCriteria.length,
+        markingStructure: markingStructure,
+        isAdminAttempt: existingAttempt.student.user.isAdmin,
+      } as unknown as Prisma.InputJsonValue;
+
+      const aiPrompt = prompts as unknown as Prisma.InputJsonValue;
+
+      console.log(`[SimulationAttempt] AI feedback generated successfully with score: ${calculatedScore}`);
+
+      // Update the attempt with new feedback
+      const updatedAttempt = await this.prisma.simulationAttempt.update({
+        where: { id: attemptId },
+        data: {
+          aiFeedback,
+          aiPrompt: aiPrompt || undefined,
+          score: calculatedScore,
+          transcript: cleanTranscript as unknown as Prisma.InputJsonValue, // Update to clean format if needed
+          isCompleted: true, // Ensure it's marked as completed
+          endedAt: existingAttempt.endedAt || new Date(),
+          durationSeconds: durationSeconds,
+        },
+        include: {
+          student: true,
+          simulation: {
+            include: {
+              courseCase: {
+                include: {
+                  course: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      console.log(`[SimulationAttempt] Feedback regenerated successfully for attempt ${attemptId}`);
+      return updatedAttempt;
+    } catch (error) {
+      console.error(`[SimulationAttempt] Failed to regenerate feedback:`, error);
+      throw new Error(`Failed to regenerate feedback: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 
