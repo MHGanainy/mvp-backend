@@ -178,6 +178,39 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
     }
   })
 
+  // PATCH /subsection-progress/:id/uncomplete - Mark subsection as incomplete
+  fastify.patch('/subsection-progress/:id/uncomplete', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const { id } = subsectionProgressParamsSchema.parse(request.params)
+
+      const progress = await progressService.findById(id)
+      if (!isAdmin(request)) {
+        const studentId = getCurrentStudentId(request)
+        if (progress.enrollment.studentId !== studentId) {
+          reply.status(403).send({ error: 'You can only uncomplete your own progress' })
+          return
+        }
+      }
+
+      const uncompleted = await progressService.uncomplete(id)
+      reply.send(uncompleted)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Progress not found') {
+          reply.status(404).send({ error: 'Progress not found' })
+        } else if (error.message === 'Subsection is not completed') {
+          reply.status(400).send({ error: error.message })
+        } else {
+          reply.status(500).send({ error: 'Failed to uncomplete subsection' })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
   // PATCH /subsection-progress/:id/add-time - Add time spent
   fastify.patch('/subsection-progress/:id/add-time', {
     preHandler: authenticate

@@ -51,18 +51,10 @@ export class CourseEnrollmentService {
       throw new Error('Student is already enrolled in this course')
     }
 
-    // Check for active subscription
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        studentId: data.studentId,
-        courseId: data.courseId,
-        endDate: { gte: new Date() }
-      }
-    })
-
-    if (!subscription) {
-      throw new Error('Active subscription required for enrollment')
-    }
+    // REMOVED: Subscription requirement check
+    // Enrollment is for progress tracking - access control is handled at section/subsection level
+    // Users can enroll in courses to track their progress on free sections
+    // Subscription is only required to access locked (non-free) sections
 
     return await this.prisma.courseEnrollment.create({
       data: {
@@ -172,6 +164,16 @@ export class CourseEnrollmentService {
       return null
     }
 
+    // Check if student has active subscription to this course
+    const activeSubscription = await this.prisma.subscription.findFirst({
+      where: {
+        studentId,
+        courseId,
+        isActive: true,
+        endDate: { gte: new Date() }
+      }
+    })
+
     // Calculate detailed progress
     const totalSubsections = enrollment.course.courseSections.reduce(
       (sum, section) => sum + section.subsections.length, 0
@@ -182,6 +184,7 @@ export class CourseEnrollmentService {
 
     return {
       ...enrollment,
+      hasActiveSubscription: !!activeSubscription,
       progressDetails: {
         totalSubsections,
         completedSubsections,

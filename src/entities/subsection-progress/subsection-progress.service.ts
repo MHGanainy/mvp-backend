@@ -178,6 +178,35 @@ export class SubsectionProgressService {
     return updated
   }
 
+  async uncomplete(id: string) {
+    const progress = await this.findById(id)
+
+    if (!progress.isCompleted) {
+      throw new Error('Subsection is not completed')
+    }
+
+    // Update progress to uncompleted
+    const updated = await this.prisma.subsectionProgress.update({
+      where: { id },
+      data: {
+        isCompleted: false,
+        completedAt: null,
+        lastAccessedAt: new Date()
+      },
+      include: {
+        subsection: true,
+        enrollment: {
+          select: { id: true, courseId: true, studentId: true }
+        }
+      }
+    })
+
+    // Recalculate enrollment progress
+    await this.recalculateEnrollmentProgress(progress.enrollmentId)
+
+    return updated
+  }
+
   async recalculateEnrollmentProgress(enrollmentId: string) {
     const enrollment = await this.prisma.courseEnrollment.findUnique({
       where: { id: enrollmentId },
