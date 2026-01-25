@@ -780,53 +780,77 @@ export class SimulationAttemptService {
       );
     }
 
-    // Step 2: Fetch attempt with all necessary relations (transcript should now be present)
-    const existingAttempt = await this.prisma.simulationAttempt.findUnique({
-      where: { id: attemptId },
-      include: {
-        student: {
-          include: {
-            user: true, // Include user to check isAdmin
+    // Step 2: Poll for transcript with retry logic (defense in depth)
+    // The orchestrator should wait for the agent to save the transcript,
+    // but we add retries here as a fallback in case of timing issues.
+    const maxRetries = 5;
+    const retryDelayMs = 1000; // 1 second between retries
+    let existingAttempt: any = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      existingAttempt = await this.prisma.simulationAttempt.findUnique({
+        where: { id: attemptId },
+        include: {
+          student: {
+            include: {
+              user: true, // Include user to check isAdmin
+            },
           },
-        },
-        simulation: {
-          include: {
-            courseCase: {
-              include: {
-                course: {
-                  include: {
-                    exam: true,
+          simulation: {
+            include: {
+              courseCase: {
+                include: {
+                  course: {
+                    include: {
+                      exam: true,
+                    },
                   },
-                },
-                caseTabs: true,
-                markingCriteria: {
-                  include: {
-                    markingDomain: true,
+                  caseTabs: true,
+                  markingCriteria: {
+                    include: {
+                      markingDomain: true,
+                    },
+                    orderBy: [
+                      { markingDomain: { name: "asc" } },
+                      { displayOrder: "asc" },
+                    ],
                   },
-                  orderBy: [
-                    { markingDomain: { name: "asc" } },
-                    { displayOrder: "asc" },
-                  ],
                 },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    if (!existingAttempt) {
-      throw new Error("Simulation attempt not found");
+      if (!existingAttempt) {
+        throw new Error("Simulation attempt not found");
+      }
+
+      if (existingAttempt.isCompleted) {
+        throw new Error("Simulation attempt is already completed");
+      }
+
+      // Check if transcript exists
+      if (existingAttempt.transcript) {
+        console.log(
+          `[SimulationAttempt] Transcript found in database on attempt ${attempt}/${maxRetries}`
+        );
+        break;
+      }
+
+      // Transcript not found yet, wait and retry
+      if (attempt < maxRetries) {
+        console.log(
+          `[SimulationAttempt] Transcript not found yet, waiting ${retryDelayMs}ms before retry ${attempt + 1}/${maxRetries}...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
     }
 
-    if (existingAttempt.isCompleted) {
-      throw new Error("Simulation attempt is already completed");
-    }
-
-    // Step 3: Check if transcript was saved by orchestrator
+    // Step 3: Final check after all retries
     if (!existingAttempt.transcript) {
       throw new Error(
-        "No transcript found in database after session end. The orchestrator may have failed to save the transcript."
+        `No transcript found in database after ${maxRetries} attempts (${(maxRetries * retryDelayMs) / 1000}s). The orchestrator may have failed to save the transcript.`
       );
     }
 
@@ -861,19 +885,21 @@ export class SimulationAttemptService {
         medicalNotes: [],
       };
 
-      existingAttempt.simulation.courseCase.caseTabs.forEach((tab) => {
-        switch (tab.tabType) {
-          case "DOCTORS_NOTE":
-            caseTabs.doctorsNote = tab.content;
-            break;
-          case "PATIENT_SCRIPT":
-            caseTabs.patientScript = tab.content;
-            break;
-          case "MEDICAL_NOTES":
-            caseTabs.medicalNotes = tab.content;
-            break;
+      existingAttempt.simulation.courseCase.caseTabs.forEach(
+        (tab: { tabType: string; content: string[] }) => {
+          switch (tab.tabType) {
+            case "DOCTORS_NOTE":
+              caseTabs.doctorsNote = tab.content;
+              break;
+            case "PATIENT_SCRIPT":
+              caseTabs.patientScript = tab.content;
+              break;
+            case "MEDICAL_NOTES":
+              caseTabs.medicalNotes = tab.content;
+              break;
+          }
         }
-      });
+      );
 
       // Group marking criteria by domain
       interface MarkingDomainWithCriteria {
@@ -890,7 +916,13 @@ export class SimulationAttemptService {
       const domainsMap = new Map<string, MarkingDomainWithCriteria>();
 
       existingAttempt.simulation.courseCase.markingCriteria.forEach(
-        (criterion) => {
+        (criterion: {
+          id: string;
+          text: string;
+          points: number;
+          displayOrder: number;
+          markingDomain: { id: string; name: string };
+        }) => {
           const domainId = criterion.markingDomain.id;
 
           if (!domainsMap.has(domainId)) {
