@@ -190,6 +190,7 @@ export class StudentCasePracticeService {
             course: {
               select: {
                 id: true,
+                slug: true,
                 title: true,
                 exam: {
                   select: {
@@ -198,6 +199,16 @@ export class StudentCasePracticeService {
                     slug: true
                   }
                 }
+              }
+            },
+            caseSpecialties: {
+              include: {
+                specialty: true
+              }
+            },
+            caseCurriculums: {
+              include: {
+                curriculum: true
               }
             }
           }

@@ -460,12 +460,27 @@ export class SimulationAttemptService {
         simulation: {
           include: {
             courseCase: {
-              include: {
+              select: {
+                id: true,
+                slug: true,
+                title: true,
+                diagnosis: true,
+                patientName: true,
+                patientAge: true,
+                patientGender: true,
                 course: {
                   select: {
                     id: true,
+                    slug: true,
                     title: true,
                     examId: true,
+                    exam: {
+                      select: {
+                        id: true,
+                        slug: true,
+                        title: true,
+                      },
+                    },
                   },
                 },
               },
@@ -1732,6 +1747,16 @@ export class SimulationAttemptService {
                     exam: true,
                   },
                 },
+                caseSpecialties: {
+                  include: {
+                    specialty: true,
+                  },
+                },
+                caseCurriculums: {
+                  include: {
+                    curriculum: true,
+                  },
+                },
               },
             },
           },
@@ -1908,6 +1933,98 @@ export class SimulationAttemptService {
       return a.averagePercentage - b.averagePercentage;
     });
 
+    // Specialty-level analytics
+    interface SpecialtyStats {
+      examId: string;
+      examTitle: string;
+      specialtyName: string;
+      totalPercentage: number;
+      appearances: number;
+      averagePercentage: number;
+    }
+
+    const specialtyStatsMap = new Map<string, SpecialtyStats>();
+
+    // Curriculum-level analytics
+    interface CurriculumStats {
+      examId: string;
+      examTitle: string;
+      curriculumName: string;
+      totalPercentage: number;
+      appearances: number;
+      averagePercentage: number;
+    }
+
+    const curriculumStatsMap = new Map<string, CurriculumStats>();
+
+    // Process specialties and curriculums from each attempt
+    attempts.forEach((attempt) => {
+      if (!attempt.simulation?.courseCase?.course?.exam) {
+        return;
+      }
+
+      const examId = attempt.simulation.courseCase.course.exam.id;
+      const examTitle = attempt.simulation.courseCase.course.exam.title;
+      const feedback = attempt.aiFeedback as any;
+      const overallPercentage = feedback?.overallResult?.percentageMet || 0;
+
+      // Process specialties
+      if (attempt.simulation.courseCase.caseSpecialties) {
+        attempt.simulation.courseCase.caseSpecialties.forEach((cs: any) => {
+          const specialtyKey = `${examId}-${cs.specialty.name}`;
+
+          if (!specialtyStatsMap.has(specialtyKey)) {
+            specialtyStatsMap.set(specialtyKey, {
+              examId,
+              examTitle,
+              specialtyName: cs.specialty.name,
+              totalPercentage: 0,
+              appearances: 0,
+              averagePercentage: 0,
+            });
+          }
+
+          const stats = specialtyStatsMap.get(specialtyKey)!;
+          stats.totalPercentage += overallPercentage;
+          stats.appearances++;
+        });
+      }
+
+      // Process curriculums
+      if (attempt.simulation.courseCase.caseCurriculums) {
+        attempt.simulation.courseCase.caseCurriculums.forEach((cc: any) => {
+          const curriculumKey = `${examId}-${cc.curriculum.name}`;
+
+          if (!curriculumStatsMap.has(curriculumKey)) {
+            curriculumStatsMap.set(curriculumKey, {
+              examId,
+              examTitle,
+              curriculumName: cc.curriculum.name,
+              totalPercentage: 0,
+              appearances: 0,
+              averagePercentage: 0,
+            });
+          }
+
+          const stats = curriculumStatsMap.get(curriculumKey)!;
+          stats.totalPercentage += overallPercentage;
+          stats.appearances++;
+        });
+      }
+    });
+
+    // Calculate averages for specialties
+    const specialtyStats = Array.from(specialtyStatsMap.values()).map((stats) => {
+      stats.averagePercentage = Math.round(stats.totalPercentage / stats.appearances);
+      return stats;
+    }).sort((a, b) => a.averagePercentage - b.averagePercentage); // Sort worst to best
+
+    // Calculate averages for curriculums
+    const curriculumStats = Array.from(curriculumStatsMap.values()).map((stats) => {
+      stats.averagePercentage = Math.round(stats.totalPercentage / stats.appearances);
+      return stats;
+    }).sort((a, b) => a.averagePercentage - b.averagePercentage); // Sort worst to best
+
     // Overall summary
     const totalAttempts = attempts.length;
     console.log(
@@ -1949,6 +2066,13 @@ export class SimulationAttemptService {
       domainPerformance: domainStats,
       weakestDomains: domainStats.slice(0, 3),
       strongestDomains: domainStats.slice(-3).reverse(),
+      // New specialty and curriculum performance data
+      specialtyPerformance: specialtyStats,
+      curriculumPerformance: curriculumStats,
+      weakestSpecialties: specialtyStats.slice(0, 5),
+      strongestSpecialties: specialtyStats.slice(-5).reverse(),
+      weakestCurriculums: curriculumStats.slice(0, 5),
+      strongestCurriculums: curriculumStats.slice(-5).reverse(),
     };
   }
 }

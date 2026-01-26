@@ -159,6 +159,33 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // PUT /course-enrollments/:id/track-access - Update lastAccessedAt
+  fastify.put('/course-enrollments/:id/track-access', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const { id } = courseEnrollmentParamsSchema.parse(request.params)
+
+      // Get enrollment to verify access
+      const enrollment = await enrollmentService.findById(id, false)
+
+      // Verify access - student can only update their own enrollments
+      if (!isAdmin(request) && !canAccessStudentResource(request, enrollment.student.id)) {
+        reply.status(403).send({ error: 'Access denied' })
+        return
+      }
+
+      const updatedEnrollment = await enrollmentService.updateLastAccessed(id)
+      reply.send(updatedEnrollment)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Enrollment not found') {
+        reply.status(404).send({ error: 'Enrollment not found' })
+      } else {
+        reply.status(500).send({ error: 'Failed to update access time' })
+      }
+    }
+  })
+
   // DELETE /course-enrollments/:id (admin only)
   fastify.delete('/course-enrollments/:id', {
     preHandler: authenticate

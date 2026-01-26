@@ -198,14 +198,14 @@ export default async function studentRoutes(fastify: FastifyInstance) {
       const { userId } = studentUserParamsSchema.parse(request.params)
       const { amount } = request.params as { amount: string }
       const requiredAmount = parseInt(amount)
-      
+
       if (isNaN(requiredAmount) || requiredAmount <= 0) {
         return reply.status(400).send({ error: 'Invalid amount' })
       }
-      
+
       const hasSufficientCredits = await studentService.checkSufficientCredits(userId, requiredAmount)
       const currentBalance = await studentService.getCreditBalance(userId)
-      
+
       reply.send({
         userId,
         requiredAmount,
@@ -218,6 +218,27 @@ export default async function studentRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Student not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // GET /students/:studentId/quick-access - Get quick access data (recent exams and courses)
+  fastify.get('/students/:studentId/quick-access', async (request, reply) => {
+    try {
+      const { studentId } = request.params as { studentId: string }
+
+      // Validate UUID format
+      if (!studentId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(studentId)) {
+        return reply.status(400).send({ error: 'Invalid student ID' })
+      }
+
+      const quickAccess = await studentService.getQuickAccess(studentId)
+      reply.send(quickAccess)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Student not found') {
+        reply.status(404).send({ error: 'Student not found' })
+      } else {
+        reply.status(500).send({ error: 'Failed to fetch quick access data' })
       }
     }
   })
