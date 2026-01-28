@@ -194,18 +194,27 @@ export class EmailService {
       freeCredits && freeCredits > 0
         ? `
               <div style="background-color: #dbeafe; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #3b82f6;">
-                <h2 style="margin-top: 0; color: #003180;">🎁 Free Credits on Us!</h2>
+                <h2 style="margin-top: 0; color: #003180;">🎁 Your Free Access is Ready!</h2>
                 <p style="font-size: 18px; margin: 10px 0;">
-                  <strong>We're giving you <span style="color: #3b82f6; font-size: 24px;">${freeCredits} free credits</span> to try out our product!</strong>
+                  <strong>Your account has been topped up with <span style="color: #3b82f6; font-size: 24px;">${freeCredits} AI credits</span> (${freeCredits} minutes of simulation time)!</strong>
                 </p>
-                <p>These credits are already in your account and ready to use. Start exploring our platform and experience all the amazing features we have to offer.</p>
+                <p style="margin: 15px 0;">
+                  <strong>What does this mean?</strong><br/>
+                  • 1 AI credit = 1 minute of AI-powered patient simulation<br/>
+                  • Practice with realistic patient scenarios for different medical exams<br/>
+                  • Access to diverse exam scenarios including PLAB, SCA, and more<br/>
+                  • Generated feedback based on real exam marking criteria after every simulation<br/>
+                  • Smart analytics to track your performance and progress<br/>
+                  • Improve your clinical communication and diagnostic skills
+                </p>
+                <p>These credits are already in your account and ready to use. Start practicing with our AI-powered simulated patients and prepare for your medical exams with confidence!</p>
               </div>
             `
         : "";
 
     const creditsText =
       freeCredits && freeCredits > 0
-        ? `\n\n🎁 Great news! We're giving you ${freeCredits} free credits to try out our product! These credits are already in your account and ready to use.`
+        ? `\n\n🎁 Your Free Access is Ready!\n\nYour account has been topped up with ${freeCredits} AI credits (${freeCredits} minutes of simulation time)!\n\nWhat does this mean?\n• 1 AI credit = 1 minute of AI-powered patient simulation\n• Practice with realistic patient scenarios for different medical exams\n• Access to diverse exam scenarios including PLAB, SCA, and more\n• Generated feedback based on real exam marking criteria after every simulation\n• Smart analytics to track your performance and progress\n• Improve your clinical communication and diagnostic skills\n\nThese credits are already in your account and ready to use. Start practicing with our AI-powered simulated patients and prepare for your medical exams with confidence!`
         : "";
 
     const mailOptions = {

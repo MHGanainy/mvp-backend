@@ -7,5 +7,5 @@ export const CREDITS = {
   /**
    * Number of free credits given to new students upon registration
    */
-  WELCOME_BONUS: 20,
+  WELCOME_BONUS: 30,
 } as const;
