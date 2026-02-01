@@ -1,10 +1,13 @@
 // src/server.ts
+import 'dotenv/config';
 import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import fastifyJwt from "@fastify/jwt";
 import fastifyCors from "@fastify/cors";
+import { randomUUID } from "crypto";
 import "./shared/types";
 import { optionalAuth } from "./middleware/auth.middleware";
+import { JWTPayload } from "./entities/auth/auth.schema";
 
 // Add all imports
 import authRoutes from "./entities/auth/auth.routes";
@@ -38,7 +41,17 @@ import studentCasePracticeRoutes from "./entities/student-case-practice/student-
 import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
-const fastify = Fastify({ logger: true });
+const fastify = Fastify({
+  logger: {
+    level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
+    ...(process.env.NODE_ENV !== 'production' && {
+      transport: {
+        target: 'pino-pretty',
+        options: { colorize: true }
+      }
+    })
+  }
+});
 const prisma = new PrismaClient();
 
 // Register prisma on fastify instance
@@ -76,6 +89,12 @@ fastify.addContentTypeParser(
   }
 );
 
+// REQUEST ID HOOK - Generate/propagate request ID for logging correlation
+fastify.addHook("onRequest", async (request) => {
+  const headerRequestId = request.headers['x-request-id'];
+  request.requestId = (typeof headerRequestId === 'string' ? headerRequestId : headerRequestId?.[0]) || randomUUID();
+});
+
 // GLOBAL AUTHENTICATION HOOK - Runs on EVERY request
 // This attempts to authenticate but doesn't block if no token
 // Ensures admin users are always identified
@@ -91,6 +110,75 @@ fastify.addHook("onRequest", async (request, reply) => {
 
   // Attempt to authenticate on every request
   await optionalAuth(request, reply);
+});
+
+// USER CONTEXT LOGGING HOOK - Add user info to logger after auth
+fastify.addHook("preHandler", async (request) => {
+  const user = request.user as JWTPayload | undefined;
+  const context = {
+    requestId: request.requestId,
+    ...(user && {
+      userId: user.userId,
+      userEmail: user.email,
+      userRole: user.role
+    })
+  };
+  request.log = request.log.child({ context });
+});
+
+// REQUEST/RESPONSE LOGGING HOOK - Log every request with its result
+fastify.addHook("onResponse", async (request, reply) => {
+  const responseTime = reply.elapsedTime;
+  const user = request.user as JWTPayload | undefined;
+
+  const context = {
+    requestId: request.requestId,
+    ...(user && {
+      userId: user.userId,
+      userEmail: user.email,
+      userRole: user.role
+    })
+  };
+
+  const logData = {
+    context,
+    method: request.method,
+    path: request.url,
+    statusCode: reply.statusCode,
+    responseTime: Math.round(responseTime)
+  };
+
+  if (reply.statusCode >= 500) {
+    request.log.error(logData, 'Request failed');
+  } else if (reply.statusCode >= 400) {
+    request.log.warn(logData, 'Request error');
+  } else {
+    request.log.info(logData, 'Request completed');
+  }
+});
+
+// GLOBAL ERROR HANDLER - Structured error logging
+fastify.setErrorHandler((error, request, reply) => {
+  const user = request.user as JWTPayload | undefined;
+  const context = {
+    requestId: request.requestId,
+    ...(user && {
+      userId: user.userId,
+      userEmail: user.email,
+      userRole: user.role
+    })
+  };
+
+  request.log.error({
+    context,
+    err: error,
+    method: request.method,
+    path: request.url
+  }, 'Unhandled error');
+
+  reply.status(error.statusCode || 500).send({
+    error: error.message || 'Internal server error'
+  });
 });
 
 // Health check
@@ -201,30 +289,30 @@ const start = async () => {
     const host = process.env.HOST || "0.0.0.0";
 
     await fastify.listen({ port, host });
-    console.log(`🚀 Server running on ${host}:${port}`);
-    console.log(`🔐 JWT authentication enabled with global auth hook`);
-    console.log(`👤 Admin users automatically identified on all routes`);
-    console.log(`🌐 CORS enabled for ALL origins`);
+    fastify.log.info({ host, port }, 'Server running');
+    fastify.log.info('JWT authentication enabled with global auth hook');
+    fastify.log.info('Admin users automatically identified on all routes');
+    fastify.log.info('CORS enabled for ALL origins');
 
     // Start cleanup service for pending registrations
-    const cleanupService = new CleanupService(prisma);
+    const cleanupService = new CleanupService(prisma, fastify.log);
 
     // Run initial cleanup
-    console.log("🧹 Running initial cleanup...");
+    fastify.log.info('Running initial cleanup');
     await cleanupService.cleanupExpiredOTPs();
 
     // Run cleanup every 6 hours
     setInterval(async () => {
-      console.log("🧹 Running scheduled cleanup...");
+      fastify.log.info('Running scheduled cleanup');
       try {
         await cleanupService.cleanupExpiredOTPs();
         await cleanupService.cleanupExpiredPendingRegistrations();
       } catch (error) {
-        console.error("❌ Cleanup failed:", error);
+        fastify.log.error({ err: error }, 'Cleanup failed');
       }
     }, 6 * 60 * 60 * 1000); // 6 hours
 
-    console.log("🧹 Cleanup service started (runs every 6 hours)");
+    fastify.log.info('Cleanup service started (runs every 6 hours)');
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

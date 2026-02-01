@@ -15,7 +15,7 @@ import {
 export default async function simulationAttemptRoutes(
   fastify: FastifyInstance
 ) {
-  const simulationAttemptService = new SimulationAttemptService(fastify.prisma);
+  const simulationAttemptService = new SimulationAttemptService(fastify.prisma, fastify.log);
 
   // GET /simulation-attempts - Get all simulation attempts (with query filters)
   fastify.get("/simulation-attempts", async (request, reply) => {
@@ -250,7 +250,7 @@ export default async function simulationAttemptRoutes(
             minimumRequired: 1,
           });
         } else {
-          console.error("Validation error:", error);
+          request.log.error({ err: error }, 'Validation error');
           reply.status(400).send({
             error: "Invalid data",
             details: error.message,
@@ -481,7 +481,7 @@ export default async function simulationAttemptRoutes(
           },
         });
       } catch (error) {
-        console.error("Error completing simulation with transcript:", error);
+        request.log.error({ err: error }, 'Error completing simulation with transcript');
 
         if (error instanceof Error) {
           if (error.message === "Simulation attempt not found") {
@@ -551,7 +551,7 @@ export default async function simulationAttemptRoutes(
             : null,
         });
       } catch (error) {
-        console.error("Error regenerating feedback:", error);
+        request.log.error({ err: error }, 'Error regenerating feedback');
 
         if (error instanceof Error) {
           if (error.message === "Simulation attempt not found") {
@@ -697,7 +697,7 @@ export default async function simulationAttemptRoutes(
           },
         });
       } catch (error) {
-        console.error("Error testing enhanced AI feedback:", error);
+        request.log.error({ err: error }, 'Error testing enhanced AI feedback');
         reply.status(500).send({
           error: "Failed to generate test AI feedback",
           details: error instanceof Error ? error.message : "Unknown error",
@@ -731,7 +731,7 @@ export default async function simulationAttemptRoutes(
             .status(400)
             .send({ error: "Cannot cancel a completed simulation attempt" });
         } else {
-          console.error("Error cancelling simulation attempt:", error);
+          request.log.error({ err: error }, 'Error cancelling simulation attempt');
           reply
             .status(400)
             .send({

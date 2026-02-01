@@ -86,9 +86,9 @@ export async function optionalAuth(request: FastifyRequest, reply: FastifyReply)
     request.role = user.role
     request.isAdmin = user.isAdmin || false
     
-    // Log for debugging (remove in production)
+    // Log admin detection at debug level
     if (user.isAdmin) {
-      console.log(`🔑 Admin user detected: ${user.email}`)
+      request.log.debug({ email: user.email }, 'Admin user detected')
     }
   } catch (err) {
     // Token is invalid or expired, set defaults and continue
