@@ -1,8 +1,12 @@
 // src/services/cleanup.service.ts
 import { PrismaClient } from '@prisma/client'
+import { FastifyBaseLogger } from 'fastify'
 
 export class CleanupService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(
+    private prisma: PrismaClient,
+    private log: FastifyBaseLogger
+  ) {}
 
   /**
    * Delete pending registrations older than 24 hours
@@ -20,7 +24,7 @@ export class CleanupService {
       }
     })
 
-    console.log(`🧹 Cleaned up ${result.count} expired pending registrations`)
+    this.log.info({ count: result.count }, 'Cleaned up expired pending registrations')
     return result.count
   }
 
@@ -38,7 +42,7 @@ export class CleanupService {
       }
     })
 
-    console.log(`🧹 Cleaned up ${result.count} pending registrations with expired OTPs`)
+    this.log.info({ count: result.count }, 'Cleaned up pending registrations with expired OTPs')
     return result.count
   }
 }

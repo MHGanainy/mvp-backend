@@ -17,13 +17,13 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
       const signature = request.headers['stripe-signature'];
 
       if (!rawBody) {
-        fastify.log.error('Missing raw body for webhook');
+        request.log.error('Missing raw body for webhook');
         reply.status(400).send({ error: 'Missing request body' });
         return;
       }
 
       if (!signature || typeof signature !== 'string') {
-        fastify.log.error('Missing Stripe signature header');
+        request.log.error('Missing Stripe signature header');
         reply.status(400).send({ error: 'Missing stripe-signature header' });
         return;
       }
@@ -33,17 +33,17 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
       try {
         event = webhookService.verifyWebhookSignature(rawBody, signature);
       } catch (error: any) {
-        fastify.log.error(`Webhook signature verification failed: ${error.message}`);
+        request.log.error({ err: error }, 'Webhook signature verification failed');
         reply.status(400).send({ error: 'Invalid signature' });
         return;
       }
 
-      console.log(`📥 Webhook received: ${event.type} (${event.id})`);
+      request.log.info({ eventType: event.type, eventId: event.id }, 'Webhook received');
 
       // 3. Check idempotency - have we already processed this event?
       const alreadyProcessed = await webhookService.checkIdempotency(event.id);
       if (alreadyProcessed) {
-        console.log(`⏩ Event ${event.id} already processed, returning success`);
+        request.log.info({ eventId: event.id }, 'Event already processed, returning success');
         reply.status(200).send({ received: true, message: 'Event already processed' });
         return;
       }
@@ -52,7 +52,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
       try {
         await webhookService.processWebhookEvent(event);
       } catch (error: any) {
-        fastify.log.error(`Error processing webhook event: ${error.message}`);
+        request.log.error({ err: error, eventId: event.id }, 'Error processing webhook event');
         // Still record the event but mark as failed
         await webhookService.recordWebhookEvent(event.id, event.type, {
           ...event,
@@ -67,12 +67,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
       await webhookService.recordWebhookEvent(event.id, event.type, event);
 
       const processingTime = Date.now() - startTime;
-      console.log(`✅ Webhook processed successfully in ${processingTime}ms`);
+      request.log.info({ eventId: event.id, processingTime }, 'Webhook processed successfully');
 
       // 6. Return 200 OK to Stripe (critical!)
       reply.status(200).send({ received: true });
     } catch (error: any) {
-      fastify.log.error('Unexpected webhook error:', error);
+      request.log.error({ err: error }, 'Unexpected webhook error');
       reply.status(500).send({ error: 'Internal server error' });
     }
   });

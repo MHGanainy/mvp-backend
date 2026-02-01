@@ -13,11 +13,48 @@ import {
   VoiceAgentTranscript,
 } from "../../services/transcript-processor.service";
 import { StudentCasePracticeService } from "../student-case-practice/student-case-practice.service";
+import { FastifyBaseLogger } from "fastify";
+
+// Simple logger interface for structured logging
+interface ServiceLogger {
+  info: (obj: object, msg?: string) => void;
+  warn: (obj: object, msg?: string) => void;
+  error: (obj: object, msg?: string) => void;
+  debug: (obj: object, msg?: string) => void;
+}
+
+// Create a console-based structured logger as fallback
+function createConsoleLogger(): ServiceLogger {
+  const formatLog = (level: string, obj: object, msg?: string) => {
+    const logObj = {
+      level,
+      time: Date.now(),
+      ...obj,
+      ...(msg && { msg })
+    };
+    if (process.env.NODE_ENV === 'production') {
+      console.log(JSON.stringify(logObj));
+    } else {
+      const prefix = level === 'error' ? '[ERROR]' : level === 'warn' ? '[WARN]' : level === 'debug' ? '[DEBUG]' : '[INFO]';
+      console.log(`${prefix} ${msg || ''} ${JSON.stringify(obj, null, 2)}`);
+    }
+  };
+
+  return {
+    info: (obj, msg) => formatLog('info', obj, msg),
+    warn: (obj, msg) => formatLog('warn', obj, msg),
+    error: (obj, msg) => formatLog('error', obj, msg),
+    debug: (obj, msg) => formatLog('debug', obj, msg),
+  };
+}
 
 export class SimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
   private studentCasePracticeService: StudentCasePracticeService;
-  constructor(private prisma: PrismaClient) {
+  private log: ServiceLogger;
+
+  constructor(private prisma: PrismaClient, logger?: FastifyBaseLogger) {
+    this.log = logger || createConsoleLogger();
     this.aiFeedbackService = createAIFeedbackService({
       provider: AIProvider.GROQ,
       apiKey: process.env.GROQ_API_KEY,
@@ -109,12 +146,14 @@ export class SimulationAttemptService {
 
     // Log the attempt creation for billing tracking
     if (student.user.isAdmin) {
-      console.log(
-        `[BILLING] Admin simulation attempt created. ID: ${attempt.id}, Token: ${correlationToken} - NO CHARGES APPLY`
+      this.log.info(
+        { attemptId: attempt.id, correlationToken, isAdmin: true },
+        'Admin simulation attempt created - NO CHARGES APPLY'
       );
     } else {
-      console.log(
-        `[BILLING] Simulation attempt created without upfront charge. ID: ${attempt.id}, Token: ${correlationToken}`
+      this.log.info(
+        { attemptId: attempt.id, correlationToken },
+        'Simulation attempt created without upfront charge'
       );
     }
 
@@ -123,8 +162,7 @@ export class SimulationAttemptService {
       // Use voiceId from frontend request, fallback to Ashley if not provided
       const voiceId = data.voiceId || "Ashley";
 
-      console.log(`[SimulationAttempt] Voice requested: ${voiceId}`);
-      console.log(`[SimulationAttempt] Correlation token: ${correlationToken}`);
+      this.log.info({ voiceId, correlationToken }, 'Creating LiveKit session');
 
       const livekitConfig = await livekitVoiceService.createSession(
         correlationToken,
@@ -136,8 +174,9 @@ export class SimulationAttemptService {
         }
       );
 
-      console.log(
-        `[LiveKit] Session created for attempt ${attempt.id} with voice: ${voiceId}`
+      this.log.info(
+        { attemptId: attempt.id, voiceId },
+        'LiveKit session created'
       );
 
       return {
@@ -151,7 +190,7 @@ export class SimulationAttemptService {
         isAdmin: student.user.isAdmin,
       };
     } catch (error: any) {
-      console.error(`[LiveKit] Failed to create session:`, error.message);
+      this.log.error({ err: error }, 'Failed to create LiveKit session');
       throw new Error(`Failed to start voice session: ${error.message}`);
     }
   }
@@ -175,11 +214,12 @@ export class SimulationAttemptService {
 
     // Close the LiveKit session if it exists
     if (attempt.correlationToken) {
-      console.log(
-        `[SimulationAttempt] Closing LiveKit session for attempt ${id} (correlation: ${attempt.correlationToken})`
+      this.log.info(
+        { attemptId: id, correlationToken: attempt.correlationToken },
+        'Closing LiveKit session for attempt completion'
       );
       await livekitVoiceService.endSession(attempt.correlationToken);
-      console.log(`[SimulationAttempt] LiveKit session end request sent`);
+      this.log.info({ attemptId: id }, 'LiveKit session end request sent');
     }
 
     const endTime = new Date();
@@ -247,11 +287,12 @@ export class SimulationAttemptService {
 
     // Force close the LiveKit session (this commits transcript to database)
     if (attempt.correlationToken) {
-      console.log(
-        `[SimulationAttempt] Cancelling attempt ${id}, closing LiveKit session ${attempt.correlationToken}`
+      this.log.info(
+        { attemptId: id, correlationToken: attempt.correlationToken },
+        'Cancelling attempt, closing LiveKit session'
       );
       await livekitVoiceService.endSession(attempt.correlationToken);
-      console.log(`[SimulationAttempt] LiveKit session ended`);
+      this.log.info({ attemptId: id }, 'LiveKit session ended');
     }
 
     // Fetch the attempt again to get the transcript that was just saved by session end
@@ -265,23 +306,19 @@ export class SimulationAttemptService {
 
     if (attemptWithTranscript?.transcript) {
       try {
-        console.log(
-          `[SimulationAttempt] Processing transcript to clean format...`
-        );
+        this.log.info({ attemptId: id }, 'Processing transcript to clean format');
         const voiceTranscript =
           attemptWithTranscript.transcript as unknown as VoiceAgentTranscript;
         const processedTranscript =
           TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
         cleanTranscript =
           processedTranscript as unknown as Prisma.InputJsonValue;
-        console.log(
-          `[SimulationAttempt] Transcript processed: ${processedTranscript.totalMessages} messages, ${processedTranscript.duration}s duration`
+        this.log.info(
+          { attemptId: id, totalMessages: processedTranscript.totalMessages, duration: processedTranscript.duration },
+          'Transcript processed'
         );
       } catch (error) {
-        console.error(
-          `[SimulationAttempt] Failed to process transcript:`,
-          error
-        );
+        this.log.error({ err: error, attemptId: id }, 'Failed to process transcript');
         // Keep original transcript if processing fails
         cleanTranscript = attemptWithTranscript.transcript;
       }
@@ -309,7 +346,7 @@ export class SimulationAttemptService {
       },
     });
 
-    console.log(`[SimulationAttempt] Attempt ${id} cancelled successfully`);
+    this.log.info({ attemptId: id }, 'Attempt cancelled successfully');
   }
 
   async findAll(query?: {
@@ -594,8 +631,9 @@ export class SimulationAttemptService {
 
     // Close the LiveKit session if it exists
     if (attempt.correlationToken) {
-      console.log(
-        `[SimulationAttempt] Deleting attempt ${id}, closing LiveKit session ${attempt.correlationToken}`
+      this.log.info(
+        { attemptId: id, correlationToken: attempt.correlationToken },
+        'Deleting attempt, closing LiveKit session'
       );
       await livekitVoiceService.endSession(attempt.correlationToken);
     }
@@ -631,7 +669,7 @@ export class SimulationAttemptService {
       });
     }
 
-    console.log(`[SimulationAttempt] Attempt ${id} deleted successfully`);
+    this.log.info({ attemptId: id }, 'Attempt deleted successfully');
   }
 
   // BUSINESS LOGIC METHODS
@@ -775,23 +813,24 @@ export class SimulationAttemptService {
     attemptId: string,
     correlationToken: string
   ): Promise<any> {
-    console.log(
-      `[SimulationAttempt] Completing attempt ${attemptId} with transcript processing`
+    this.log.info(
+      { attemptId, correlationToken },
+      'Completing attempt with transcript processing'
     );
 
     // Step 1: End the LiveKit session (this commits transcript to database)
-    console.log(
-      `[SimulationAttempt] Ending LiveKit session for correlation token: ${correlationToken}`
-    );
+    this.log.info({ correlationToken }, 'Ending LiveKit session');
     const endResult = await livekitVoiceService.endSession(correlationToken);
 
     if (endResult.status === "error") {
-      console.warn(
-        `[SimulationAttempt] Session end failed (${endResult.message}). Will check if transcript is already in database.`
+      this.log.warn(
+        { correlationToken, message: endResult.message },
+        'Session end failed, will check if transcript is already in database'
       );
     } else {
-      console.log(
-        `[SimulationAttempt] LiveKit session ended successfully. Transcript should now be in database.`
+      this.log.info(
+        { correlationToken },
+        'LiveKit session ended successfully, transcript should now be in database'
       );
     }
 
@@ -847,16 +886,18 @@ export class SimulationAttemptService {
 
       // Check if transcript exists
       if (existingAttempt.transcript) {
-        console.log(
-          `[SimulationAttempt] Transcript found in database on attempt ${attempt}/${maxRetries}`
+        this.log.info(
+          { attemptId, retryAttempt: attempt, maxRetries },
+          'Transcript found in database'
         );
         break;
       }
 
       // Transcript not found yet, wait and retry
       if (attempt < maxRetries) {
-        console.log(
-          `[SimulationAttempt] Transcript not found yet, waiting ${retryDelayMs}ms before retry ${attempt + 1}/${maxRetries}...`
+        this.log.info(
+          { attemptId, retryAttempt: attempt + 1, maxRetries, retryDelayMs },
+          'Transcript not found yet, waiting before retry'
         );
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
       }
@@ -869,7 +910,7 @@ export class SimulationAttemptService {
       );
     }
 
-    console.log(`[SimulationAttempt] Transcript found in database`);
+    this.log.info({ attemptId }, 'Transcript found in database');
     const voiceTranscript =
       existingAttempt.transcript as unknown as VoiceAgentTranscript;
 
@@ -880,11 +921,12 @@ export class SimulationAttemptService {
 
     try {
       // Step 4: Process the transcript - transform and merge split messages
-      console.log(`[SimulationAttempt] Processing transcript...`);
+      this.log.info({ attemptId }, 'Processing transcript');
       const cleanTranscript =
         TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
-      console.log(
-        `[SimulationAttempt] Transcript processed: ${cleanTranscript.totalMessages} messages, ${cleanTranscript.duration}s duration`
+      this.log.info(
+        { attemptId, totalMessages: cleanTranscript.totalMessages, duration: cleanTranscript.duration },
+        'Transcript processed'
       );
 
       // Extract case tabs (doctor's notes, patient script, medical notes)
@@ -974,9 +1016,9 @@ export class SimulationAttemptService {
 
       // Generate AI feedback
       try {
-        console.log(`[SimulationAttempt] Generating AI feedback...`);
-        console.log(
-          `[SimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`
+        this.log.info(
+          { attemptId, markingDomainsCount: markingDomainsWithCriteria.length },
+          'Generating AI feedback'
         );
 
         const {
@@ -1012,14 +1054,9 @@ export class SimulationAttemptService {
         score = calculatedScore;
         aiPrompt = prompts as unknown as Prisma.InputJsonValue;
 
-        console.log(
-          `[SimulationAttempt] AI feedback generated successfully with score: ${score}`
-        );
+        this.log.info({ attemptId, score }, 'AI feedback generated successfully');
       } catch (aiError) {
-        console.error(
-          "[SimulationAttempt] AI feedback generation failed:",
-          aiError
-        );
+        this.log.error({ err: aiError, attemptId }, 'AI feedback generation failed');
         aiFeedback = {
           analysisStatus: "failed",
           error:
@@ -1057,9 +1094,7 @@ export class SimulationAttemptService {
         },
       });
 
-      console.log(
-        `[SimulationAttempt] Attempt ${attemptId} completed successfully with AI feedback`
-      );
+      this.log.info({ attemptId }, 'Attempt completed successfully with AI feedback');
 
       // Update student's practice status for this case
       try {
@@ -1067,22 +1102,23 @@ export class SimulationAttemptService {
           updatedAttempt.studentId,
           updatedAttempt.simulation.courseCaseId
         );
-        console.log(
-          `[SimulationAttempt] Updated practice status for student ${updatedAttempt.studentId} on case ${updatedAttempt.simulation.courseCaseId}`
+        this.log.info(
+          { studentId: updatedAttempt.studentId, courseCaseId: updatedAttempt.simulation.courseCaseId },
+          'Updated practice status for student'
         );
       } catch (practiceError) {
         // Log but don't fail the main operation
-        console.error(
-          "[SimulationAttempt] Failed to update practice status:",
-          practiceError
+        this.log.error(
+          { err: practiceError, studentId: updatedAttempt.studentId, courseCaseId: updatedAttempt.simulation.courseCaseId },
+          'Failed to update practice status'
         );
       }
 
       return updatedAttempt;
     } catch (error) {
-      console.error(
-        "[SimulationAttempt] Error processing transcript and generating feedback:",
-        error
+      this.log.error(
+        { err: error, attemptId },
+        'Error processing transcript and generating feedback'
       );
 
       // ⭐ CRITICAL: Try to save the cleaned transcript even if AI feedback fails
@@ -1092,9 +1128,12 @@ export class SimulationAttemptService {
         const voiceTranscript = existingAttempt.transcript as unknown as VoiceAgentTranscript;
         const cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
         transcriptToSave = cleanTranscript as unknown as Prisma.InputJsonValue;
-        console.log(`[SimulationAttempt] Successfully saved cleaned transcript despite AI failure: ${cleanTranscript.totalMessages} messages`);
+        this.log.info(
+          { attemptId, totalMessages: cleanTranscript.totalMessages },
+          'Successfully saved cleaned transcript despite AI failure'
+        );
       } catch (transcriptError) {
-        console.error(`[SimulationAttempt] Could not clean transcript, saving raw transcript:`, transcriptError);
+        this.log.error({ err: transcriptError, attemptId }, 'Could not clean transcript, saving raw transcript');
         transcriptToSave = existingAttempt.transcript || undefined;
       }
 
@@ -1129,9 +1168,7 @@ export class SimulationAttemptService {
         },
       });
 
-      console.log(
-        `[SimulationAttempt] Attempt ${attemptId} marked as complete with error`
-      );
+      this.log.warn({ attemptId }, 'Attempt marked as complete with error');
 
       // Still update practice status even for failed attempts
       try {
@@ -1139,13 +1176,14 @@ export class SimulationAttemptService {
           fallbackAttempt.studentId,
           fallbackAttempt.simulation.courseCaseId
         );
-        console.log(
-          `[SimulationAttempt] Updated practice status for student ${fallbackAttempt.studentId} on case ${fallbackAttempt.simulation.courseCaseId}`
+        this.log.info(
+          { studentId: fallbackAttempt.studentId, courseCaseId: fallbackAttempt.simulation.courseCaseId },
+          'Updated practice status for student'
         );
       } catch (practiceError) {
-        console.error(
-          "[SimulationAttempt] Failed to update practice status:",
-          practiceError
+        this.log.error(
+          { err: practiceError, studentId: fallbackAttempt.studentId, courseCaseId: fallbackAttempt.simulation.courseCaseId },
+          'Failed to update practice status'
         );
       }
 
@@ -1158,7 +1196,7 @@ export class SimulationAttemptService {
    * This is used when feedback generation initially failed or needs to be re-run
    */
   async generateFeedbackForExistingAttempt(attemptId: string): Promise<any> {
-    console.log(`[SimulationAttempt] Regenerating feedback for attempt ${attemptId}`);
+    this.log.info({ attemptId }, 'Regenerating feedback for attempt');
 
     // Fetch attempt with all necessary relations
     const existingAttempt = await this.prisma.simulationAttempt.findUnique({
@@ -1206,13 +1244,14 @@ export class SimulationAttemptService {
       );
     }
 
-    console.log(`[SimulationAttempt] Transcript found, processing...`);
+    this.log.info({ attemptId }, 'Transcript found, processing');
     const voiceTranscript = existingAttempt.transcript as unknown as VoiceAgentTranscript;
 
     // Process transcript to clean format
     const cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
-    console.log(
-      `[SimulationAttempt] Transcript processed: ${cleanTranscript.totalMessages} messages, ${cleanTranscript.duration}s duration`
+    this.log.info(
+      { attemptId, totalMessages: cleanTranscript.totalMessages, duration: cleanTranscript.duration },
+      'Transcript processed'
     );
 
     // Calculate duration
@@ -1292,8 +1331,10 @@ export class SimulationAttemptService {
 
     // Generate AI feedback
     try {
-      console.log(`[SimulationAttempt] Generating AI feedback...`);
-      console.log(`[SimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`);
+      this.log.info(
+        { attemptId, markingDomainsCount: markingDomainsWithCriteria.length },
+        'Generating AI feedback'
+      );
 
       const { feedback, score: calculatedScore, prompts, markingStructure } =
         await this.aiFeedbackService.generateFeedback(
@@ -1323,7 +1364,7 @@ export class SimulationAttemptService {
 
       const aiPrompt = prompts as unknown as Prisma.InputJsonValue;
 
-      console.log(`[SimulationAttempt] AI feedback generated successfully with score: ${calculatedScore}`);
+      this.log.info({ attemptId, score: calculatedScore }, 'AI feedback generated successfully');
 
       // Update the attempt with new feedback
       const updatedAttempt = await this.prisma.simulationAttempt.update({
@@ -1351,10 +1392,10 @@ export class SimulationAttemptService {
         },
       });
 
-      console.log(`[SimulationAttempt] Feedback regenerated successfully for attempt ${attemptId}`);
+      this.log.info({ attemptId }, 'Feedback regenerated successfully');
       return updatedAttempt;
     } catch (error) {
-      console.error(`[SimulationAttempt] Failed to regenerate feedback:`, error);
+      this.log.error({ err: error, attemptId }, 'Failed to regenerate feedback');
       throw new Error(`Failed to regenerate feedback: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
@@ -1838,8 +1879,9 @@ export class SimulationAttemptService {
       const normalizedClassification = classification
         .toUpperCase()
         .replace(/\s+/g, "_");
-      console.log(
-        `[Analytics] Exam "${examTitle}" - Classification: "${classification}" -> Normalized: "${normalizedClassification}"`
+      this.log.debug(
+        { examTitle, classification, normalizedClassification },
+        'Processing exam classification'
       );
 
       if (normalizedClassification === "CLEAR_PASS") {
@@ -1855,8 +1897,9 @@ export class SimulationAttemptService {
         examStats.borderlineFailCount++;
         examStats.failCount++;
       } else if (normalizedClassification !== "") {
-        console.warn(
-          `[Analytics] Unknown classification: "${classification}" (normalized: "${normalizedClassification}")`
+        this.log.warn(
+          { classification, normalizedClassification },
+          'Unknown classification encountered'
         );
       }
 
@@ -2027,9 +2070,7 @@ export class SimulationAttemptService {
 
     // Overall summary
     const totalAttempts = attempts.length;
-    console.log(
-      `[Analytics] Processing ${totalAttempts} completed attempts with feedback`
-    );
+    this.log.debug({ studentId, totalAttempts }, 'Processing completed attempts with feedback');
 
     const overallPassCount = attempts.filter((a) => {
       const label =
@@ -2037,17 +2078,13 @@ export class SimulationAttemptService {
       // Normalize and check if it contains "PASS" (case-insensitive)
       const normalizedLabel = label.toUpperCase().replace(/\s+/g, "_");
       const isPass = normalizedLabel.includes("PASS");
-      console.log(
-        `[Analytics] Attempt classification: "${label}" -> "${normalizedLabel}" -> ${
-          isPass ? "PASS" : "FAIL"
-        }`
-      );
       return isPass;
     }).length;
     const overallFailCount = totalAttempts - overallPassCount;
 
-    console.log(
-      `[Analytics] Overall: ${overallPassCount} passes, ${overallFailCount} fails`
+    this.log.debug(
+      { studentId, overallPassCount, overallFailCount },
+      'Analytics summary calculated'
     );
 
     return {
