@@ -1,0 +1,173 @@
+{
+  "index_patterns": ["api-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "api-logs-policy",
+      "index.lifecycle.rollover_alias": "api-logs",
+      "refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic": "true",
+      "dynamic_templates": [
+        {
+          "strings_as_keywords": {
+            "match_mapping_type": "string",
+            "mapping": {
+              "type": "keyword",
+              "ignore_above": 1024
+            }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "level": {
+          "type": "keyword"
+        },
+        "levelSeverity": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 512
+            }
+          }
+        },
+        "requestId": {
+          "type": "keyword"
+        },
+        "userId": {
+          "type": "integer"
+        },
+        "userName": {
+          "type": "keyword"
+        },
+        "userEmail": {
+          "type": "keyword"
+        },
+        "userRole": {
+          "type": "keyword"
+        },
+        "userIdentifier": {
+          "type": "keyword"
+        },
+        "isAdmin": {
+          "type": "boolean"
+        },
+        "method": {
+          "type": "keyword"
+        },
+        "path": {
+          "type": "keyword",
+          "fields": {
+            "text": {
+              "type": "text"
+            }
+          }
+        },
+        "ip": {
+          "type": "ip"
+        },
+        "statusCode": {
+          "type": "integer"
+        },
+        "durationMs": {
+          "type": "integer"
+        },
+        "responseTimeCategory": {
+          "type": "keyword"
+        },
+        "type": {
+          "type": "keyword"
+        },
+        "service": {
+          "type": "keyword"
+        },
+        "env": {
+          "type": "keyword"
+        },
+        "app": {
+          "type": "keyword"
+        },
+        "entity": {
+          "type": "object",
+          "dynamic": true
+        },
+        "entity_simulationAttemptId": {
+          "type": "keyword"
+        },
+        "entity_interviewSimulationAttemptId": {
+          "type": "keyword"
+        },
+        "entity_courseId": {
+          "type": "keyword"
+        },
+        "entity_courseCaseId": {
+          "type": "keyword"
+        },
+        "entity_examId": {
+          "type": "keyword"
+        },
+        "entity_studentId": {
+          "type": "keyword"
+        },
+        "entity_instructorId": {
+          "type": "keyword"
+        },
+        "entity_subscriptionId": {
+          "type": "keyword"
+        },
+        "entity_paymentId": {
+          "type": "keyword"
+        },
+        "entity_simulationId": {
+          "type": "keyword"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 512
+                }
+              }
+            },
+            "stack": {
+              "type": "text"
+            },
+            "code": {
+              "type": "keyword"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "dynamic": true
+        },
+        "geoip": {
+          "type": "object",
+          "dynamic": true,
+          "properties": {
+            "location": {
+              "type": "geo_point"
+            }
+          }
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Index template for MVP Backend API logs",
+    "version": "1.0.0"
+  }
+}

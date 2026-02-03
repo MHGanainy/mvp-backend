@@ -1,0 +1,55 @@
+# =============================================================================
+# Filebeat Configuration for MVP Backend
+# =============================================================================
+# Configured for your ELK stack with SSL enabled
+#
+# Mount your app's log directory to /data/logs in the filebeat container
+# =============================================================================
+
+filebeat.inputs:
+  - type: log
+    id: mvp-backend-logs
+    enabled: true
+
+    # Logs are mounted to /data/logs in the container
+    paths:
+      - /data/logs/app.log
+
+    # Parse JSON logs
+    json.keys_under_root: true
+    json.add_error_key: true
+    json.overwrite_keys: true
+
+    # Add fields to identify the source
+    fields:
+      app: mvp-backend
+      log_type: application
+    fields_under_root: true
+
+    # Scan frequency
+    scan_frequency: 10s
+    close_inactive: 5m
+
+# -------------------------------- Processors ----------------------------------
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - drop_event:
+      when:
+        equals:
+          message: ""
+
+# -------------------------------- Output: Logstash ----------------------------
+output.logstash:
+  hosts: ["logstash:5044"]
+
+  # SSL configuration matching your setup
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/usr/share/filebeat/certs/ca.crt"]
+  # Uncomment if Logstash requires client certs:
+  # ssl.certificate: "/usr/share/filebeat/certs/filebeat.crt"
+  # ssl.key: "/usr/share/filebeat/certs/filebeat.key"
+
+# -------------------------------- Logging -------------------------------------
+logging.level: info
+logging.to_stderr: true
