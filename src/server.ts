@@ -5,6 +5,8 @@ import fastifyJwt from "@fastify/jwt";
 import fastifyCors from "@fastify/cors";
 import "./shared/types";
 import { optionalAuth } from "./middleware/auth.middleware";
+import { registerRequestLogging } from "./middleware/request-logger.middleware";
+import { appLogger, flushLogs } from "./lib/logger";
 
 // Add all imports
 import authRoutes from "./entities/auth/auth.routes";
@@ -38,7 +40,7 @@ import studentCasePracticeRoutes from "./entities/student-case-practice/student-
 import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
-const fastify = Fastify({ logger: true });
+const fastify = Fastify({ logger: false });
 const prisma = new PrismaClient();
 
 // Register prisma on fastify instance
@@ -61,6 +63,9 @@ fastify.register(fastifyCors, {
   credentials: true, // Allow cookies/credentials
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Allowed methods
 });
+
+// Register request logging middleware (must be after JWT plugin)
+registerRequestLogging(fastify);
 
 // Add raw body support for Stripe webhook signature verification
 // MUST be added before any routes are registered
@@ -201,34 +206,47 @@ const start = async () => {
     const host = process.env.HOST || "0.0.0.0";
 
     await fastify.listen({ port, host });
-    console.log(`🚀 Server running on ${host}:${port}`);
-    console.log(`🔐 JWT authentication enabled with global auth hook`);
-    console.log(`👤 Admin users automatically identified on all routes`);
-    console.log(`🌐 CORS enabled for ALL origins`);
+    appLogger.info(`Server running on ${host}:${port}`, { host, port });
+    appLogger.info('JWT authentication enabled with global auth hook');
+    appLogger.info('Admin users automatically identified on all routes');
+    appLogger.info('CORS enabled for ALL origins');
 
     // Start cleanup service for pending registrations
     const cleanupService = new CleanupService(prisma);
 
     // Run initial cleanup
-    console.log("🧹 Running initial cleanup...");
+    appLogger.info('Running initial cleanup');
     await cleanupService.cleanupExpiredOTPs();
 
     // Run cleanup every 6 hours
     setInterval(async () => {
-      console.log("🧹 Running scheduled cleanup...");
+      appLogger.info('Running scheduled cleanup');
       try {
         await cleanupService.cleanupExpiredOTPs();
         await cleanupService.cleanupExpiredPendingRegistrations();
       } catch (error) {
-        console.error("❌ Cleanup failed:", error);
+        appLogger.error('Cleanup failed', error);
       }
     }, 6 * 60 * 60 * 1000); // 6 hours
 
-    console.log("🧹 Cleanup service started (runs every 6 hours)");
+    appLogger.info('Cleanup service started (runs every 6 hours)');
   } catch (err) {
-    fastify.log.error(err);
+    appLogger.error('Server startup failed', err);
     process.exit(1);
   }
 };
 
 start();
+
+// Graceful shutdown handlers - flush logs before exit
+process.on('SIGTERM', async () => {
+  appLogger.info('SIGTERM received, shutting down gracefully');
+  await flushLogs();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  appLogger.info('SIGINT received, shutting down gracefully');
+  await flushLogs();
+  process.exit(0);
+});

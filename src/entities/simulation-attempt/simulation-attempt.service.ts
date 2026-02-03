@@ -13,6 +13,14 @@ import {
   VoiceAgentTranscript,
 } from "../../services/transcript-processor.service";
 import { StudentCasePracticeService } from "../student-case-practice/student-case-practice.service";
+import { appLogger } from "../../lib/logger";
+import {
+  logExternalApiCall,
+  logDatabaseQuery,
+  logFunctionEntry,
+  logFunctionExit,
+  SimpleLogger,
+} from "../../lib/external-api-logger";
 
 export class SimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
@@ -31,20 +39,84 @@ export class SimulationAttemptService {
     return `sim_${randomBytes(16).toString("hex")}_${Date.now()}`;
   }
 
-  async create(data: CreateSimulationAttemptInput) {
-    // Verify the student exists and check if admin
+  async create(data: CreateSimulationAttemptInput, logger?: SimpleLogger) {
+    const log = logger || appLogger;
+    const createStartTime = Date.now();
+
+    // =========================================================================
+    // SIMULATION CREATE - INIT
+    // =========================================================================
+    log.info('=== SIMULATION CREATE STARTED ===', {
+      studentId: data.studentId,
+      simulationId: data.simulationId,
+      voiceId: data.voiceId || 'Ashley (default)',
+      lifecycle: 'SIMULATION_CREATE',
+      stage: 'INIT',
+      step: 'START',
+      action: 'CREATE_STARTED',
+    });
+
+    // =========================================================================
+    // STEP 1: Validate Student
+    // =========================================================================
+    log.info('[STEP 1/4] Validating student', {
+      studentId: data.studentId,
+      lifecycle: 'SIMULATION_CREATE',
+      stage: 'VALIDATION',
+      step: '1/4',
+      action: 'STUDENT_VALIDATION_START',
+    });
+
+    const studentQueryStart = Date.now();
     const student = await this.prisma.student.findUnique({
       where: { id: data.studentId },
       include: {
-        user: true, // Include user to check isAdmin
+        user: true,
       },
     });
+    const studentQueryDurationMs = Date.now() - studentQueryStart;
 
     if (!student) {
+      log.error('[STEP 1/4] Student not found', null, {
+        studentId: data.studentId,
+        queryDurationMs: studentQueryDurationMs,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'VALIDATION',
+        step: '1/4',
+        action: 'STUDENT_NOT_FOUND',
+      });
       throw new Error("Student not found");
     }
 
-    // Verify the simulation exists
+    const studentEmail = student.user.email || 'unknown';
+
+    log.info('[STEP 1/4] Student validated successfully', {
+      studentId: student.id,
+      studentEmail,
+      studentName: `${student.firstName} ${student.lastName}`,
+      isAdmin: student.user.isAdmin,
+      creditBalance: student.creditBalance,
+      userId: student.user.id,
+      queryDurationMs: studentQueryDurationMs,
+      lifecycle: 'SIMULATION_CREATE',
+      stage: 'VALIDATION',
+      step: '1/4',
+      action: 'STUDENT_VALIDATED',
+    });
+
+    // =========================================================================
+    // STEP 2: Validate Simulation & Case
+    // =========================================================================
+    log.info('[STEP 2/4] Validating simulation and case', {
+      simulationId: data.simulationId,
+      studentEmail,
+      lifecycle: 'SIMULATION_CREATE',
+      stage: 'VALIDATION',
+      step: '2/4',
+      action: 'SIMULATION_VALIDATION_START',
+    });
+
+    const simulationQueryStart = Date.now();
     const simulation = await this.prisma.simulation.findUnique({
       where: { id: data.simulationId },
       include: {
@@ -55,25 +127,105 @@ export class SimulationAttemptService {
         },
       },
     });
+    const simulationQueryDurationMs = Date.now() - simulationQueryStart;
 
     if (!simulation) {
+      log.error('[STEP 2/4] Simulation not found', null, {
+        simulationId: data.simulationId,
+        studentEmail,
+        queryDurationMs: simulationQueryDurationMs,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'VALIDATION',
+        step: '2/4',
+        action: 'SIMULATION_NOT_FOUND',
+      });
       throw new Error("Simulation not found");
     }
 
-    // Check if student has at least 1 credit to start
-    // Admin bypasses credit check
+    log.info('[STEP 2/4] Simulation validated successfully', {
+      simulationId: simulation.id,
+      studentEmail,
+      caseId: simulation.courseCase.id,
+      caseTitle: simulation.courseCase.title,
+      patientName: simulation.courseCase.patientName,
+      diagnosis: simulation.courseCase.diagnosis,
+      courseId: simulation.courseCase.course.id,
+      courseTitle: simulation.courseCase.course.title,
+      hasSystemPrompt: !!simulation.casePrompt,
+      systemPromptLength: simulation.casePrompt?.length || 0,
+      hasOpeningLine: !!simulation.openingLine,
+      openingLineLength: simulation.openingLine?.length || 0,
+      queryDurationMs: simulationQueryDurationMs,
+      lifecycle: 'SIMULATION_CREATE',
+      stage: 'VALIDATION',
+      step: '2/4',
+      action: 'SIMULATION_VALIDATED',
+    });
+
+    // Credit check
     if (!student.user.isAdmin) {
+      log.debug('[STEP 2/4] Checking student credits', {
+        studentEmail,
+        creditBalance: student.creditBalance,
+        required: 1,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'VALIDATION',
+        step: '2/4',
+        action: 'CREDIT_CHECK_START',
+      });
+
       if (student.creditBalance < 1) {
+        log.error('[STEP 2/4] Insufficient credits', null, {
+          studentId: student.id,
+          studentEmail,
+          creditBalance: student.creditBalance,
+          required: 1,
+          lifecycle: 'SIMULATION_CREATE',
+          stage: 'VALIDATION',
+          step: '2/4',
+          action: 'INSUFFICIENT_CREDITS',
+        });
         throw new Error(
           `Insufficient credits. You need at least 1 credit to start. Current balance: ${student.creditBalance}`
         );
       }
+
+      log.info('[STEP 2/4] Credit check passed', {
+        studentEmail,
+        creditBalance: student.creditBalance,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'VALIDATION',
+        step: '2/4',
+        action: 'CREDIT_CHECK_PASSED',
+      });
+    } else {
+      log.info('[STEP 2/4] Admin user - bypassing credit check', {
+        studentEmail,
+        isAdmin: true,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'VALIDATION',
+        step: '2/4',
+        action: 'CREDIT_CHECK_BYPASSED',
+      });
     }
 
+    // =========================================================================
+    // STEP 3: Create Simulation Attempt Record
+    // =========================================================================
     const correlationToken = this.generateCorrelationToken();
 
-    // Create attempt WITHOUT deducting credits
-    // Credits will be deducted per-minute by the billing webhook (except for admin)
+    log.info('[STEP 3/4] Creating simulation attempt record', {
+      studentEmail,
+      studentId: data.studentId,
+      simulationId: data.simulationId,
+      correlationToken,
+      lifecycle: 'SIMULATION_CREATE',
+      stage: 'DATABASE',
+      step: '3/4',
+      action: 'ATTEMPT_CREATE_START',
+    });
+
+    const attemptCreateStart = Date.now();
     const attempt = await this.prisma.simulationAttempt.create({
       data: {
         studentId: data.studentId,
@@ -106,26 +258,47 @@ export class SimulationAttemptService {
         },
       },
     });
+    const attemptCreateDurationMs = Date.now() - attemptCreateStart;
 
-    // Log the attempt creation for billing tracking
-    if (student.user.isAdmin) {
-      console.log(
-        `[BILLING] Admin simulation attempt created. ID: ${attempt.id}, Token: ${correlationToken} - NO CHARGES APPLY`
-      );
-    } else {
-      console.log(
-        `[BILLING] Simulation attempt created without upfront charge. ID: ${attempt.id}, Token: ${correlationToken}`
-      );
-    }
+    log.info('[STEP 3/4] Simulation attempt record created', {
+      attemptId: attempt.id,
+      studentEmail,
+      correlationToken,
+      studentId: attempt.studentId,
+      simulationId: attempt.simulationId,
+      startedAt: attempt.startedAt,
+      isAdmin: student.user.isAdmin,
+      billingMode: student.user.isAdmin ? 'NO_CHARGE' : 'PER_MINUTE',
+      dbInsertDurationMs: attemptCreateDurationMs,
+      lifecycle: 'SIMULATION_CREATE',
+      stage: 'DATABASE',
+      step: '3/4',
+      action: 'ATTEMPT_CREATED',
+    });
 
-    // Create LiveKit session
+    // =========================================================================
+    // STEP 4: Create LiveKit Voice Session
+    // =========================================================================
     try {
-      // Use voiceId from frontend request, fallback to Ashley if not provided
       const voiceId = data.voiceId || "Ashley";
 
-      console.log(`[SimulationAttempt] Voice requested: ${voiceId}`);
-      console.log(`[SimulationAttempt] Correlation token: ${correlationToken}`);
+      log.info('[STEP 4/4] Creating LiveKit voice session', {
+        attemptId: attempt.id,
+        studentEmail,
+        correlationToken,
+        voiceId,
+        userIdentifier: student.user.email || student.user.id,
+        hasSystemPrompt: !!attempt.simulation.casePrompt,
+        systemPromptLength: attempt.simulation.casePrompt?.length || 0,
+        hasOpeningLine: !!attempt.simulation.openingLine,
+        openingLinePreview: attempt.simulation.openingLine?.substring(0, 100) || null,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'LIVEKIT',
+        step: '4/4',
+        action: 'LIVEKIT_CREATE_START',
+      });
 
+      const livekitCreateStart = Date.now();
       const livekitConfig = await livekitVoiceService.createSession(
         correlationToken,
         String(student.user.email || student.user.id),
@@ -135,12 +308,24 @@ export class SimulationAttemptService {
           voiceId: voiceId,
         }
       );
+      const livekitCreateDurationMs = Date.now() - livekitCreateStart;
 
-      console.log(
-        `[LiveKit] Session created for attempt ${attempt.id} with voice: ${voiceId}`
-      );
+      log.info('[STEP 4/4] LiveKit voice session created successfully', {
+        attemptId: attempt.id,
+        studentEmail,
+        correlationToken,
+        roomName: livekitConfig.roomName,
+        serverUrl: livekitConfig.serverUrl,
+        voiceId,
+        tokenLength: livekitConfig.token?.length || 0,
+        livekitApiDurationMs: livekitCreateDurationMs,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'LIVEKIT',
+        step: '4/4',
+        action: 'LIVEKIT_CREATE_SUCCESS',
+      });
 
-      return {
+      const result = {
         ...attempt,
         voiceAssistantConfig: {
           token: livekitConfig.token, // LiveKit JWT
@@ -150,8 +335,45 @@ export class SimulationAttemptService {
         },
         isAdmin: student.user.isAdmin,
       };
+
+      const totalCreateDurationMs = Date.now() - createStartTime;
+
+      log.info('=== SIMULATION CREATE COMPLETED SUCCESSFULLY ===', {
+        attemptId: attempt.id,
+        studentEmail,
+        correlationToken,
+        roomName: livekitConfig.roomName,
+        studentId: attempt.studentId,
+        studentName: `${attempt.student.firstName} ${attempt.student.lastName}`,
+        simulationId: attempt.simulationId,
+        caseTitle: attempt.simulation.courseCase.title,
+        voiceId,
+        isAdmin: student.user.isAdmin,
+        billingMode: student.user.isAdmin ? 'NO_CHARGE' : 'PER_MINUTE',
+        totalDurationMs: totalCreateDurationMs,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'COMPLETE',
+        step: 'COMPLETE',
+        action: 'CREATE_SUCCESS',
+      });
+
+      return result;
     } catch (error: any) {
-      console.error(`[LiveKit] Failed to create session:`, error.message);
+      const totalCreateDurationMs = Date.now() - createStartTime;
+
+      log.error('[STEP 4/4] Failed to create LiveKit session', error, {
+        attemptId: attempt.id,
+        studentEmail,
+        correlationToken,
+        errorType: error.constructor?.name || 'Unknown',
+        errorMessage: error.message,
+        errorStack: error.stack?.substring(0, 500),
+        totalDurationMs: totalCreateDurationMs,
+        lifecycle: 'SIMULATION_CREATE',
+        stage: 'LIVEKIT',
+        step: '4/4',
+        action: 'LIVEKIT_CREATE_ERROR',
+      });
       throw new Error(`Failed to start voice session: ${error.message}`);
     }
   }
@@ -773,42 +995,114 @@ export class SimulationAttemptService {
 
   async completeWithTranscript(
     attemptId: string,
-    correlationToken: string
+    correlationToken: string,
+    logger?: SimpleLogger
   ): Promise<any> {
-    console.log(
-      `[SimulationAttempt] Completing attempt ${attemptId} with transcript processing`
-    );
+    const log = logger || appLogger;
+    const startTime = Date.now();
 
-    // Step 1: End the LiveKit session (this commits transcript to database)
-    console.log(
-      `[SimulationAttempt] Ending LiveKit session for correlation token: ${correlationToken}`
-    );
-    const endResult = await livekitVoiceService.endSession(correlationToken);
+    log.info('=== SIMULATION COMPLETION STARTED ===', {
+      attemptId,
+      correlationToken,
+      operation: 'completeWithTranscript',
+      lifecycle: 'SIMULATION_COMPLETE',
+      stage: 'INIT',
+    });
 
-    if (endResult.status === "error") {
-      console.warn(
-        `[SimulationAttempt] Session end failed (${endResult.message}). Will check if transcript is already in database.`
-      );
-    } else {
-      console.log(
-        `[SimulationAttempt] LiveKit session ended successfully. Transcript should now be in database.`
-      );
+    // =========================================================================
+    // STEP 1: End the LiveKit voice session
+    // =========================================================================
+    log.info('[STEP 1/6] Ending LiveKit voice session', {
+      attemptId,
+      correlationToken,
+      lifecycle: 'SIMULATION_COMPLETE',
+      stage: 'LIVEKIT',
+      step: '1/6',
+      action: 'LIVEKIT_END_SESSION',
+    });
+
+    let livekitEndTime: number;
+    try {
+      const livekitStartTime = Date.now();
+      const endResult = await livekitVoiceService.endSession(correlationToken);
+      livekitEndTime = Date.now() - livekitStartTime;
+
+      if (endResult.status === "error") {
+        log.warn('[STEP 1/6] LiveKit returned error - will check for existing transcript', {
+          attemptId,
+          correlationToken,
+          livekitStatus: endResult.status,
+          livekitMessage: endResult.message,
+          durationMs: livekitEndTime,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'LIVEKIT',
+          step: '1/6',
+          action: 'LIVEKIT_END_SESSION_WARNING',
+        });
+      } else {
+        log.info('[STEP 1/6] LiveKit session ended successfully', {
+          attemptId,
+          correlationToken,
+          livekitStatus: endResult.status,
+          durationMs: livekitEndTime,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'LIVEKIT',
+          step: '1/6',
+          action: 'LIVEKIT_END_SESSION_SUCCESS',
+        });
+      }
+    } catch (livekitError) {
+      log.error('[STEP 1/6] LiveKit session end failed - will attempt to continue', livekitError, {
+        attemptId,
+        correlationToken,
+        errorType: livekitError instanceof Error ? livekitError.constructor.name : 'Unknown',
+        errorMessage: livekitError instanceof Error ? livekitError.message : String(livekitError),
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'LIVEKIT',
+        step: '1/6',
+        action: 'LIVEKIT_END_SESSION_ERROR',
+      });
+      // Continue anyway - transcript might already be saved
     }
 
-    // Step 2: Poll for transcript with retry logic (defense in depth)
-    // The orchestrator should wait for the agent to save the transcript,
-    // but we add retries here as a fallback in case of timing issues.
+    // =========================================================================
+    // STEP 2: Poll database for transcript with retry logic
+    // =========================================================================
     const maxRetries = 5;
-    const retryDelayMs = 1000; // 1 second between retries
+    const retryDelayMs = 1000;
     let existingAttempt: any = null;
+    let transcriptFound = false;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    log.info('[STEP 2/6] Polling for transcript in database', {
+      attemptId,
+      maxRetries,
+      retryDelayMs,
+      totalWaitTimeMs: maxRetries * retryDelayMs,
+      lifecycle: 'SIMULATION_COMPLETE',
+      stage: 'TRANSCRIPT',
+      step: '2/6',
+      action: 'TRANSCRIPT_POLL_START',
+    });
+
+    for (let retryAttempt = 1; retryAttempt <= maxRetries; retryAttempt++) {
+      const pollStartTime = Date.now();
+
+      log.debug(`[STEP 2/6] Transcript poll attempt ${retryAttempt}/${maxRetries}`, {
+        attemptId,
+        retryAttempt,
+        maxRetries,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'TRANSCRIPT',
+        step: '2/6',
+        action: 'TRANSCRIPT_POLL_ATTEMPT',
+      });
+
       existingAttempt = await this.prisma.simulationAttempt.findUnique({
         where: { id: attemptId },
         include: {
           student: {
             include: {
-              user: true, // Include user to check isAdmin
+              user: true,
             },
           },
           simulation: {
@@ -837,39 +1131,84 @@ export class SimulationAttemptService {
         },
       });
 
+      const pollDurationMs = Date.now() - pollStartTime;
+
       if (!existingAttempt) {
-        throw new Error("Simulation attempt not found");
+        log.error('[STEP 2/6] FATAL: Simulation attempt not found in database', null, {
+          attemptId,
+          retryAttempt,
+          pollDurationMs,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'TRANSCRIPT',
+          step: '2/6',
+          action: 'ATTEMPT_NOT_FOUND',
+        });
+        throw new Error(`Simulation attempt not found: ${attemptId}`);
       }
 
       if (existingAttempt.isCompleted) {
-        throw new Error("Simulation attempt is already completed");
+        log.error('[STEP 2/6] FATAL: Attempt already marked as completed', null, {
+          attemptId,
+          completedAt: existingAttempt.endedAt,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'TRANSCRIPT',
+          step: '2/6',
+          action: 'ATTEMPT_ALREADY_COMPLETED',
+        });
+        throw new Error(`Simulation attempt is already completed: ${attemptId}`);
       }
 
       // Check if transcript exists
       if (existingAttempt.transcript) {
-        console.log(
-          `[SimulationAttempt] Transcript found in database on attempt ${attempt}/${maxRetries}`
-        );
+        transcriptFound = true;
+        log.info('[STEP 2/6] Transcript found in database', {
+          attemptId,
+          retryAttempt,
+          maxRetries,
+          pollDurationMs,
+          hasTranscript: true,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'TRANSCRIPT',
+          step: '2/6',
+          action: 'TRANSCRIPT_FOUND',
+        });
         break;
       }
 
       // Transcript not found yet, wait and retry
-      if (attempt < maxRetries) {
-        console.log(
-          `[SimulationAttempt] Transcript not found yet, waiting ${retryDelayMs}ms before retry ${attempt + 1}/${maxRetries}...`
-        );
+      if (retryAttempt < maxRetries) {
+        log.debug(`[STEP 2/6] Transcript not found, waiting ${retryDelayMs}ms before retry`, {
+          attemptId,
+          retryAttempt,
+          nextRetryIn: retryDelayMs,
+          remainingRetries: maxRetries - retryAttempt,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'TRANSCRIPT',
+          step: '2/6',
+          action: 'TRANSCRIPT_POLL_WAIT',
+        });
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
       }
     }
 
-    // Step 3: Final check after all retries
-    if (!existingAttempt.transcript) {
+    // Final check after all retries
+    if (!transcriptFound) {
+      log.error('[STEP 2/6] FATAL: Transcript not found after all retries', null, {
+        attemptId,
+        correlationToken,
+        maxRetries,
+        totalWaitTimeMs: maxRetries * retryDelayMs,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'TRANSCRIPT',
+        step: '2/6',
+        action: 'TRANSCRIPT_NOT_FOUND',
+      });
       throw new Error(
-        `No transcript found in database after ${maxRetries} attempts (${(maxRetries * retryDelayMs) / 1000}s). The orchestrator may have failed to save the transcript.`
+        `Transcript not found after ${maxRetries} attempts (${(maxRetries * retryDelayMs) / 1000}s). ` +
+        `AttemptId: ${attemptId}, CorrelationToken: ${correlationToken}. ` +
+        `The LiveKit orchestrator may have failed to save the transcript.`
       );
     }
-
-    console.log(`[SimulationAttempt] Transcript found in database`);
     const voiceTranscript =
       existingAttempt.transcript as unknown as VoiceAgentTranscript;
 
@@ -878,14 +1217,67 @@ export class SimulationAttemptService {
       (endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000
     );
 
+    // Extract student email for logging (available after fetching attempt)
+    const studentEmail = existingAttempt.student.user.email || 'unknown';
+
+    log.info('[STEP 2/6] Transcript data retrieved', {
+      attemptId,
+      studentId: existingAttempt.studentId,
+      studentEmail,
+      studentName: `${existingAttempt.student.firstName} ${existingAttempt.student.lastName}`,
+      isAdmin: existingAttempt.student.user.isAdmin,
+      simulationId: existingAttempt.simulationId,
+      caseTitle: existingAttempt.simulation.courseCase.title,
+      startedAt: existingAttempt.startedAt,
+      durationSeconds,
+      lifecycle: 'SIMULATION_COMPLETE',
+      stage: 'TRANSCRIPT',
+      step: '2/6',
+      action: 'TRANSCRIPT_DATA_LOADED',
+    });
+
     try {
-      // Step 4: Process the transcript - transform and merge split messages
-      console.log(`[SimulationAttempt] Processing transcript...`);
+      // =========================================================================
+      // STEP 3: Process and clean the transcript
+      // =========================================================================
+      log.info('[STEP 3/6] Processing transcript - transforming to clean format', {
+        attemptId,
+        studentEmail,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'TRANSCRIPT',
+        step: '3/6',
+        action: 'TRANSCRIPT_PROCESSING_START',
+      });
+
+      const transcriptProcessStartTime = Date.now();
       const cleanTranscript =
         TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
-      console.log(
-        `[SimulationAttempt] Transcript processed: ${cleanTranscript.totalMessages} messages, ${cleanTranscript.duration}s duration`
-      );
+      const transcriptProcessDurationMs = Date.now() - transcriptProcessStartTime;
+
+      log.info('[STEP 3/6] Transcript processed successfully', {
+        attemptId,
+        studentEmail,
+        totalMessages: cleanTranscript.totalMessages,
+        transcriptDurationSeconds: cleanTranscript.duration,
+        sessionDurationSeconds: durationSeconds,
+        processingTimeMs: transcriptProcessDurationMs,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'TRANSCRIPT',
+        step: '3/6',
+        action: 'TRANSCRIPT_PROCESSING_SUCCESS',
+      });
+
+      // =========================================================================
+      // STEP 4: Extract case data and marking criteria
+      // =========================================================================
+      log.info('[STEP 4/6] Extracting case data and marking criteria', {
+        attemptId,
+        studentEmail,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'CASE_DATA',
+        step: '4/6',
+        action: 'CASE_DATA_EXTRACTION_START',
+      });
 
       // Extract case tabs (doctor's notes, patient script, medical notes)
       interface CaseTabs {
@@ -958,6 +1350,10 @@ export class SimulationAttemptService {
       );
 
       const markingDomainsWithCriteria = Array.from(domainsMap.values());
+      const totalCriteria = markingDomainsWithCriteria.reduce((sum, d) => sum + d.criteria.length, 0);
+      const totalPossiblePoints = markingDomainsWithCriteria.reduce(
+        (sum, d) => sum + d.criteria.reduce((cs, c) => cs + c.points, 0), 0
+      );
 
       // Prepare case info
       const caseInfo = {
@@ -968,16 +1364,49 @@ export class SimulationAttemptService {
         patientGender: existingAttempt.simulation.courseCase.patientGender,
       };
 
+      log.info('[STEP 4/6] Case data extracted successfully', {
+        attemptId,
+        studentEmail,
+        caseTitle: caseInfo.caseTitle,
+        patientName: caseInfo.patientName,
+        diagnosis: caseInfo.diagnosis,
+        markingDomainsCount: markingDomainsWithCriteria.length,
+        totalCriteria,
+        totalPossiblePoints,
+        hasDoctorsNote: caseTabs.doctorsNote.length > 0,
+        hasPatientScript: caseTabs.patientScript.length > 0,
+        hasMedicalNotes: caseTabs.medicalNotes.length > 0,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'CASE_DATA',
+        step: '4/6',
+        action: 'CASE_DATA_EXTRACTION_SUCCESS',
+      });
+
       let aiFeedback: Prisma.InputJsonValue | null = null;
       let score: number | null = null;
       let aiPrompt: Prisma.InputJsonValue | null = null;
 
-      // Generate AI feedback
+      // =========================================================================
+      // STEP 5: Generate AI feedback using Groq/OpenAI
+      // =========================================================================
+      log.info('[STEP 5/6] Starting AI feedback generation', {
+        attemptId,
+        studentEmail,
+        provider: 'Groq',
+        model: 'openai/gpt-oss-120b',
+        transcriptMessages: cleanTranscript.totalMessages,
+        markingDomainsCount: markingDomainsWithCriteria.length,
+        totalCriteria,
+        totalPossiblePoints,
+        durationSeconds,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'AI_FEEDBACK',
+        step: '5/6',
+        action: 'AI_FEEDBACK_START',
+      });
+
       try {
-        console.log(`[SimulationAttempt] Generating AI feedback...`);
-        console.log(
-          `[SimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`
-        );
+        const aiStartTime = Date.now();
 
         const {
           feedback,
@@ -989,8 +1418,11 @@ export class SimulationAttemptService {
           caseInfo,
           caseTabs,
           durationSeconds,
-          markingDomainsWithCriteria
+          markingDomainsWithCriteria,
+          log
         );
+
+        const aiDurationMs = Date.now() - aiStartTime;
 
         // Include full marking structure in the feedback
         aiFeedback = {
@@ -1012,18 +1444,45 @@ export class SimulationAttemptService {
         score = calculatedScore;
         aiPrompt = prompts as unknown as Prisma.InputJsonValue;
 
-        console.log(
-          `[SimulationAttempt] AI feedback generated successfully with score: ${score}`
-        );
+        log.info('[STEP 5/6] AI feedback generated successfully', {
+          attemptId,
+          studentEmail,
+          score,
+          classification: feedback.overallResult?.classificationLabel,
+          criteriaMet: feedback.overallResult?.criteriaMet,
+          criteriaNotMet: feedback.overallResult?.criteriaNotMet,
+          criteriaTotal: feedback.overallResult?.totalCriteria,
+          percentageMet: feedback.overallResult?.percentageMet,
+          aiDurationMs,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'AI_FEEDBACK',
+          step: '5/6',
+          action: 'AI_FEEDBACK_SUCCESS',
+        });
       } catch (aiError) {
-        console.error(
-          "[SimulationAttempt] AI feedback generation failed:",
-          aiError
-        );
+        const aiErrorMessage = aiError instanceof Error ? aiError.message : String(aiError);
+        const aiErrorStack = aiError instanceof Error ? aiError.stack : undefined;
+
+        log.error('[STEP 5/6] AI feedback generation FAILED - will save attempt with fallback feedback', aiError, {
+          attemptId,
+          studentEmail,
+          correlationToken,
+          errorType: aiError instanceof Error ? aiError.constructor.name : 'Unknown',
+          errorMessage: aiErrorMessage,
+          errorStack: aiErrorStack,
+          markingDomainsCount: markingDomainsWithCriteria.length,
+          totalCriteria,
+          transcriptMessages: cleanTranscript.totalMessages,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'AI_FEEDBACK',
+          step: '5/6',
+          action: 'AI_FEEDBACK_ERROR',
+        });
+
         aiFeedback = {
           analysisStatus: "failed",
-          error:
-            aiError instanceof Error ? aiError.message : "Unknown AI error",
+          error: aiErrorMessage,
+          errorType: aiError instanceof Error ? aiError.constructor.name : 'Unknown',
           generatedAt: new Date().toISOString(),
           markingStructure: markingDomainsWithCriteria,
           isAdminAttempt: existingAttempt.student.user.isAdmin,
@@ -1031,7 +1490,23 @@ export class SimulationAttemptService {
         } as unknown as Prisma.InputJsonValue;
       }
 
-      // Update the simulation attempt with feedback
+      // =========================================================================
+      // STEP 6: Save completed attempt to database
+      // =========================================================================
+      log.info('[STEP 6/6] Saving completed attempt to database', {
+        attemptId,
+        studentEmail,
+        score,
+        durationSeconds,
+        hasAiFeedback: !!aiFeedback,
+        aiFeedbackStatus: (aiFeedback as any)?.analysisStatus || 'unknown',
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'SAVE',
+        step: '6/6',
+        action: 'DATABASE_SAVE_START',
+      });
+
+      const dbSaveStartTime = Date.now();
       const updatedAttempt = await this.prisma.simulationAttempt.update({
         where: { id: attemptId },
         data: {
@@ -1056,62 +1531,170 @@ export class SimulationAttemptService {
           },
         },
       });
+      const dbSaveDurationMs = Date.now() - dbSaveStartTime;
 
-      console.log(
-        `[SimulationAttempt] Attempt ${attemptId} completed successfully with AI feedback`
-      );
+      log.info('[STEP 6/6] Attempt saved to database successfully', {
+        attemptId,
+        studentEmail,
+        score,
+        durationSeconds,
+        isCompleted: true,
+        dbSaveDurationMs,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'SAVE',
+        step: '6/6',
+        action: 'DATABASE_SAVE_SUCCESS',
+      });
 
-      // Update student's practice status for this case
+      // Update student's practice status for this case (non-critical)
       try {
+        log.debug('Updating student practice status', {
+          attemptId,
+          studentId: updatedAttempt.studentId,
+          courseCaseId: updatedAttempt.simulation.courseCaseId,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'FINALIZE',
+          step: '6/6',
+          action: 'PRACTICE_STATUS_UPDATE_START',
+        });
+
         await this.studentCasePracticeService.updatePracticeStatus(
           updatedAttempt.studentId,
           updatedAttempt.simulation.courseCaseId
         );
-        console.log(
-          `[SimulationAttempt] Updated practice status for student ${updatedAttempt.studentId} on case ${updatedAttempt.simulation.courseCaseId}`
-        );
+
+        log.info('Practice status updated successfully', {
+          attemptId,
+          studentId: updatedAttempt.studentId,
+          courseCaseId: updatedAttempt.simulation.courseCaseId,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'FINALIZE',
+          step: '6/6',
+          action: 'PRACTICE_STATUS_UPDATE_SUCCESS',
+        });
       } catch (practiceError) {
         // Log but don't fail the main operation
-        console.error(
-          "[SimulationAttempt] Failed to update practice status:",
-          practiceError
-        );
+        log.error('Practice status update failed (non-critical)', practiceError, {
+          attemptId,
+          studentId: updatedAttempt.studentId,
+          courseCaseId: updatedAttempt.simulation.courseCaseId,
+          errorType: practiceError instanceof Error ? practiceError.constructor.name : 'Unknown',
+          errorMessage: practiceError instanceof Error ? practiceError.message : String(practiceError),
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'FINALIZE',
+          step: '6/6',
+          action: 'PRACTICE_STATUS_UPDATE_ERROR',
+        });
       }
+
+      const totalDurationMs = Date.now() - startTime;
+
+      log.info('=== SIMULATION COMPLETION FINISHED SUCCESSFULLY ===', {
+        attemptId,
+        studentEmail,
+        correlationToken,
+        studentId: updatedAttempt.studentId,
+        studentName: `${updatedAttempt.student.firstName} ${updatedAttempt.student.lastName}`,
+        caseTitle: updatedAttempt.simulation.courseCase.title,
+        score,
+        durationSeconds,
+        totalProcessingTimeMs: totalDurationMs,
+        aiFeedbackStatus: (aiFeedback as any)?.analysisStatus || 'unknown',
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'FINALIZE',
+        step: 'COMPLETE',
+        action: 'COMPLETION_SUCCESS',
+      });
 
       return updatedAttempt;
     } catch (error) {
-      console.error(
-        "[SimulationAttempt] Error processing transcript and generating feedback:",
-        error
-      );
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorType = error instanceof Error ? error.constructor.name : 'Unknown';
 
-      // ⭐ CRITICAL: Try to save the cleaned transcript even if AI feedback fails
-      // This allows retroactive feedback generation later
+      log.error('=== SIMULATION COMPLETION ERROR - ENTERING RECOVERY MODE ===', error, {
+        attemptId,
+        studentEmail,
+        correlationToken,
+        errorType,
+        errorMessage,
+        errorStack,
+        durationSeconds,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'ERROR_RECOVERY',
+        step: 'ERROR_RECOVERY',
+        action: 'COMPLETION_ERROR_RECOVERY_START',
+      });
+
+      // =========================================================================
+      // ERROR RECOVERY: Try to save transcript even if AI feedback fails
+      // =========================================================================
       let transcriptToSave: Prisma.InputJsonValue | undefined;
+      let transcriptRecoverySuccess = false;
+
       try {
+        log.info('Attempting transcript recovery - cleaning raw transcript', {
+          attemptId,
+          hasRawTranscript: !!existingAttempt?.transcript,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'ERROR_RECOVERY',
+          step: 'ERROR_RECOVERY',
+          action: 'TRANSCRIPT_RECOVERY_START',
+        });
+
         const voiceTranscript = existingAttempt.transcript as unknown as VoiceAgentTranscript;
         const cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
         transcriptToSave = cleanTranscript as unknown as Prisma.InputJsonValue;
-        console.log(`[SimulationAttempt] Successfully saved cleaned transcript despite AI failure: ${cleanTranscript.totalMessages} messages`);
+        transcriptRecoverySuccess = true;
+
+        log.info('Transcript recovery successful', {
+          attemptId,
+          transcriptMessages: cleanTranscript.totalMessages,
+          transcriptDuration: cleanTranscript.duration,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'ERROR_RECOVERY',
+          step: 'ERROR_RECOVERY',
+          action: 'TRANSCRIPT_RECOVERY_SUCCESS',
+        });
       } catch (transcriptError) {
-        console.error(`[SimulationAttempt] Could not clean transcript, saving raw transcript:`, transcriptError);
-        transcriptToSave = existingAttempt.transcript || undefined;
+        log.error('Transcript recovery FAILED - saving raw transcript as fallback', transcriptError, {
+          attemptId,
+          errorType: transcriptError instanceof Error ? transcriptError.constructor.name : 'Unknown',
+          errorMessage: transcriptError instanceof Error ? transcriptError.message : String(transcriptError),
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'ERROR_RECOVERY',
+          step: 'ERROR_RECOVERY',
+          action: 'TRANSCRIPT_RECOVERY_ERROR',
+        });
+        transcriptToSave = existingAttempt?.transcript || undefined;
       }
 
-      // Still mark as complete but with error status
+      // Save attempt with error status
+      log.info('Saving attempt with ERROR status to database', {
+        attemptId,
+        hasTranscript: !!transcriptToSave,
+        transcriptRecoverySuccess,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'ERROR_RECOVERY',
+        step: 'ERROR_RECOVERY',
+        action: 'ERROR_STATE_SAVE_START',
+      });
+
       const fallbackAttempt = await this.prisma.simulationAttempt.update({
         where: { id: attemptId },
         data: {
           endedAt: endTime,
           durationSeconds,
           isCompleted: true,
-          transcript: transcriptToSave,  // ⭐ CRITICAL FIX: Save transcript even when feedback fails!
+          transcript: transcriptToSave,
           aiFeedback: {
             analysisStatus: "failed",
-            error: "Transcript processing or feedback generation failed",
-            errorDetails:
-              error instanceof Error ? error.message : "Unknown error",
+            error: "Simulation completion failed during processing",
+            errorType,
+            errorDetails: errorMessage,
+            errorStack: errorStack?.substring(0, 1000), // Truncate stack trace
             timestamp: new Date().toISOString(),
+            transcriptRecovered: transcriptRecoverySuccess,
             fallbackFeedback: this.generateFallbackFeedback(),
           } as unknown as Prisma.InputJsonValue,
         },
@@ -1129,25 +1712,60 @@ export class SimulationAttemptService {
         },
       });
 
-      console.log(
-        `[SimulationAttempt] Attempt ${attemptId} marked as complete with error`
-      );
+      log.warn('Attempt saved with ERROR status', {
+        attemptId,
+        durationSeconds,
+        hasTranscript: !!transcriptToSave,
+        transcriptRecoverySuccess,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'ERROR_RECOVERY',
+        step: 'ERROR_RECOVERY',
+        action: 'ERROR_STATE_SAVE_SUCCESS',
+      });
 
-      // Still update practice status even for failed attempts
+      // Still try to update practice status even for failed attempts
       try {
         await this.studentCasePracticeService.updatePracticeStatus(
           fallbackAttempt.studentId,
           fallbackAttempt.simulation.courseCaseId
         );
-        console.log(
-          `[SimulationAttempt] Updated practice status for student ${fallbackAttempt.studentId} on case ${fallbackAttempt.simulation.courseCaseId}`
-        );
+        log.info('Practice status updated despite completion error', {
+          attemptId,
+          studentId: fallbackAttempt.studentId,
+          courseCaseId: fallbackAttempt.simulation.courseCaseId,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'ERROR_RECOVERY',
+          step: 'ERROR_RECOVERY',
+          action: 'PRACTICE_STATUS_UPDATE_ON_ERROR',
+        });
       } catch (practiceError) {
-        console.error(
-          "[SimulationAttempt] Failed to update practice status:",
-          practiceError
-        );
+        log.error('Practice status update failed (during error recovery)', practiceError, {
+          attemptId,
+          studentId: fallbackAttempt.studentId,
+          courseCaseId: fallbackAttempt.simulation.courseCaseId,
+          lifecycle: 'SIMULATION_COMPLETE',
+          stage: 'ERROR_RECOVERY',
+          step: 'ERROR_RECOVERY',
+          action: 'PRACTICE_STATUS_ERROR_ON_RECOVERY',
+        });
       }
+
+      const totalDurationMs = Date.now() - startTime;
+
+      log.error('=== SIMULATION COMPLETION FINISHED WITH ERRORS ===', null, {
+        attemptId,
+        correlationToken,
+        originalError: errorMessage,
+        originalErrorType: errorType,
+        transcriptRecovered: transcriptRecoverySuccess,
+        hasTranscript: !!transcriptToSave,
+        durationSeconds,
+        totalProcessingTimeMs: totalDurationMs,
+        lifecycle: 'SIMULATION_COMPLETE',
+        stage: 'ERROR_RECOVERY',
+        step: 'ERROR_RECOVERY',
+        action: 'COMPLETION_ERROR_FINISHED',
+      });
 
       return fallbackAttempt;
     }

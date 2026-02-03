@@ -11,6 +11,7 @@ import {
   simulationAttemptQuerySchema,
   simulationAttemptStudentCaseParamsSchema,
 } from "./simulation-attempt.schema";
+import { getLogger } from "../../middleware/request-logger.middleware";
 
 export default async function simulationAttemptRoutes(
   fastify: FastifyInstance
@@ -222,9 +223,32 @@ export default async function simulationAttemptRoutes(
 
   // POST /simulation-attempts - Start new simulation attempt (NO upfront credit deduction)
   fastify.post("/simulation-attempts", async (request, reply) => {
+    const logger = getLogger(request)
+      .setService('SimulationAttemptService');
     try {
       const data = createSimulationAttemptSchema.parse(request.body);
-      const attempt = await simulationAttemptService.create(data);
+
+      // Set entity context for filtering
+      logger.setEntity({
+        studentId: data.studentId,
+        simulationId: data.simulationId,
+      });
+
+      logger.info('Creating new simulation attempt', {
+        studentId: data.studentId,
+        simulationId: data.simulationId,
+      });
+
+      const attempt = await simulationAttemptService.create(data, logger);
+
+      // Update entity context with the created attempt ID
+      logger.setEntity({ simulationAttemptId: attempt.id });
+
+      logger.info('Simulation attempt created successfully', {
+        attemptId: attempt.id,
+        correlationToken: attempt.voiceAssistantConfig?.correlationToken,
+      });
+
       // The attempt now includes voiceAssistantConfig from LiveKit service
       reply.status(201).send({
         message:
@@ -241,22 +265,26 @@ export default async function simulationAttemptRoutes(
     } catch (error) {
       if (error instanceof Error) {
         if (error.message === "Student not found") {
+          logger.warn('Student not found', { error: error.message });
           reply.status(404).send({ error: "Student not found" });
         } else if (error.message === "Simulation not found") {
+          logger.warn('Simulation not found', { error: error.message });
           reply.status(404).send({ error: "Simulation not found" });
         } else if (error.message.includes("Insufficient credits")) {
+          logger.warn('Insufficient credits', { error: error.message });
           reply.status(400).send({
             error: error.message,
             minimumRequired: 1,
           });
         } else {
-          console.error("Validation error:", error);
+          logger.error('Validation error creating simulation attempt', error);
           reply.status(400).send({
             error: "Invalid data",
             details: error.message,
           });
         }
       } else {
+        logger.error('Internal server error creating simulation attempt', error);
         reply.status(500).send({ error: "Internal server error" });
       }
     }
@@ -418,12 +446,20 @@ export default async function simulationAttemptRoutes(
   fastify.patch(
     "/simulation-attempts/:id/complete-with-transcript",
     async (request, reply) => {
+      const logger = getLogger(request)
+        .setService('SimulationAttemptService');
       try {
         const { id } = simulationAttemptParamsSchema.parse(request.params);
+
+        // Set entity context for filtering
+        logger.setEntity({ simulationAttemptId: id });
+
+        logger.info('Completing simulation with transcript', { attemptId: id });
 
         const existingAttempt = await simulationAttemptService.findById(id);
 
         if (!existingAttempt.correlationToken) {
+          logger.warn('No correlation token found for attempt', { attemptId: id });
           reply.status(400).send({
             error:
               "No correlation token found for this attempt. Cannot retrieve transcript.",
@@ -431,13 +467,27 @@ export default async function simulationAttemptRoutes(
           return;
         }
 
+        logger.info('Found correlation token, starting completion process', {
+          attemptId: id,
+          correlationToken: existingAttempt.correlationToken,
+        });
+
         const attempt = await simulationAttemptService.completeWithTranscript(
           id,
-          existingAttempt.correlationToken
+          existingAttempt.correlationToken,
+          logger
         );
 
         const aiFeedback = attempt.aiFeedback as any;
         const aiAnalysisSuccessful = aiFeedback?.analysisStatus !== "failed";
+
+        logger.info('Simulation completion finished', {
+          attemptId: id,
+          score: attempt.score,
+          aiAnalysisSuccessful,
+          transcriptCaptured: !!attempt.transcript,
+          messagesCount: attempt.transcript ? (attempt.transcript as any).messages?.length : 0,
+        });
 
         reply.send({
           message: aiAnalysisSuccessful
@@ -481,7 +531,7 @@ export default async function simulationAttemptRoutes(
           },
         });
       } catch (error) {
-        console.error("Error completing simulation with transcript:", error);
+        logger.error("Error completing simulation with transcript", error);
 
         if (error instanceof Error) {
           if (error.message === "Simulation attempt not found") {

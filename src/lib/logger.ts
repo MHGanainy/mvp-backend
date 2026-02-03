@@ -377,26 +377,42 @@ export class RequestLogger {
   }
 
   /**
-   * Log request entry
+   * Log request entry with optional request body
    */
-  requestEntry() {
-    const message = `→ ${this.context.method} ${this.context.path}`
-    this.pinoLogger.info({ type: 'request_start' }, message)
-    esTransport.log(this.buildLogEntry('info', message, { type: 'request_start' }))
+  requestEntry(requestBody?: unknown) {
+    let message = `→ ${this.context.method} ${this.context.path}`
+    const logData: Record<string, unknown> = { type: 'request_start' }
+
+    if (requestBody !== undefined) {
+      logData.requestBody = requestBody
+      // Include body in message for easy viewing in Kibana
+      const bodyStr = JSON.stringify(requestBody)
+      message = `${message} | Body: ${bodyStr}`
+    }
+
+    this.pinoLogger.info(logData, message)
+    esTransport.log(this.buildLogEntry('info', message, logData))
   }
 
   /**
-   * Log request exit
+   * Log request exit with optional response body
    */
-  requestExit(statusCode: number) {
+  requestExit(statusCode: number, responseBody?: unknown) {
     const durationMs = Date.now() - this.context.startTime
-    const message = `← ${this.context.method} ${this.context.path} ${statusCode}`
+    let message = `← ${this.context.method} ${this.context.path} ${statusCode} (${durationMs}ms)`
 
-    const logData = {
+    const logData: Record<string, unknown> = {
       type: 'request_end',
       statusCode,
       durationMs,
       responseTimeCategory: durationMs < 100 ? 'fast' : durationMs < 500 ? 'normal' : durationMs < 2000 ? 'slow' : 'very_slow',
+    }
+
+    if (responseBody !== undefined) {
+      logData.responseBody = responseBody
+      // Include body in message for easy viewing in Kibana
+      const bodyStr = JSON.stringify(responseBody)
+      message = `${message} | Response: ${bodyStr}`
     }
 
     if (statusCode >= 500) {

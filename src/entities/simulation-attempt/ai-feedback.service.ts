@@ -1,6 +1,12 @@
 import OpenAI from 'openai';
 import Groq from 'groq-sdk';
 import { TranscriptClean } from '../../shared/types';
+import { appLogger } from '../../lib/logger';
+import {
+  logFunctionEntry,
+  logFunctionExit,
+  SimpleLogger,
+} from '../../lib/external-api-logger';
 
 // Add provider enum
 enum AIProvider {
@@ -168,46 +174,215 @@ export class AIFeedbackService {
   }
 
   // New method to handle completions across providers
-  private async getCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
+  private async getCompletion(systemPrompt: string, userPrompt: string, logger?: SimpleLogger): Promise<string> {
+    const log = logger || appLogger;
     const messages = [
       { role: "system" as const, content: systemPrompt },
       { role: "user" as const, content: userPrompt }
     ];
 
+    const totalPromptLength = systemPrompt.length + userPrompt.length;
+    const estimatedTokens = Math.ceil(totalPromptLength / 4); // Rough estimate
+
+    log.info('[AI-API] Preparing completion request', {
+      provider: this.provider,
+      model: this.model,
+      systemPromptLength: systemPrompt.length,
+      userPromptLength: userPrompt.length,
+      totalPromptLength,
+      estimatedInputTokens: estimatedTokens,
+      messagesCount: messages.length,
+      lifecycle: 'AI_FEEDBACK',
+      stage: 'AI_API_CALL',
+      step: '3/5',
+      action: 'AI_REQUEST_PREPARE',
+    });
+
     if (this.provider === AIProvider.OPENAI && this.openai) {
-      const completion = await this.openai.chat.completions.create({
+      log.info('[AI-API] Calling OpenAI API', {
         model: this.model,
-        messages,
         temperature: 0.3,
-        max_tokens: 20000,
-        response_format: { type: "json_object" }
+        maxTokens: 20000,
+        responseFormat: 'json_object',
+        endpoint: 'chat.completions.create',
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'AI_API_CALL',
+        step: '3/5',
+        action: 'OPENAI_API_CALL_START',
       });
-      
-      const responseContent = completion.choices[0]?.message?.content;
-      if (!responseContent) {
-        throw new Error('No response content from OpenAI');
+
+      const startTime = Date.now();
+
+      try {
+        const completion = await this.openai.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature: 0.3,
+          max_tokens: 20000,
+          response_format: { type: "json_object" }
+        });
+
+        const durationMs = Date.now() - startTime;
+        const responseContent = completion.choices[0]?.message?.content;
+
+        log.info('[AI-API] OpenAI API response received', {
+          model: this.model,
+          durationMs,
+          hasContent: !!responseContent,
+          responseLength: responseContent?.length || 0,
+          promptTokens: completion.usage?.prompt_tokens,
+          completionTokens: completion.usage?.completion_tokens,
+          totalTokens: completion.usage?.total_tokens,
+          finishReason: completion.choices[0]?.finish_reason,
+          choicesCount: completion.choices?.length,
+          tokensPerSecond: completion.usage?.completion_tokens ? Math.round((completion.usage.completion_tokens / durationMs) * 1000) : null,
+          costEstimate: completion.usage?.total_tokens ? `~$${((completion.usage.prompt_tokens || 0) * 0.00001 + (completion.usage.completion_tokens || 0) * 0.00003).toFixed(4)}` : null,
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'AI_API_CALL',
+          step: '3/5',
+          action: 'OPENAI_API_CALL_SUCCESS',
+        });
+
+        if (!responseContent) {
+          log.error('[AI-API] OpenAI returned empty response content', null, {
+            model: this.model,
+            durationMs,
+            finishReason: completion.choices[0]?.finish_reason,
+            choicesCount: completion.choices?.length,
+            promptTokens: completion.usage?.prompt_tokens,
+            completionTokens: completion.usage?.completion_tokens,
+            lifecycle: 'AI_FEEDBACK',
+            stage: 'AI_API_CALL',
+            step: '3/5',
+            action: 'OPENAI_EMPTY_RESPONSE',
+          });
+          throw new Error(`OpenAI returned empty response. Model: ${this.model}, Finish reason: ${completion.choices[0]?.finish_reason}`);
+        }
+        return responseContent;
+
+      } catch (openaiError) {
+        const durationMs = Date.now() - startTime;
+        log.error('[AI-API] OpenAI API call FAILED', openaiError, {
+          model: this.model,
+          durationMs,
+          errorType: openaiError instanceof Error ? openaiError.constructor.name : 'Unknown',
+          errorMessage: openaiError instanceof Error ? openaiError.message : String(openaiError),
+          errorStack: openaiError instanceof Error ? openaiError.stack?.substring(0, 500) : undefined,
+          estimatedInputTokens: estimatedTokens,
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'AI_API_CALL',
+          step: '3/5',
+          action: 'OPENAI_API_CALL_ERROR',
+        });
+        throw openaiError;
       }
-      return responseContent;
-      
+
     } else if (this.provider === AIProvider.GROQ && this.groq) {
-      // Note: Groq doesn't support response_format yet, so we'll need to ensure JSON in the prompt
-      const completion = await this.groq.chat.completions.create({
+      log.info('[AI-API] Calling Groq API', {
         model: this.model,
-        messages,
         temperature: 0.3,
-        max_tokens: 20000
+        maxTokens: 20000,
+        endpoint: 'chat.completions.create',
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'AI_API_CALL',
+        step: '3/5',
+        action: 'GROQ_API_CALL_START',
       });
-      
-      const responseContent = completion.choices[0]?.message?.content;
-      if (!responseContent) {
-        throw new Error('No response content from Groq');
+
+      const startTime = Date.now();
+
+      try {
+        const completion = await this.groq.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature: 0.3,
+          max_tokens: 20000
+        });
+
+        const durationMs = Date.now() - startTime;
+        const responseContent = completion.choices[0]?.message?.content;
+
+        log.info('[AI-API] Groq API response received', {
+          model: this.model,
+          durationMs,
+          hasContent: !!responseContent,
+          responseLength: responseContent?.length || 0,
+          promptTokens: completion.usage?.prompt_tokens,
+          completionTokens: completion.usage?.completion_tokens,
+          totalTokens: completion.usage?.total_tokens,
+          finishReason: completion.choices[0]?.finish_reason,
+          choicesCount: completion.choices?.length,
+          tokensPerSecond: completion.usage?.completion_tokens ? Math.round((completion.usage.completion_tokens / durationMs) * 1000) : null,
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'AI_API_CALL',
+          step: '3/5',
+          action: 'GROQ_API_CALL_SUCCESS',
+        });
+
+        if (!responseContent) {
+          log.error('[AI-API] Groq returned empty response content', null, {
+            model: this.model,
+            durationMs,
+            finishReason: completion.choices[0]?.finish_reason,
+            choicesCount: completion.choices?.length,
+            promptTokens: completion.usage?.prompt_tokens,
+            completionTokens: completion.usage?.completion_tokens,
+            lifecycle: 'AI_FEEDBACK',
+            stage: 'AI_API_CALL',
+            step: '3/5',
+            action: 'GROQ_EMPTY_RESPONSE',
+          });
+          throw new Error(`Groq returned empty response. Model: ${this.model}, Finish reason: ${completion.choices[0]?.finish_reason}`);
+        }
+
+        // Clean the response from markdown code blocks for Groq
+        const cleanedResponse = this.cleanJsonResponse(responseContent);
+        const wasMarkdownWrapped = cleanedResponse.length !== responseContent.length;
+        const bytesRemoved = responseContent.length - cleanedResponse.length;
+
+        log.debug('[AI-API] Groq response cleaned', {
+          originalLength: responseContent.length,
+          cleanedLength: cleanedResponse.length,
+          bytesRemoved,
+          wasMarkdownWrapped,
+          responseStartsWith: cleanedResponse.substring(0, 30),
+          responseEndsWith: cleanedResponse.substring(cleanedResponse.length - 30),
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'AI_API_CALL',
+          step: '3/5',
+          action: 'GROQ_RESPONSE_CLEANED',
+        });
+
+        return cleanedResponse;
+
+      } catch (groqError) {
+        const durationMs = Date.now() - startTime;
+        log.error('[AI-API] Groq API call FAILED', groqError, {
+          model: this.model,
+          durationMs,
+          errorType: groqError instanceof Error ? groqError.constructor.name : 'Unknown',
+          errorMessage: groqError instanceof Error ? groqError.message : String(groqError),
+          errorStack: groqError instanceof Error ? groqError.stack?.substring(0, 500) : undefined,
+          estimatedInputTokens: estimatedTokens,
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'AI_API_CALL',
+          step: '3/5',
+          action: 'GROQ_API_CALL_ERROR',
+        });
+        throw groqError;
       }
-      
-      // Clean the response from markdown code blocks for Groq
-      return this.cleanJsonResponse(responseContent);
-      
+
     } else {
-      throw new Error(`Provider ${this.provider} not properly initialized`);
+      log.error('[AI-API] Provider not properly initialized', null, {
+        provider: this.provider,
+        hasOpenAI: !!this.openai,
+        hasGroq: !!this.groq,
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'AI_API_CALL',
+        step: '3/5',
+        action: 'PROVIDER_NOT_INITIALIZED',
+      });
+      throw new Error(`AI provider ${this.provider} not properly initialized. Check API keys and configuration.`);
     }
   }
 
@@ -216,44 +391,254 @@ export class AIFeedbackService {
     caseInfo: CaseInfo,
     caseTabs: CaseTabs,
     sessionDuration: number,
-    markingDomainsWithCriteria: MarkingDomainWithCriteria[]
-  ): Promise<{ 
-    feedback: AIFeedbackResponse; 
-    score: number; 
+    markingDomainsWithCriteria: MarkingDomainWithCriteria[],
+    logger?: SimpleLogger
+  ): Promise<{
+    feedback: AIFeedbackResponse;
+    score: number;
     prompts: { systemPrompt: string; userPrompt: string; };
     markingStructure: MarkingDomainWithCriteria[];
   }> {
-  
+    const log = logger || appLogger;
+    const startTime = Date.now();
+
+    const totalCriteria = markingDomainsWithCriteria.reduce((sum, d) => sum + d.criteria.length, 0);
+    const totalPossiblePoints = markingDomainsWithCriteria.reduce(
+      (sum, d) => sum + d.criteria.reduce((cs, c) => cs + c.points, 0), 0
+    );
+
+    log.info('[AI-FEEDBACK] === FEEDBACK GENERATION STARTED ===', {
+      provider: this.provider,
+      model: this.model,
+      caseTitle: caseInfo.caseTitle,
+      patientName: caseInfo.patientName,
+      diagnosis: caseInfo.diagnosis,
+      transcriptMessages: transcript.totalMessages,
+      transcriptDuration: transcript.duration,
+      sessionDuration,
+      markingDomainsCount: markingDomainsWithCriteria.length,
+      totalCriteria,
+      totalPossiblePoints,
+      lifecycle: 'AI_FEEDBACK',
+      stage: 'INIT',
+      step: '1/5',
+      action: 'FEEDBACK_GENERATION_START',
+    });
+
+    // Log detailed case context for debugging
+    log.debug('[AI-FEEDBACK] [STEP 1/5] Case context details', {
+      caseTitle: caseInfo.caseTitle,
+      patientName: caseInfo.patientName,
+      diagnosis: caseInfo.diagnosis,
+      patientAge: caseInfo.patientAge,
+      patientGender: caseInfo.patientGender,
+      hasDoctorsNote: caseTabs.doctorsNote.length > 0,
+      doctorsNoteItems: caseTabs.doctorsNote.length,
+      doctorsNotePreview: caseTabs.doctorsNote.length > 0 ? caseTabs.doctorsNote[0]?.substring(0, 100) : null,
+      hasPatientScript: caseTabs.patientScript.length > 0,
+      patientScriptItems: caseTabs.patientScript.length,
+      patientScriptPreview: caseTabs.patientScript.length > 0 ? caseTabs.patientScript[0]?.substring(0, 100) : null,
+      hasMedicalNotes: caseTabs.medicalNotes.length > 0,
+      medicalNotesItems: caseTabs.medicalNotes.length,
+      medicalNotesPreview: caseTabs.medicalNotes.length > 0 ? caseTabs.medicalNotes[0]?.substring(0, 100) : null,
+      lifecycle: 'AI_FEEDBACK',
+      stage: 'CONTEXT_ANALYSIS',
+      step: '1/5',
+      action: 'CASE_CONTEXT_DETAILS',
+    });
+
+    // Log transcript details
+    log.debug('[AI-FEEDBACK] [STEP 1/5] Transcript analysis', {
+      totalMessages: transcript.totalMessages,
+      duration: transcript.duration,
+      firstMessageTimestamp: transcript.messages?.[0]?.timestamp,
+      lastMessageTimestamp: transcript.messages?.[transcript.messages?.length - 1]?.timestamp,
+      studentMessageCount: transcript.messages?.filter((m: any) => m.speaker === 'student').length || 0,
+      aiPatientMessageCount: transcript.messages?.filter((m: any) => m.speaker === 'ai_patient').length || 0,
+      averageMessageLength: transcript.messages?.length > 0
+        ? Math.round(transcript.messages.reduce((sum: number, m: any) => sum + (m.message?.length || 0), 0) / transcript.messages.length)
+        : 0,
+      lifecycle: 'AI_FEEDBACK',
+      stage: 'CONTEXT_ANALYSIS',
+      step: '1/5',
+      action: 'TRANSCRIPT_ANALYSIS',
+    });
+
+    // Log marking domains structure
+    log.debug('[AI-FEEDBACK] [STEP 1/5] Marking domains structure', {
+      domainsCount: markingDomainsWithCriteria.length,
+      domains: markingDomainsWithCriteria.map(d => ({
+        domainId: d.domainId,
+        domainName: d.domainName,
+        criteriaCount: d.criteria.length,
+        points: d.criteria.reduce((sum, c) => sum + c.points, 0),
+        criteriaIds: d.criteria.map(c => c.id),
+      })),
+      lifecycle: 'AI_FEEDBACK',
+      stage: 'CONTEXT_ANALYSIS',
+      step: '1/5',
+      action: 'MARKING_DOMAINS_STRUCTURE',
+    });
+
+    // =========================================================================
+    // STEP 2: Build AI Prompts
+    // =========================================================================
+    log.info('[AI-FEEDBACK] [STEP 2/5] Building AI prompts', {
+      lifecycle: 'AI_FEEDBACK',
+      stage: 'PROMPT_BUILD',
+      step: '2/5',
+      action: 'PROMPT_BUILD_START',
+    });
+    const promptBuildStart = Date.now();
+
     const systemPrompt = this.buildSystemPrompt(caseInfo, caseTabs, markingDomainsWithCriteria);
     const userPrompt = this.buildUserPrompt(transcript, caseInfo, sessionDuration);
-  
+
+    const promptBuildDurationMs = Date.now() - promptBuildStart;
+    const estimatedTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4);
+
+    log.info('[AI-FEEDBACK] [STEP 2/5] Prompts built successfully', {
+      systemPromptLength: systemPrompt.length,
+      userPromptLength: userPrompt.length,
+      totalPromptLength: systemPrompt.length + userPrompt.length,
+      estimatedInputTokens: estimatedTokens,
+      promptBuildDurationMs,
+      systemPromptPreview: systemPrompt.substring(0, 200),
+      userPromptPreview: userPrompt.substring(0, 200),
+      lifecycle: 'AI_FEEDBACK',
+      stage: 'PROMPT_BUILD',
+      step: '2/5',
+      action: 'PROMPT_BUILD_SUCCESS',
+    });
+
     try {
-      // Use the new getCompletion method
-      const responseContent = await this.getCompletion(systemPrompt, userPrompt);
-      const rawResponse = JSON.parse(responseContent);
-      
+      // =========================================================================
+      // STEP 3: Call AI Provider API
+      // =========================================================================
+      log.info('[AI-FEEDBACK] [STEP 3/5] Sending request to AI provider', {
+        provider: this.provider,
+        model: this.model,
+        estimatedInputTokens: estimatedTokens,
+        maxOutputTokens: 20000,
+        temperature: 0.3,
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'AI_API_CALL',
+        step: '3/5',
+        action: 'AI_REQUEST_START',
+      });
+
+      const aiCallStart = Date.now();
+      const responseContent = await this.getCompletion(systemPrompt, userPrompt, log);
+      const aiCallDurationMs = Date.now() - aiCallStart;
+
+      log.info('[AI-FEEDBACK] [STEP 3/5] AI response received', {
+        provider: this.provider,
+        model: this.model,
+        responseLength: responseContent.length,
+        estimatedOutputTokens: Math.ceil(responseContent.length / 4),
+        aiCallDurationMs,
+        tokensPerSecond: Math.round((Math.ceil(responseContent.length / 4) / aiCallDurationMs) * 1000),
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'AI_API_CALL',
+        step: '3/5',
+        action: 'AI_RESPONSE_RECEIVED',
+      });
+
+      // =========================================================================
+      // STEP 4: Parse AI Response
+      // =========================================================================
+      log.info('[AI-FEEDBACK] [STEP 4/5] Parsing AI response JSON', {
+        responseLength: responseContent.length,
+        responseStartsWith: responseContent.substring(0, 50),
+        responseEndsWith: responseContent.substring(responseContent.length - 50),
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'RESPONSE_PARSE',
+        step: '4/5',
+        action: 'JSON_PARSE_START',
+      });
+
+      let rawResponse: any;
+      const parseStart = Date.now();
+      try {
+        rawResponse = JSON.parse(responseContent);
+      } catch (parseError) {
+        const parseDurationMs = Date.now() - parseStart;
+        log.error('[AI-FEEDBACK] [STEP 4/5] JSON parse FAILED', parseError, {
+          responseLength: responseContent.length,
+          responsePreview: responseContent.substring(0, 500),
+          responseMiddle: responseContent.substring(Math.floor(responseContent.length / 2) - 100, Math.floor(responseContent.length / 2) + 100),
+          responseEnd: responseContent.substring(responseContent.length - 300),
+          parseDurationMs,
+          errorType: parseError instanceof Error ? parseError.constructor.name : 'Unknown',
+          errorMessage: parseError instanceof Error ? parseError.message : String(parseError),
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'RESPONSE_PARSE',
+          step: '4/5',
+          action: 'JSON_PARSE_ERROR',
+        });
+        throw new Error(`Failed to parse AI response as JSON: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
+      }
+      const parseDurationMs = Date.now() - parseStart;
+
+      log.info('[AI-FEEDBACK] [STEP 4/5] AI response parsed successfully', {
+        hasOverallFeedback: !!rawResponse.overallFeedback,
+        overallFeedbackLength: rawResponse.overallFeedback?.length || 0,
+        overallFeedbackPreview: rawResponse.overallFeedback?.substring(0, 200) || null,
+        markingDomainsCount: rawResponse.markingDomains?.length || 0,
+        rawResponseKeys: Object.keys(rawResponse),
+        parseDurationMs,
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'RESPONSE_PARSE',
+        step: '4/5',
+        action: 'JSON_PARSE_SUCCESS',
+      });
+
+      // =========================================================================
+      // STEP 5: Calculate Statistics and Build Response
+      // =========================================================================
+      log.info('[AI-FEEDBACK] [STEP 5/5] Calculating feedback statistics', {
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'STATISTICS',
+        step: '5/5',
+        action: 'STATISTICS_CALCULATION_START',
+      });
+
+      const statsStart = Date.now();
+
       // Calculate overall statistics from the raw response
-      let totalCriteria = 0;
-      let criteriaMet = 0;
-      let totalPossiblePoints = 0;
+      let totalCriteriaCount = 0;
+      let criteriaMetCount = 0;
+      let totalPossiblePointsCalc = 0;
       let totalAchievedPoints = 0;
-      
+
       // Keep the full structure with points
-      const fullDomains: MarkingDomainResult[] = rawResponse.markingDomains.map((domain: any) => {
+      const fullDomains: MarkingDomainResult[] = rawResponse.markingDomains.map((domain: any, domainIndex: number) => {
         let domainAchievedPoints = 0;
         let domainTotalPoints = 0;
-        
+        let domainCriteriaMet = 0;
+
+        log.debug(`[AI-FEEDBACK] [STEP 5/5] Processing domain ${domainIndex + 1}/${rawResponse.markingDomains.length}: ${domain.domainName}`, {
+          domainId: domain.domainId,
+          domainName: domain.domainName,
+          criteriaCount: domain.criteria?.length || 0,
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'STATISTICS',
+          step: '5/5',
+          action: 'DOMAIN_PROCESSING',
+        });
+
         const fullCriteria: MarkingCriterionResult[] = domain.criteria.map((criterion: any) => {
-          totalCriteria++;
-          totalPossiblePoints += criterion.points;
+          totalCriteriaCount++;
+          totalPossiblePointsCalc += criterion.points;
           domainTotalPoints += criterion.points;
-          
+
           if (criterion.met) {
-            criteriaMet++;
+            criteriaMetCount++;
             totalAchievedPoints += criterion.points;
             domainAchievedPoints += criterion.points;
+            domainCriteriaMet++;
           }
-          
+
           return {
             criterionId: criterion.criterionId,
             criterionText: criterion.criterionText,
@@ -263,40 +648,145 @@ export class AIFeedbackService {
             feedback: criterion.feedback
           };
         });
-        
+
+        log.debug(`[AI-FEEDBACK] [STEP 5/5] Domain "${domain.domainName}" processed`, {
+          domainId: domain.domainId,
+          domainName: domain.domainName,
+          totalPoints: domainTotalPoints,
+          achievedPoints: domainAchievedPoints,
+          percentageScore: domainTotalPoints > 0 ? Math.round((domainAchievedPoints / domainTotalPoints) * 100) : 0,
+          criteriaCount: fullCriteria.length,
+          criteriaMet: domainCriteriaMet,
+          criteriaNotMet: fullCriteria.length - domainCriteriaMet,
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'STATISTICS',
+          step: '5/5',
+          action: 'DOMAIN_PROCESSED',
+        });
+
         return {
           domainId: domain.domainId,
           domainName: domain.domainName,
           totalPossiblePoints: domainTotalPoints,
           achievedPoints: domainAchievedPoints,
-          percentageScore: domainTotalPoints > 0 
-            ? Math.round((domainAchievedPoints / domainTotalPoints) * 100) 
+          percentageScore: domainTotalPoints > 0
+            ? Math.round((domainAchievedPoints / domainTotalPoints) * 100)
             : 0,
           criteria: fullCriteria
         };
       });
-      
-      const percentageMet = totalCriteria > 0 ? (criteriaMet / totalCriteria) * 100 : 0;
+
+      const percentageMet = totalCriteriaCount > 0 ? (criteriaMetCount / totalCriteriaCount) * 100 : 0;
       const classification = this.calculatePerformanceClassification(percentageMet);
-      
+      const statsDurationMs = Date.now() - statsStart;
+
+      log.info('[AI-FEEDBACK] [STEP 5/5] Feedback statistics calculated', {
+        totalCriteria: totalCriteriaCount,
+        criteriaMet: criteriaMetCount,
+        criteriaNotMet: totalCriteriaCount - criteriaMetCount,
+        percentageMet: Math.round(percentageMet * 10) / 10,
+        classification: classification.classification,
+        classificationLabel: classification.label,
+        classificationDescription: classification.description,
+        totalPossiblePoints: totalPossiblePointsCalc,
+        totalAchievedPoints,
+        scorePercentage: totalPossiblePointsCalc > 0 ? Math.round((totalAchievedPoints / totalPossiblePointsCalc) * 100) : 0,
+        domainsProcessed: fullDomains.length,
+        statsDurationMs,
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'STATISTICS',
+        step: '5/5',
+        action: 'STATISTICS_CALCULATED',
+      });
+
+      // Log per-domain results for debugging
+      log.debug('[AI-FEEDBACK] [STEP 5/5] Per-domain breakdown', {
+        domains: fullDomains.map(d => ({
+          domainId: d.domainId,
+          domainName: d.domainName,
+          achievedPoints: d.achievedPoints,
+          totalPossiblePoints: d.totalPossiblePoints,
+          percentageScore: d.percentageScore,
+          criteriaCount: d.criteria.length,
+          criteriaMet: d.criteria.filter(c => c.met).length,
+          criteriaNotMet: d.criteria.filter(c => !c.met).length,
+        })),
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'STATISTICS',
+        step: '5/5',
+        action: 'DOMAIN_BREAKDOWN',
+      });
+
+      // Log criteria that were NOT met for debugging
+      const unmetCriteria = fullDomains.flatMap(d =>
+        d.criteria.filter(c => !c.met).map(c => ({
+          domainName: d.domainName,
+          criterionId: c.criterionId,
+          criterionText: c.criterionText.substring(0, 100),
+          points: c.points,
+          feedback: c.feedback?.substring(0, 100),
+        }))
+      );
+
+      if (unmetCriteria.length > 0) {
+        log.debug('[AI-FEEDBACK] [STEP 5/5] Criteria NOT met', {
+          unmetCount: unmetCriteria.length,
+          unmetCriteria: unmetCriteria.slice(0, 10), // Limit to first 10
+          lifecycle: 'AI_FEEDBACK',
+          stage: 'STATISTICS',
+          step: '5/5',
+          action: 'UNMET_CRITERIA',
+        });
+      }
+
       const aiResponse: AIFeedbackResponse = {
         overallFeedback: rawResponse.overallFeedback,
         overallResult: {
           classification: classification.classification,
           classificationLabel: classification.label,
           percentageMet: Math.round(percentageMet * 10) / 10,
-          totalCriteria,
-          criteriaMet,
-          criteriaNotMet: totalCriteria - criteriaMet,
+          totalCriteria: totalCriteriaCount,
+          criteriaMet: criteriaMetCount,
+          criteriaNotMet: totalCriteriaCount - criteriaMetCount,
           description: classification.description
         },
         markingDomains: fullDomains
       };
-      
-      const score = totalPossiblePoints > 0 
-        ? Math.round((totalAchievedPoints / totalPossiblePoints) * 100)
+
+      const score = totalPossiblePointsCalc > 0
+        ? Math.round((totalAchievedPoints / totalPossiblePointsCalc) * 100)
         : 0;
-  
+
+      const totalDurationMs = Date.now() - startTime;
+
+      log.info('[AI-FEEDBACK] === FEEDBACK GENERATION COMPLETED SUCCESSFULLY ===', {
+        provider: this.provider,
+        model: this.model,
+        score,
+        classification: classification.classification,
+        classificationLabel: classification.label,
+        criteriaMet: criteriaMetCount,
+        criteriaNotMet: totalCriteriaCount - criteriaMetCount,
+        totalCriteria: totalCriteriaCount,
+        percentageMet: Math.round(percentageMet * 10) / 10,
+        totalPossiblePoints: totalPossiblePointsCalc,
+        totalAchievedPoints,
+        overallFeedbackLength: aiResponse.overallFeedback?.length || 0,
+        domainsCount: fullDomains.length,
+        // Timing breakdown
+        totalDurationMs,
+        promptBuildDurationMs,
+        aiCallDurationMs,
+        parseDurationMs,
+        statsDurationMs,
+        // Performance metrics
+        tokensPerSecond: Math.round((Math.ceil(responseContent.length / 4) / aiCallDurationMs) * 1000),
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'COMPLETE',
+        step: 'COMPLETE',
+        action: 'FEEDBACK_GENERATION_SUCCESS',
+      });
+
       return {
         feedback: aiResponse,
         score: score,
@@ -306,10 +796,41 @@ export class AIFeedbackService {
         },
         markingStructure: markingDomainsWithCriteria
       };
-  
+
     } catch (error) {
-      console.error(`Error generating AI feedback with ${this.provider}:`, error);
-      throw new Error(`Failed to generate AI feedback using ${this.provider}`);
+      const totalDurationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorType = error instanceof Error ? error.constructor.name : 'Unknown';
+
+      log.error('[AI-FEEDBACK] === FEEDBACK GENERATION FAILED ===', error, {
+        provider: this.provider,
+        model: this.model,
+        caseTitle: caseInfo.caseTitle,
+        patientName: caseInfo.patientName,
+        diagnosis: caseInfo.diagnosis,
+        transcriptMessages: transcript.totalMessages,
+        transcriptDuration: transcript.duration,
+        sessionDuration,
+        markingDomainsCount: markingDomainsWithCriteria.length,
+        totalCriteria,
+        totalPossiblePoints,
+        errorType,
+        errorMessage,
+        errorStack: errorStack?.substring(0, 1500),
+        totalDurationMs,
+        lifecycle: 'AI_FEEDBACK',
+        stage: 'ERROR',
+        step: 'ERROR',
+        action: 'FEEDBACK_GENERATION_ERROR',
+      });
+
+      // Re-throw with more context
+      throw new Error(
+        `AI feedback generation failed after ${totalDurationMs}ms. ` +
+        `Provider: ${this.provider}, Model: ${this.model}. ` +
+        `Error: ${errorMessage}`
+      );
     }
   }
   
