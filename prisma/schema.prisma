@@ -334,6 +334,7 @@ model InterviewCourse {
   interviewId     String          @map("interview_id")
   instructorId    String          @map("instructor_id")
   title           String
+  slug            String?
   description     String?
   style           CourseStyle     @default(RANDOM)
   price3Months    Decimal         @map("price_3_months") @db.Decimal(10, 2)
@@ -350,6 +351,7 @@ model InterviewCourse {
   interview       Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   instructor      Instructor      @relation(fields: [instructorId], references: [id])
 
+  @@unique([interviewId, slug])
   @@map("interview_courses")
 }
 
@@ -357,6 +359,7 @@ model InterviewCase {
   id                       String                      @id @default(uuid())
   interviewCourseId        String                      @map("interview_course_id")
   title                    String
+  slug                     String?
   diagnosis                String
   patientName              String                      @map("patient_name")
   patientAge               Int                         @map("patient_age")
@@ -374,6 +377,7 @@ model InterviewCase {
   interviewSimulation      InterviewSimulation?
   studentPractice          StudentInterviewPractice[]
 
+  @@unique([interviewCourseId, slug])
   @@map("interview_cases")
 }
 

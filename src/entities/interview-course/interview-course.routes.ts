@@ -71,6 +71,27 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // GET /interviews/:interviewSlug/courses/:courseSlug - Get interview course by slugs (clean URL)
+  fastify.get('/interviews/:interviewSlug/courses/:courseSlug', async (request, reply) => {
+    try {
+      const { interviewSlug, courseSlug } = request.params as { interviewSlug: string; courseSlug: string }
+      const interviewCourse = await interviewCourseService.findBySlug(interviewSlug, courseSlug)
+      reply.send(interviewCourse)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Interview not found') {
+          reply.status(404).send({ error: 'Interview not found' })
+        } else if (error.message === 'Interview course not found') {
+          reply.status(404).send({ error: 'Interview course not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
   // GET /interview-courses/published - Get only published interview courses
   fastify.get('/interview-courses/published', async (request, reply) => {
     try {

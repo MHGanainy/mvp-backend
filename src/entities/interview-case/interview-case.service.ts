@@ -1,6 +1,7 @@
 // interview-case.service.ts
 import { PrismaClient, PatientGender, Prisma } from '@prisma/client'
 import { CreateInterviewCaseInput, UpdateInterviewCaseInput, CreateCompleteInterviewCaseInput, UpdateCompleteInterviewCaseInput } from './interview-case.schema'
+import { generateSlug, generateUniqueSlug } from '../../shared/slug'
 
 // Define InterviewCaseTabType - should match your Prisma schema enum
 type InterviewCaseTabType = 'DOCTORS_NOTE' | 'PATIENT_SCRIPT' | 'MEDICAL_NOTES'
@@ -126,9 +127,18 @@ export class InterviewCaseService {
       data.displayOrder = (maxOrder._max.displayOrder || 0) + 1
     }
 
+    // Generate unique slug for this interview course
+    const slug = await generateUniqueSlug(data.title, async (testSlug) => {
+      const existing = await this.prisma.interviewCase.findFirst({
+        where: { interviewCourseId: data.interviewCourseId, slug: testSlug }
+      })
+      return existing !== null
+    })
+
     return await this.prisma.interviewCase.create({
       data: {
         interviewCourseId: data.interviewCourseId,
+        slug,
         title: data.title,
         diagnosis: data.diagnosis,
         patientName: data.patientName,
@@ -155,6 +165,44 @@ export class InterviewCaseService {
   async findById(id: string) {
     const interviewCase = await this.prisma.interviewCase.findUnique({
       where: { id },
+      include: this.getStandardInclude()
+    })
+
+    if (!interviewCase) {
+      throw new Error('Interview case not found')
+    }
+
+    return interviewCase
+  }
+
+  async findBySlug(interviewSlug: string, courseSlug: string, caseSlug: string) {
+    // Step 1: Find interview by slug
+    const interview = await this.prisma.interview.findUnique({
+      where: { slug: interviewSlug }
+    })
+
+    if (!interview) {
+      throw new Error('Interview not found')
+    }
+
+    // Step 2: Find interview course by slug within interview
+    const interviewCourse = await this.prisma.interviewCourse.findFirst({
+      where: {
+        interviewId: interview.id,
+        slug: courseSlug
+      }
+    })
+
+    if (!interviewCourse) {
+      throw new Error('Interview course not found')
+    }
+
+    // Step 3: Find interview case by slug within interview course
+    const interviewCase = await this.prisma.interviewCase.findFirst({
+      where: {
+        interviewCourseId: interviewCourse.id,
+        slug: caseSlug
+      },
       include: this.getStandardInclude()
     })
 
@@ -856,10 +904,24 @@ export class InterviewCaseService {
         }
       }
 
+      // Generate unique slug for this interview course
+      const baseSlug = generateSlug(data.interviewCase.title)
+      let slug = baseSlug
+      let counter = 1
+      while (true) {
+        const existing = await tx.interviewCase.findFirst({
+          where: { interviewCourseId: data.interviewCase.interviewCourseId, slug }
+        })
+        if (!existing) break
+        slug = `${baseSlug}-${counter}`
+        counter++
+      }
+
       // Step 2: Create the interview case
       const interviewCase = await tx.interviewCase.create({
         data: {
           interviewCourseId: data.interviewCase.interviewCourseId,
+          slug,
           title: data.interviewCase.title,
           diagnosis: data.interviewCase.diagnosis,
           patientName: data.interviewCase.patientName,

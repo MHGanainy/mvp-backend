@@ -91,6 +91,164 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // GET /interviews/:interviewSlug/courses/:courseSlug/cases/:caseSlug - Get interview case by slugs (clean URL)
+  fastify.get('/interviews/:interviewSlug/courses/:courseSlug/cases/:caseSlug', async (request, reply) => {
+    try {
+      const { interviewSlug, courseSlug, caseSlug } = request.params as {
+        interviewSlug: string
+        courseSlug: string
+        caseSlug: string
+      }
+      const interviewCase = await interviewCaseService.findBySlug(interviewSlug, courseSlug, caseSlug)
+      reply.send(interviewCase)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Interview not found') {
+          reply.status(404).send({ error: 'Interview not found' })
+        } else if (error.message === 'Interview course not found') {
+          reply.status(404).send({ error: 'Interview course not found' })
+        } else if (error.message === 'Interview case not found') {
+          reply.status(404).send({ error: 'Interview case not found' })
+        } else {
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // GET /interviews/:interviewSlug/courses/:courseSlug/cases/:caseSlug/complete - Get complete interview case by slugs
+  fastify.get('/interviews/:interviewSlug/courses/:courseSlug/cases/:caseSlug/complete', async (request, reply) => {
+    try {
+      const { interviewSlug, courseSlug, caseSlug } = request.params as {
+        interviewSlug: string
+        courseSlug: string
+        caseSlug: string
+      }
+
+      // Use findBySlug to get the case first
+      const caseLookup = await interviewCaseService.findBySlug(interviewSlug, courseSlug, caseSlug)
+      const id = caseLookup.id
+
+      // Now get the complete data using the ID
+      const interviewCase = await fastify.prisma.interviewCase.findUnique({
+        where: { id },
+        include: {
+          interviewCourse: {
+            include: {
+              interview: {
+                select: {
+                  id: true,
+                  title: true,
+                  slug: true
+                }
+              }
+            }
+          },
+          interviewSimulation: true,
+          interviewCaseTabs: true,
+          interviewMarkingCriteria: {
+            include: {
+              markingDomain: true
+            },
+            orderBy: [
+              { markingDomain: { name: 'asc' } },
+              { displayOrder: 'asc' }
+            ]
+          },
+          interviewCaseSpecialties: {
+            include: {
+              specialty: true
+            }
+          },
+          interviewCaseCurriculums: {
+            include: {
+              curriculum: true
+            }
+          }
+        }
+      })
+
+      if (!interviewCase) {
+        reply.status(404).send({ error: 'Interview case not found' })
+        return
+      }
+
+      const tabsResponse: any = {}
+      for (const tab of interviewCase.interviewCaseTabs) {
+        tabsResponse[tab.tabType] = {
+          id: tab.id,
+          content: tab.content,
+          hasContent: tab.content.length > 0
+        }
+      }
+
+      const markingCriteriaGrouped = interviewCase.interviewMarkingCriteria.reduce((acc, criterion) => {
+        const domainId = criterion.markingDomain.id
+        const domainName = criterion.markingDomain.name
+
+        let group = acc.find((g: any) => g.domainId === domainId)
+        if (!group) {
+          group = { domainId, domainName, criteria: [] }
+          acc.push(group)
+        }
+
+        group.criteria.push({
+          id: criterion.id,
+          text: criterion.text,
+          points: criterion.points,
+          displayOrder: criterion.displayOrder
+        })
+
+        return acc
+      }, [] as any[])
+
+      const specialties = interviewCase.interviewCaseSpecialties.map((cs: any) => cs.specialty)
+      const curriculums = interviewCase.interviewCaseCurriculums.map((cc: any) => cc.curriculum)
+
+      reply.send({
+        interviewCase: {
+          id: interviewCase.id,
+          interviewCourseId: interviewCase.interviewCourseId,
+          slug: interviewCase.slug,
+          title: interviewCase.title,
+          diagnosis: interviewCase.diagnosis,
+          patientName: interviewCase.patientName,
+          patientAge: interviewCase.patientAge,
+          patientGender: interviewCase.patientGender,
+          description: interviewCase.description,
+          isFree: interviewCase.isFree,
+          displayOrder: interviewCase.displayOrder,
+          createdAt: interviewCase.createdAt,
+          updatedAt: interviewCase.updatedAt
+        },
+        tabs: tabsResponse,
+        markingCriteria: markingCriteriaGrouped,
+        specialties,
+        curriculums,
+        interviewSimulation: interviewCase.interviewSimulation,
+        interviewCourse: interviewCase.interviewCourse
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Interview not found') {
+          reply.status(404).send({ error: 'Interview not found' })
+        } else if (error.message === 'Interview course not found') {
+          reply.status(404).send({ error: 'Interview course not found' })
+        } else if (error.message === 'Interview case not found') {
+          reply.status(404).send({ error: 'Interview case not found' })
+        } else {
+          console.error('Error fetching complete interview case by slug:', error)
+          reply.status(400).send({ error: 'Invalid request' })
+        }
+      } else {
+        console.error('Error fetching complete interview case by slug:', error)
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
   // GET /interview-cases/interview-course/:interviewCourseId - Get cases by interview course
   fastify.get('/interview-cases/interview-course/:interviewCourseId', async (request, reply) => {
     try {

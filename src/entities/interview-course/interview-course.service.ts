@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { CreateInterviewCourseInput, UpdateInterviewCourseInput, InterviewCourseStyle } from './interview-course.schema'
+import { generateUniqueSlug } from '../../shared/slug'
 
 export class InterviewCourseService {
   constructor(private prisma: PrismaClient) {}
@@ -27,10 +28,19 @@ export class InterviewCourseService {
       throw new Error('Instructor can only create interview courses for their own interviews')
     }
 
+    // Generate unique slug for this interview
+    const slug = await generateUniqueSlug(data.title, async (testSlug) => {
+      const existing = await this.prisma.interviewCourse.findFirst({
+        where: { interviewId: data.interviewId, slug: testSlug }
+      })
+      return existing !== null
+    })
+
     return await this.prisma.interviewCourse.create({
       data: {
         interviewId: data.interviewId,
         instructorId: data.instructorId,
+        slug,
         title: data.title,
         description: data.description,
         style: data.style,
@@ -154,6 +164,49 @@ export class InterviewCourseService {
   async findById(id: string) {
     const interviewCourse = await this.prisma.interviewCourse.findUnique({
       where: { id },
+      include: {
+        interview: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            isActive: true
+          }
+        },
+        instructor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            bio: true
+          }
+        }
+      }
+    })
+
+    if (!interviewCourse) {
+      throw new Error('Interview course not found')
+    }
+
+    return interviewCourse
+  }
+
+  async findBySlug(interviewSlug: string, courseSlug: string) {
+    // Step 1: Find interview by slug
+    const interview = await this.prisma.interview.findUnique({
+      where: { slug: interviewSlug }
+    })
+
+    if (!interview) {
+      throw new Error('Interview not found')
+    }
+
+    // Step 2: Find interview course by slug within interview
+    const interviewCourse = await this.prisma.interviewCourse.findFirst({
+      where: {
+        interviewId: interview.id,
+        slug: courseSlug
+      },
       include: {
         interview: {
           select: {
