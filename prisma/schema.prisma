@@ -85,6 +85,7 @@ model Student {
   checkoutSessions            StripeCheckoutSession[]
   enrollments                 CourseEnrollment[]
   casePractice                StudentCasePractice[]
+  interviewCasePractice       StudentInterviewPractice[]
 
   @@map("students")
 }
@@ -371,6 +372,7 @@ model InterviewCase {
   interviewCourse          InterviewCourse             @relation(fields: [interviewCourseId], references: [id], onDelete: Cascade)
   interviewMarkingCriteria InterviewMarkingCriterion[]
   interviewSimulation      InterviewSimulation?
+  studentPractice          StudentInterviewPractice[]
 
   @@map("interview_cases")
 }
@@ -679,6 +681,31 @@ model StudentCasePractice {
   @@index([studentId, isPracticed])
   @@index([studentId, isBookmarked])
   @@map("student_case_practice")
+}
+
+// ============================================
+// STUDENT INTERVIEW PRACTICE & BOOKMARKS
+// ============================================
+
+model StudentInterviewPractice {
+  id               String         @id @default(uuid())
+  studentId        String         @map("student_id")
+  interviewCaseId  String         @map("interview_case_id")
+  isPracticed      Boolean        @default(false) @map("is_practiced")
+  practiceCount    Int            @default(0) @map("practice_count")
+  firstPracticedAt DateTime?      @map("first_practiced_at")
+  lastPracticedAt  DateTime?      @map("last_practiced_at")
+  isBookmarked     Boolean        @default(false) @map("is_bookmarked")
+  bookmarkedAt     DateTime?      @map("bookmarked_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  student          Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  interviewCase    InterviewCase  @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, interviewCaseId])
+  @@index([studentId, isPracticed])
+  @@index([studentId, isBookmarked])
+  @@map("student_interview_practice")
 }
 
 enum CourseStyle {

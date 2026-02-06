@@ -11,7 +11,8 @@ import {
   reorderInterviewCaseSchema,
   PatientGenderEnum,
   createCompleteInterviewCaseSchema,
-  updateCompleteInterviewCaseSchema
+  updateCompleteInterviewCaseSchema,
+  paginatedInterviewCasesQuerySchema
 } from './interview-case.schema'
 import {
   assignInterviewCaseSpecialtiesSchema as assignSpecialtiesSchema,
@@ -101,6 +102,35 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Interview course not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // GET /interview-cases/interview-course/:interviewCourseId/paginated
+  fastify.get('/interview-cases/interview-course/:interviewCourseId/paginated', async (request, reply) => {
+    try {
+      const { interviewCourseId } = interviewCaseInterviewCourseParamsSchema.parse(request.params)
+      const queryParams = paginatedInterviewCasesQuerySchema.parse(request.query)
+
+      const result = await interviewCaseService.findByInterviewCoursePaginated(interviewCourseId, {
+        page: queryParams.page,
+        limit: queryParams.limit,
+        specialtyIds: queryParams.specialtyIds,
+        curriculumIds: queryParams.curriculumIds,
+        search: queryParams.search,
+        studentId: queryParams.studentId,
+        notPracticed: queryParams.notPracticed,
+        bookmarked: queryParams.bookmarked
+      })
+
+      reply.send(result)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Interview course not found') {
+        reply.status(404).send({ error: 'Interview course not found' })
+      } else if (error instanceof z.ZodError) {
+        reply.status(400).send({ error: 'Invalid query parameters', details: error.errors })
+      } else {
+        reply.status(500).send({ error: 'Failed to fetch paginated interview cases' })
       }
     }
   })

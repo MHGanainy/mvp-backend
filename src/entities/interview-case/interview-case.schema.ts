@@ -450,3 +450,21 @@ export type PatientGender = z.infer<typeof PatientGenderEnum>
 export type CreateCompleteInterviewCaseInput = z.infer<typeof createCompleteInterviewCaseSchema>
 export type UpdateCompleteInterviewCaseInput = z.infer<typeof updateCompleteInterviewCaseSchema>
 export type CompleteInterviewCaseResponse = z.infer<typeof completeInterviewCaseResponseSchema>
+
+// Paginated query schema
+export const paginatedInterviewCasesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(12),
+  specialtyIds: z.string().optional().transform(val =>
+    val ? val.split(',').filter(id => id.length > 0) : undefined
+  ),
+  curriculumIds: z.string().optional().transform(val =>
+    val ? val.split(',').filter(id => id.length > 0) : undefined
+  ),
+  search: z.string().optional(),
+  studentId: z.string().uuid().optional(),
+  notPracticed: z.string().optional().transform(val => val === 'true'),
+  bookmarked: z.string().optional().transform(val => val === 'true')
+})
+
+export type PaginatedInterviewCasesQuery = z.infer<typeof paginatedInterviewCasesQuerySchema>

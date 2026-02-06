@@ -12,15 +12,18 @@ import {
   TranscriptProcessorService,
   VoiceAgentTranscript,
 } from "../../services/transcript-processor.service";
+import { StudentInterviewPracticeService } from "../student-interview-practice/student-interview-practice.service";
 
 export class InterviewSimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
+  private studentInterviewPracticeService: StudentInterviewPracticeService;
   constructor(private prisma: PrismaClient) {
     this.aiFeedbackService = createAIFeedbackService({
       provider: AIProvider.GROQ,
       apiKey: process.env.GROQ_API_KEY,
       model: "openai/gpt-oss-120b",
     });
+    this.studentInterviewPracticeService = new StudentInterviewPracticeService(prisma);
   }
 
   private generateCorrelationToken(): string {
@@ -184,7 +187,7 @@ export class InterviewSimulationAttemptService {
       (endTime.getTime() - attempt.startedAt.getTime()) / 1000
     );
 
-    return await this.prisma.interviewSimulationAttempt.update({
+    const updatedAttempt = await this.prisma.interviewSimulationAttempt.update({
       where: { id },
       data: {
         endedAt: endTime,
@@ -219,6 +222,18 @@ export class InterviewSimulationAttemptService {
         },
       },
     });
+
+    // Update student's interview practice status (non-critical)
+    try {
+      await this.studentInterviewPracticeService.updatePracticeStatus(
+        updatedAttempt.studentId,
+        updatedAttempt.interviewSimulation.interviewCase.id
+      );
+    } catch (practiceError) {
+      console.error('Interview practice status update failed (non-critical)', practiceError);
+    }
+
+    return updatedAttempt;
   }
 
   async cancel(id: string): Promise<void> {
@@ -1042,6 +1057,17 @@ export class InterviewSimulationAttemptService {
       console.log(
         `[InterviewSimulationAttempt] Attempt ${attemptId} completed successfully with AI feedback`
       );
+
+      // Update student's interview practice status (non-critical)
+      try {
+        await this.studentInterviewPracticeService.updatePracticeStatus(
+          updatedAttempt.studentId,
+          updatedAttempt.interviewSimulation.interviewCase.id
+        );
+      } catch (practiceError) {
+        console.error('Interview practice status update failed (non-critical)', practiceError);
+      }
+
       return updatedAttempt;
     } catch (error) {
       console.error(
@@ -1082,6 +1108,17 @@ export class InterviewSimulationAttemptService {
       console.log(
         `[InterviewSimulationAttempt] Attempt ${attemptId} marked as complete with error`
       );
+
+      // Update student's interview practice status even on AI failure (non-critical)
+      try {
+        await this.studentInterviewPracticeService.updatePracticeStatus(
+          fallbackAttempt.studentId,
+          fallbackAttempt.interviewSimulation.interviewCase.id
+        );
+      } catch (practiceError) {
+        console.error('Interview practice status update failed (non-critical)', practiceError);
+      }
+
       return fallbackAttempt;
     }
   }

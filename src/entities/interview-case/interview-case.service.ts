@@ -184,6 +184,166 @@ export class InterviewCaseService {
     })
   }
 
+  async findByInterviewCoursePaginated(
+    interviewCourseId: string,
+    options: {
+      page: number
+      limit: number
+      specialtyIds?: string[]
+      curriculumIds?: string[]
+      search?: string
+      studentId?: string
+      notPracticed?: boolean
+      bookmarked?: boolean
+    }
+  ) {
+    const interviewCourse = await this.prisma.interviewCourse.findUnique({
+      where: { id: interviewCourseId }
+    })
+
+    if (!interviewCourse) {
+      throw new Error('Interview course not found')
+    }
+
+    const skip = (options.page - 1) * options.limit
+
+    const whereConditions: any = {
+      interviewCourseId
+    }
+
+    if (options.specialtyIds && options.specialtyIds.length > 0) {
+      whereConditions.interviewCaseSpecialties = {
+        some: {
+          specialtyId: { in: options.specialtyIds }
+        }
+      }
+    }
+
+    if (options.curriculumIds && options.curriculumIds.length > 0) {
+      whereConditions.interviewCaseCurriculums = {
+        some: {
+          curriculumId: { in: options.curriculumIds }
+        }
+      }
+    }
+
+    const andConditions: any[] = []
+
+    if (options.search && options.search.trim()) {
+      const searchTerm = options.search.trim()
+      andConditions.push({
+        OR: [
+          { title: { contains: searchTerm, mode: 'insensitive' } },
+          { description: { contains: searchTerm, mode: 'insensitive' } },
+          { diagnosis: { contains: searchTerm, mode: 'insensitive' } }
+        ]
+      })
+    }
+
+    if (options.studentId) {
+      if (options.notPracticed && options.bookmarked) {
+        andConditions.push({
+          studentPractice: {
+            some: {
+              studentId: options.studentId,
+              isBookmarked: true,
+              isPracticed: false
+            }
+          }
+        })
+      } else if (options.notPracticed) {
+        andConditions.push({
+          NOT: {
+            studentPractice: {
+              some: {
+                studentId: options.studentId,
+                isPracticed: true
+              }
+            }
+          }
+        })
+      } else if (options.bookmarked) {
+        andConditions.push({
+          studentPractice: {
+            some: {
+              studentId: options.studentId,
+              isBookmarked: true
+            }
+          }
+        })
+      }
+    }
+
+    if (andConditions.length > 0) {
+      whereConditions.AND = andConditions
+    }
+
+    const total = await this.prisma.interviewCase.count({
+      where: whereConditions
+    })
+
+    const include: any = {
+      ...this.getStandardInclude()
+    }
+
+    if (options.studentId) {
+      include.studentPractice = {
+        where: {
+          studentId: options.studentId
+        },
+        select: {
+          isPracticed: true,
+          practiceCount: true,
+          firstPracticedAt: true,
+          lastPracticedAt: true,
+          isBookmarked: true,
+          bookmarkedAt: true
+        }
+      }
+    }
+
+    const rawData = await this.prisma.interviewCase.findMany({
+      where: whereConditions,
+      include,
+      orderBy: {
+        displayOrder: 'asc'
+      },
+      skip,
+      take: options.limit
+    })
+
+    const data = rawData.map((caseItem: any) => {
+      const { studentPractice, ...rest } = caseItem
+      const status = studentPractice?.[0] || null
+
+      return {
+        ...rest,
+        studentStatus: status ? {
+          isPracticed: status.isPracticed,
+          practiceCount: status.practiceCount,
+          firstPracticedAt: status.firstPracticedAt,
+          lastPracticedAt: status.lastPracticedAt,
+          isBookmarked: status.isBookmarked,
+          bookmarkedAt: status.bookmarkedAt
+        } : null
+      }
+    })
+
+    const totalPages = Math.ceil(total / options.limit)
+
+    return {
+      data,
+      pagination: {
+        page: options.page,
+        limit: options.limit,
+        total,
+        totalPages,
+        hasNextPage: options.page < totalPages,
+        hasPreviousPage: options.page > 1
+      }
+    }
+  }
+
   async findFreeCases(interviewCourseId: string) {
     return await this.prisma.interviewCase.findMany({
       where: {
