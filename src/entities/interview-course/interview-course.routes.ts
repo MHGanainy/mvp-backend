@@ -9,6 +9,7 @@ import {
   interviewCourseInterviewParamsSchema,
   interviewCourseInstructorParamsSchema,
   updateInterviewCourseInfoPointsSchema,
+  updateStructuredInterviewCourseCompleteSchema,
   InterviewCourseStyleEnum
 } from './interview-course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
@@ -383,6 +384,72 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
         reply.status(404).send({ error: 'Interview course not found' })
       } else {
         reply.status(400).send({ error: 'Invalid info points data' })
+      }
+    }
+  })
+
+  // POST /interview-courses/create-structured-complete - Create STRUCTURED interview course with sections and subsections
+  fastify.post('/interview-courses/create-structured-complete', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const data = request.body as any
+
+      if (!isAdmin(request)) {
+        const currentInstructorId = getCurrentInstructorId(request)
+        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
+          reply.status(403).send({ error: 'You can only create interview courses for yourself' })
+          return
+        }
+      }
+
+      const result = await interviewCourseService.createStructuredComplete(data)
+      reply.status(201).send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('not found')) {
+          reply.status(404).send({ error: error.message })
+        } else {
+          reply.status(400).send({ error: error.message })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
+      }
+    }
+  })
+
+  // PUT /interview-courses/:id/update-structured-complete - Update STRUCTURED interview course with sections and subsections
+  fastify.put('/interview-courses/:id/update-structured-complete', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const { id } = interviewCourseParamsSchema.parse(request.params)
+      const data = updateStructuredInterviewCourseCompleteSchema.parse(request.body)
+
+      // Verify ownership
+      if (!isAdmin(request)) {
+        const interviewCourse = await interviewCourseService.findById(id)
+        const currentInstructorId = getCurrentInstructorId(request)
+
+        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only edit your own interview courses' })
+          return
+        }
+      }
+
+      const result = await interviewCourseService.updateStructuredComplete(id, data)
+      reply.send(result)
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Interview course not found') {
+          reply.status(404).send({ error: 'Interview course not found' })
+        } else if (error.message.includes('STRUCTURED')) {
+          reply.status(400).send({ error: error.message })
+        } else {
+          reply.status(400).send({ error: error.message })
+        }
+      } else {
+        reply.status(500).send({ error: 'Internal server error' })
       }
     }
   })

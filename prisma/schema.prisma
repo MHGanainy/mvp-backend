@@ -86,6 +86,8 @@ model Student {
   enrollments                 CourseEnrollment[]
   casePractice                StudentCasePractice[]
   interviewCasePractice       StudentInterviewPractice[]
+  interviewCourseEnrollments  InterviewCourseEnrollment[]
+  interviewSubscriptions      InterviewSubscription[]
 
   @@map("students")
 }
@@ -347,9 +349,12 @@ model InterviewCourse {
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
   infoPoints      String[]        @default([]) @map("info_points")
-  interviewCases  InterviewCase[]
-  interview       Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  instructor      Instructor      @relation(fields: [instructorId], references: [id])
+  interviewCases            InterviewCase[]
+  interviewCourseSections   InterviewCourseSection[]
+  interviewCourseEnrollments InterviewCourseEnrollment[]
+  interviewSubscriptions    InterviewSubscription[]
+  interview                 Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  instructor                Instructor      @relation(fields: [instructorId], references: [id])
 
   @@unique([interviewId, slug])
   @@map("interview_courses")
@@ -466,6 +471,7 @@ model Payment {
   createdAt               DateTime      @default(now()) @map("created_at")
   student                 Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   subscription            Subscription?
+  interviewSubscription   InterviewSubscription?
 
   @@map("payments")
 }
@@ -710,6 +716,99 @@ model StudentInterviewPractice {
   @@index([studentId, isPracticed])
   @@index([studentId, isBookmarked])
   @@map("student_interview_practice")
+}
+
+// ============================================
+// STRUCTURED INTERVIEW COURSE MODELS
+// ============================================
+
+model InterviewCourseSection {
+  id                String                       @id @default(uuid())
+  interviewCourseId String                       @map("interview_course_id")
+  title             String
+  description       String?
+  displayOrder      Int                          @map("display_order")
+  isFree            Boolean                      @default(false) @map("is_free")
+  createdAt         DateTime                     @default(now()) @map("created_at")
+  updatedAt         DateTime                     @updatedAt @map("updated_at")
+  interviewCourse   InterviewCourse              @relation(fields: [interviewCourseId], references: [id], onDelete: Cascade)
+  subsections       InterviewCourseSubsection[]
+
+  @@map("interview_course_sections")
+}
+
+model InterviewCourseSubsection {
+  id                String                        @id @default(uuid())
+  sectionId         String                        @map("section_id")
+  title             String
+  description       String?
+  contentType       ContentType                   @map("content_type")
+  content           String
+  displayOrder      Int                           @map("display_order")
+  estimatedDuration Int?                          @map("estimated_duration")
+  isFree            Boolean                       @default(false) @map("is_free")
+  createdAt         DateTime                      @default(now()) @map("created_at")
+  updatedAt         DateTime                      @updatedAt @map("updated_at")
+  section           InterviewCourseSection        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  progress          InterviewSubsectionProgress[]
+
+  @@map("interview_course_subsections")
+}
+
+model InterviewCourseEnrollment {
+  id                 String                        @id @default(uuid())
+  studentId          String                        @map("student_id")
+  interviewCourseId  String                        @map("interview_course_id")
+  progressPercent    Int                           @default(0) @map("progress_percent")
+  isCompleted        Boolean                       @default(false) @map("is_completed")
+  enrolledAt         DateTime                      @default(now()) @map("enrolled_at")
+  completedAt        DateTime?                     @map("completed_at")
+  lastAccessedAt     DateTime?                     @map("last_accessed_at")
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  updatedAt          DateTime                      @updatedAt @map("updated_at")
+  student            Student                       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  interviewCourse    InterviewCourse               @relation(fields: [interviewCourseId], references: [id], onDelete: Cascade)
+  subsectionProgress InterviewSubsectionProgress[]
+
+  @@unique([studentId, interviewCourseId])
+  @@map("interview_course_enrollments")
+}
+
+model InterviewSubsectionProgress {
+  id               String                    @id @default(uuid())
+  enrollmentId     String                    @map("enrollment_id")
+  subsectionId     String                    @map("subsection_id")
+  isStarted        Boolean                   @default(false) @map("is_started")
+  isCompleted      Boolean                   @default(false) @map("is_completed")
+  startedAt        DateTime?                 @map("started_at")
+  completedAt      DateTime?                 @map("completed_at")
+  timeSpentSeconds Int                       @default(0) @map("time_spent_seconds")
+  quizScore        Int?                      @map("quiz_score")
+  lastAccessedAt   DateTime?                 @map("last_accessed_at")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
+  enrollment       InterviewCourseEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  subsection       InterviewCourseSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, subsectionId])
+  @@map("interview_subsection_progress")
+}
+
+model InterviewSubscription {
+  id                String          @id @default(uuid())
+  studentId         String          @map("student_id")
+  interviewCourseId String          @map("interview_course_id")
+  paymentId         String          @unique @map("payment_id")
+  durationMonths    Int             @map("duration_months")
+  startDate         DateTime        @map("start_date") @db.Date
+  endDate           DateTime        @map("end_date") @db.Date
+  isActive          Boolean         @map("is_active")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  interviewCourse   InterviewCourse @relation(fields: [interviewCourseId], references: [id])
+  payment           Payment         @relation(fields: [paymentId], references: [id])
+  student           Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("interview_subscriptions")
 }
 
 enum CourseStyle {

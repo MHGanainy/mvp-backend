@@ -38,6 +38,10 @@ import courseEnrollmentRoutes from "./entities/course-enrollment/course-enrollme
 import subsectionProgressRoutes from "./entities/subsection-progress/subsection-progress.routes";
 import studentCasePracticeRoutes from "./entities/student-case-practice/student-case-practice.routes";
 import studentInterviewPracticeRoutes from "./entities/student-interview-practice/student-interview-practice.routes";
+import interviewCourseSectionRoutes from "./entities/interview-course-section/interview-course-section.routes";
+import interviewCourseSubsectionRoutes from "./entities/interview-course-subsection/interview-course-subsection.routes";
+import interviewCourseEnrollmentRoutes from "./entities/interview-course-enrollment/interview-course-enrollment.routes";
+import interviewSubsectionProgressRoutes from "./entities/interview-subsection-progress/interview-subsection-progress.routes";
 import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
@@ -203,6 +207,10 @@ const start = async () => {
     await fastify.register(creditPackageRoutes, { prefix: "/api/credit-packages" });
     await fastify.register(studentCasePracticeRoutes, { prefix: "/api" });
     await fastify.register(studentInterviewPracticeRoutes, { prefix: "/api" });
+    await fastify.register(interviewCourseSectionRoutes, { prefix: "/api" });
+    await fastify.register(interviewCourseSubsectionRoutes, { prefix: "/api" });
+    await fastify.register(interviewCourseEnrollmentRoutes, { prefix: "/api" });
+    await fastify.register(interviewSubsectionProgressRoutes, { prefix: "/api" });
 
     const port = Number(process.env.PORT) || 3000;
     const host = process.env.HOST || "0.0.0.0";

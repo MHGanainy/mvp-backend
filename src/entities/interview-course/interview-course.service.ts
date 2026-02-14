@@ -1,5 +1,10 @@
 import { PrismaClient } from '@prisma/client'
-import { CreateInterviewCourseInput, UpdateInterviewCourseInput, InterviewCourseStyle } from './interview-course.schema'
+import {
+  CreateInterviewCourseInput,
+  UpdateInterviewCourseInput,
+  InterviewCourseStyle,
+  UpdateStructuredInterviewCourseCompleteInput
+} from './interview-course.schema'
 import { generateUniqueSlug } from '../../shared/slug'
 
 export class InterviewCourseService {
@@ -456,6 +461,252 @@ export class InterviewCourseService {
             lastName: true,
             bio: true
           }
+        }
+      }
+    })
+  }
+
+  async createStructuredComplete(data: {
+    interviewId: string
+    instructorId: string
+    title: string
+    description?: string
+    price3Months: number
+    price6Months: number
+    price12Months: number
+    credits3Months: number
+    credits6Months: number
+    credits12Months: number
+    infoPoints?: string[]
+    isPublished?: boolean
+    sections: Array<{
+      title: string
+      description?: string
+      displayOrder?: number
+      isFree?: boolean
+      subsections: Array<{
+        title: string
+        description?: string
+        contentType: 'VIDEO' | 'PDF' | 'TEXT' | 'QUIZ'
+        content: string
+        displayOrder?: number
+        estimatedDuration?: number
+        isFree?: boolean
+      }>
+    }>
+  }) {
+    // Verify instructor and interview
+    const instructor = await this.prisma.instructor.findUnique({
+      where: { id: data.instructorId }
+    })
+    if (!instructor) {
+      throw new Error('Instructor not found')
+    }
+
+    const interview = await this.prisma.interview.findUnique({
+      where: { id: data.interviewId }
+    })
+    if (!interview) {
+      throw new Error('Interview not found')
+    }
+
+    if (interview.instructorId !== data.instructorId) {
+      throw new Error('Instructor can only create interview courses for their own interviews')
+    }
+
+    // Generate unique slug for this interview
+    const slug = await generateUniqueSlug(data.title, async (testSlug) => {
+      const existing = await this.prisma.interviewCourse.findFirst({
+        where: { interviewId: data.interviewId, slug: testSlug }
+      })
+      return existing !== null
+    })
+
+    return await this.prisma.$transaction(async (tx) => {
+      // Create interview course with STRUCTURED style
+      const interviewCourse = await tx.interviewCourse.create({
+        data: {
+          interviewId: data.interviewId,
+          instructorId: data.instructorId,
+          slug,
+          title: data.title,
+          description: data.description,
+          style: 'STRUCTURED',
+          price3Months: data.price3Months,
+          price6Months: data.price6Months,
+          price12Months: data.price12Months,
+          credits3Months: data.credits3Months,
+          credits6Months: data.credits6Months,
+          credits12Months: data.credits12Months,
+          infoPoints: data.infoPoints || [],
+          isPublished: data.isPublished || false
+        }
+      })
+
+      // Create sections with subsections
+      const createdSections = []
+      for (let sIdx = 0; sIdx < data.sections.length; sIdx++) {
+        const sectionData = data.sections[sIdx]
+        const sectionIsFree = sectionData.isFree ?? false
+
+        const section = await tx.interviewCourseSection.create({
+          data: {
+            interviewCourseId: interviewCourse.id,
+            title: sectionData.title,
+            description: sectionData.description,
+            displayOrder: sectionData.displayOrder || (sIdx + 1),
+            isFree: sectionIsFree
+          }
+        })
+
+        const createdSubsections = []
+        for (let subIdx = 0; subIdx < sectionData.subsections.length; subIdx++) {
+          const subData = sectionData.subsections[subIdx]
+
+          const subsection = await tx.interviewCourseSubsection.create({
+            data: {
+              sectionId: section.id,
+              title: subData.title,
+              description: subData.description,
+              contentType: subData.contentType,
+              content: subData.content,
+              displayOrder: subData.displayOrder || (subIdx + 1),
+              estimatedDuration: subData.estimatedDuration,
+              // If section is locked, subsection must be locked too
+              isFree: sectionIsFree ? (subData.isFree ?? false) : false
+            }
+          })
+          createdSubsections.push(subsection)
+        }
+
+        createdSections.push({
+          ...section,
+          subsections: createdSubsections
+        })
+      }
+
+      return {
+        interviewCourse,
+        sections: createdSections,
+        summary: {
+          sectionsCreated: createdSections.length,
+          totalSubsections: createdSections.reduce(
+            (sum, s) => sum + s.subsections.length, 0
+          )
+        }
+      }
+    })
+  }
+
+  async updateStructuredComplete(id: string, data: UpdateStructuredInterviewCourseCompleteInput) {
+    // Verify interview course exists and is STRUCTURED style
+    const interviewCourse = await this.findById(id)
+
+    if (interviewCourse.style !== 'STRUCTURED') {
+      throw new Error('This endpoint can only be used for STRUCTURED style interview courses')
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      // Build update object with only provided fields
+      const courseUpdateData: any = {}
+      if (data.title !== undefined) courseUpdateData.title = data.title
+      if (data.description !== undefined) courseUpdateData.description = data.description
+      if (data.infoPoints !== undefined) courseUpdateData.infoPoints = data.infoPoints
+      if (data.price3Months !== undefined) courseUpdateData.price3Months = data.price3Months
+      if (data.price6Months !== undefined) courseUpdateData.price6Months = data.price6Months
+      if (data.price12Months !== undefined) courseUpdateData.price12Months = data.price12Months
+      if (data.credits3Months !== undefined) courseUpdateData.credits3Months = data.credits3Months
+      if (data.credits6Months !== undefined) courseUpdateData.credits6Months = data.credits6Months
+      if (data.credits12Months !== undefined) courseUpdateData.credits12Months = data.credits12Months
+      if (data.isPublished !== undefined) courseUpdateData.isPublished = data.isPublished
+
+      // Update interview course entity (only if there are fields to update)
+      if (Object.keys(courseUpdateData).length > 0) {
+        await tx.interviewCourse.update({
+          where: { id },
+          data: courseUpdateData
+        })
+      }
+
+      // Delete all existing sections (this will cascade delete subsections)
+      await tx.interviewCourseSection.deleteMany({
+        where: { interviewCourseId: id }
+      })
+
+      // Create new sections with subsections
+      const createdSections = []
+      const sections = data.sections || []
+
+      for (let sIdx = 0; sIdx < sections.length; sIdx++) {
+        const sectionData = sections[sIdx]
+        const sectionIsFree = sectionData.isFree ?? false
+
+        const section = await tx.interviewCourseSection.create({
+          data: {
+            interviewCourseId: id,
+            title: sectionData.title,
+            description: sectionData.description,
+            displayOrder: sectionData.displayOrder || (sIdx + 1),
+            isFree: sectionIsFree
+          }
+        })
+
+        const createdSubsections = []
+        const subsections = sectionData.subsections || []
+
+        for (let subIdx = 0; subIdx < subsections.length; subIdx++) {
+          const subData = subsections[subIdx]
+
+          const subsection = await tx.interviewCourseSubsection.create({
+            data: {
+              sectionId: section.id,
+              title: subData.title,
+              description: subData.description,
+              contentType: subData.contentType,
+              content: subData.content,
+              displayOrder: subData.displayOrder || (subIdx + 1),
+              estimatedDuration: subData.estimatedDuration,
+              // If section is locked, subsection must be locked too
+              isFree: sectionIsFree ? (subData.isFree ?? false) : false
+            }
+          })
+          createdSubsections.push(subsection)
+        }
+
+        createdSections.push({
+          ...section,
+          subsections: createdSubsections
+        })
+      }
+
+      return {
+        interviewCourse: await tx.interviewCourse.findUnique({
+          where: { id },
+          include: {
+            interview: {
+              select: {
+                id: true,
+                title: true,
+                slug: true,
+                isActive: true
+              }
+            },
+            instructor: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                bio: true
+              }
+            }
+          }
+        }),
+        sections: createdSections,
+        summary: {
+          sectionsUpdated: createdSections.length,
+          totalSubsections: createdSections.reduce(
+            (sum, s) => sum + s.subsections.length, 0
+          )
         }
       }
     })

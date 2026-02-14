@@ -128,6 +128,147 @@ export const updateInterviewCourseInfoPointsSchema = z.object({
     .max(10, 'Maximum 10 info points allowed')
 })
 
+// Content Type Enum (for structured interview courses)
+export const ContentTypeEnum = z.enum(['VIDEO', 'PDF', 'TEXT', 'QUIZ'])
+
+// Create Structured Interview Course Complete Schema
+export const createStructuredInterviewCourseCompleteSchema = z.object({
+  interviewId: z.string().uuid('Invalid interview ID'),
+  instructorId: z.string().uuid('Invalid instructor ID'),
+  title: z.string()
+    .min(1, 'Title is required')
+    .max(200, 'Title must be less than 200 characters')
+    .trim(),
+  description: z.string()
+    .max(1000, 'Description must be less than 1000 characters')
+    .optional(),
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+    .optional()
+    .default([]),
+  price3Months: z.number()
+    .positive('3-month price must be positive')
+    .max(99999.99, 'Price too high')
+    .transform(val => Number(val.toFixed(2))),
+  price6Months: z.number()
+    .positive('6-month price must be positive')
+    .max(99999.99, 'Price too high')
+    .transform(val => Number(val.toFixed(2))),
+  price12Months: z.number()
+    .positive('12-month price must be positive')
+    .max(99999.99, 'Price too high')
+    .transform(val => Number(val.toFixed(2))),
+  credits3Months: z.number()
+    .int('Credits must be whole numbers')
+    .min(0, 'Credits cannot be negative')
+    .max(1000, 'Credits too high'),
+  credits6Months: z.number()
+    .int('Credits must be whole numbers')
+    .min(0, 'Credits cannot be negative')
+    .max(1000, 'Credits too high'),
+  credits12Months: z.number()
+    .int('Credits must be whole numbers')
+    .min(0, 'Credits cannot be negative')
+    .max(1000, 'Credits too high'),
+  isPublished: z.boolean().default(false).optional(),
+  sections: z.array(z.object({
+    title: z.string()
+      .min(1, 'Section title is required')
+      .max(200, 'Section title must be less than 200 characters')
+      .trim(),
+    description: z.string()
+      .max(1000, 'Section description must be less than 1000 characters')
+      .optional(),
+    displayOrder: z.number().int().min(1).optional(),
+    isFree: z.boolean().default(false).optional(),
+    subsections: z.array(z.object({
+      title: z.string()
+        .min(1, 'Subsection title is required')
+        .max(200, 'Subsection title must be less than 200 characters')
+        .trim(),
+      description: z.string()
+        .max(1000, 'Subsection description must be less than 1000 characters')
+        .optional(),
+      contentType: ContentTypeEnum,
+      content: z.string().min(1, 'Content is required'),
+      displayOrder: z.number().int().min(1).optional(),
+      estimatedDuration: z.number().int().min(1).optional(),
+      isFree: z.boolean().default(false).optional()
+    })).optional().default([])
+  })).optional().default([])
+})
+
+// Update Structured Interview Course Complete Schema
+export const updateStructuredInterviewCourseCompleteSchema = z.object({
+  title: z.string()
+    .min(1, 'Title is required')
+    .max(200, 'Title must be less than 200 characters')
+    .trim()
+    .optional(),
+  description: z.string()
+    .max(1000, 'Description must be less than 1000 characters')
+    .optional(),
+  infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
+    .max(10, 'Maximum 10 info points allowed')
+    .optional(),
+  price3Months: z.number()
+    .positive('3-month price must be positive')
+    .max(99999.99, 'Price too high')
+    .transform(val => Number(val.toFixed(2)))
+    .optional(),
+  price6Months: z.number()
+    .positive('6-month price must be positive')
+    .max(99999.99, 'Price too high')
+    .transform(val => Number(val.toFixed(2)))
+    .optional(),
+  price12Months: z.number()
+    .positive('12-month price must be positive')
+    .max(99999.99, 'Price too high')
+    .transform(val => Number(val.toFixed(2)))
+    .optional(),
+  credits3Months: z.number()
+    .int('Credits must be whole numbers')
+    .min(0, 'Credits cannot be negative')
+    .max(1000, 'Credits too high')
+    .optional(),
+  credits6Months: z.number()
+    .int('Credits must be whole numbers')
+    .min(0, 'Credits cannot be negative')
+    .max(1000, 'Credits too high')
+    .optional(),
+  credits12Months: z.number()
+    .int('Credits must be whole numbers')
+    .min(0, 'Credits cannot be negative')
+    .max(1000, 'Credits too high')
+    .optional(),
+  isPublished: z.boolean().optional(),
+  sections: z.array(z.object({
+    title: z.string()
+      .min(1, 'Section title is required')
+      .max(200, 'Section title must be less than 200 characters')
+      .trim(),
+    description: z.string()
+      .max(1000, 'Section description must be less than 1000 characters')
+      .optional(),
+    displayOrder: z.number().int().min(1).optional(),
+    isFree: z.boolean().default(false).optional(),
+    subsections: z.array(z.object({
+      title: z.string()
+        .min(1, 'Subsection title is required')
+        .max(200, 'Subsection title must be less than 200 characters')
+        .trim(),
+      description: z.string()
+        .max(1000, 'Subsection description must be less than 1000 characters')
+        .optional(),
+      contentType: ContentTypeEnum,
+      content: z.string().min(1, 'Content is required'),
+      displayOrder: z.number().int().min(1).optional(),
+      estimatedDuration: z.number().int().min(1).optional(),
+      isFree: z.boolean().default(false).optional()
+    })).optional().default([])
+  })).optional().default([])
+})
+
 // URL Params Schemas
 export const interviewCourseParamsSchema = z.object({
   id: z.string().uuid('Invalid interview course ID')
@@ -182,3 +323,5 @@ export type InterviewCourseInterviewParams = z.infer<typeof interviewCourseInter
 export type InterviewCourseInstructorParams = z.infer<typeof interviewCourseInstructorParamsSchema>
 export type InterviewCourseResponse = z.infer<typeof interviewCourseResponseSchema>
 export type InterviewCourseStyle = z.infer<typeof InterviewCourseStyleEnum>
+export type CreateStructuredInterviewCourseCompleteInput = z.infer<typeof createStructuredInterviewCourseCompleteSchema>
+export type UpdateStructuredInterviewCourseCompleteInput = z.infer<typeof updateStructuredInterviewCourseCompleteSchema>
