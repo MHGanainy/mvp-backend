@@ -100,6 +100,7 @@ export class StripeCheckoutService {
         creditPackageId: packageId,
         credits: creditPackage.credits.toString(),
       },
+      allow_promotion_codes: true,
       expires_at: Math.floor(expiresAt.getTime() / 1000), // Unix timestamp in seconds
     });
 
