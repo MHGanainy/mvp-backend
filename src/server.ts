@@ -42,6 +42,7 @@ import interviewCourseSectionRoutes from "./entities/interview-course-section/in
 import interviewCourseSubsectionRoutes from "./entities/interview-course-subsection/interview-course-subsection.routes";
 import interviewCourseEnrollmentRoutes from "./entities/interview-course-enrollment/interview-course-enrollment.routes";
 import interviewSubsectionProgressRoutes from "./entities/interview-subsection-progress/interview-subsection-progress.routes";
+import affiliateRoutes from "./entities/affiliate/affiliate.routes";
 import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
@@ -211,6 +212,7 @@ const start = async () => {
     await fastify.register(interviewCourseSubsectionRoutes, { prefix: "/api" });
     await fastify.register(interviewCourseEnrollmentRoutes, { prefix: "/api" });
     await fastify.register(interviewSubsectionProgressRoutes, { prefix: "/api" });
+    await fastify.register(affiliateRoutes, { prefix: "/api" });
 
     const port = Number(process.env.PORT) || 3000;
     const host = process.env.HOST || "0.0.0.0";

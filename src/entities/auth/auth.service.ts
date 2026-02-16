@@ -75,6 +75,7 @@ export class AuthService {
         userType: "student",
         otp,
         otpExpiresAt: otpExpiry,
+        referralCode: data.referralCode || null,
       },
       update: {
         passwordHash,
@@ -83,6 +84,7 @@ export class AuthService {
         name: data.name || `${data.firstName} ${data.lastName}`,
         otp,
         otpExpiresAt: otpExpiry,
+        referralCode: data.referralCode || null,
       },
     });
 
@@ -156,6 +158,7 @@ export class AuthService {
         bio: data.bio,
         otp,
         otpExpiresAt: otpExpiry,
+        referralCode: data.referralCode || null,
       },
       update: {
         passwordHash,
@@ -165,6 +168,7 @@ export class AuthService {
         bio: data.bio,
         otp,
         otpExpiresAt: otpExpiry,
+        referralCode: data.referralCode || null,
       },
     });
 
@@ -458,6 +462,22 @@ export class AuthService {
           },
         });
 
+        // Record referral if a valid code was provided
+        if (pending.referralCode) {
+          const affiliate = await tx.affiliate.findUnique({
+            where: { code: pending.referralCode, isActive: true },
+          })
+          if (affiliate) {
+            await tx.referral.create({
+              data: {
+                affiliateId: affiliate.id,
+                userId: user.id,
+                code: pending.referralCode,
+              },
+            })
+          }
+        }
+
         // Create profile based on user type
         if (data.userType === "student") {
           const student = await tx.student.create({
@@ -649,6 +669,22 @@ export class AuthService {
               passwordHash: null, // OAuth users don't have passwords
             },
           });
+
+          // Record referral if a valid code was provided
+          if (data.referralCode) {
+            const affiliate = await tx.affiliate.findUnique({
+              where: { code: data.referralCode, isActive: true },
+            })
+            if (affiliate) {
+              await tx.referral.create({
+                data: {
+                  affiliateId: affiliate.id,
+                  userId: newUser.id,
+                  code: data.referralCode,
+                },
+              })
+            }
+          }
 
           // Create profile based on user type
           if (data.userType === "student") {

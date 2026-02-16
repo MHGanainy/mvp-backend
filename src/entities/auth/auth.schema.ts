@@ -17,6 +17,7 @@ export const registerStudentSchema = z.object({
     .trim(),
   name: z.string().optional(),
   dateOfBirth: z.any().optional(),
+  referralCode: z.string().max(30).optional(),
 });
 
 // Instructor Registration Schema
@@ -35,6 +36,7 @@ export const registerInstructorSchema = z.object({
     .trim(),
   bio: z.string().max(500, "Bio must be less than 500 characters").optional(),
   name: z.string().optional(),
+  referralCode: z.string().max(30).optional(),
 });
 
 // Login Schema - no changes needed
@@ -121,6 +123,7 @@ export const changePasswordSchema = z.object({
 export const googleAuthSchema = z.object({
   idToken: z.string().min(1, "Google ID token is required"),
   userType: z.enum(["student", "instructor"]),
+  referralCode: z.string().max(30).optional(),
 });
 
 // Type exports

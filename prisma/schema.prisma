@@ -28,6 +28,7 @@ model User {
 
   instructor Instructor?
   student    Student?
+  referral   Referral?
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -44,6 +45,7 @@ model PendingRegistration {
   bio          String? // For instructors
   otp          String
   otpExpiresAt DateTime @map("otp_expires_at")
+  referralCode String?  @map("referral_code")
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("pending_registrations")
@@ -809,6 +811,40 @@ model InterviewSubscription {
   student           Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("interview_subscriptions")
+}
+
+// ============================================
+// AFFILIATE REFERRAL TRACKING
+// ============================================
+
+model Affiliate {
+  id        String   @id @default(uuid())
+  name      String
+  email     String?
+  code      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  referrals Referral[]
+
+  @@map("affiliates")
+}
+
+model Referral {
+  id          String   @id @default(uuid())
+  affiliateId String   @map("affiliate_id")
+  userId      Int      @map("user_id")
+  code        String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  affiliate Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+  @@index([affiliateId])
+  @@index([code])
+  @@map("referrals")
 }
 
 enum CourseStyle {
