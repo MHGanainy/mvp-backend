@@ -118,7 +118,37 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
   fastify.get('/interview-courses/interview/:interviewId', async (request, reply) => {
     try {
       const { interviewId } = interviewCourseInterviewParamsSchema.parse(request.params)
-      const interviewCourses = await interviewCourseService.findByInterview(interviewId)
+
+      // Check user role to determine what they can see
+      let isUserAdmin = false
+      let currentInstructorId = null
+
+      try {
+        await request.jwtVerify()
+        isUserAdmin = isAdmin(request)
+        currentInstructorId = getCurrentInstructorId(request)
+      } catch {
+        // Not authenticated - can only see published
+      }
+
+      // Get all courses for this interview
+      const allInterviewCourses = await interviewCourseService.findByInterview(interviewId)
+
+      // Filter based on user role
+      let interviewCourses
+      if (isUserAdmin) {
+        // Admin sees ALL courses (published and drafts)
+        interviewCourses = allInterviewCourses
+      } else if (currentInstructorId) {
+        // Instructor sees their own drafts + all published courses
+        interviewCourses = allInterviewCourses.filter(course =>
+          course.isPublished || course.instructorId === currentInstructorId
+        )
+      } else {
+        // Public/students see only published courses
+        interviewCourses = allInterviewCourses.filter(course => course.isPublished)
+      }
+
       reply.send(interviewCourses)
     } catch (error) {
       if (error instanceof Error && error.message === 'Interview not found') {

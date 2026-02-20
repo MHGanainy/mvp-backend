@@ -20,7 +20,7 @@ export class InterviewCourseService {
       throw new Error('Instructor not found')
     }
 
-    // Verify the interview exists and belongs to the instructor
+    // Verify the interview exists
     const interview = await this.prisma.interview.findUnique({
       where: { id: data.interviewId }
     })
@@ -29,9 +29,8 @@ export class InterviewCourseService {
       throw new Error('Interview not found')
     }
 
-    if (interview.instructorId !== data.instructorId) {
-      throw new Error('Instructor can only create interview courses for their own interviews')
-    }
+    // Ownership validation is handled at the route layer
+    // Routes check: admin can create anywhere, instructors only for their own interviews
 
     // Generate unique slug for this interview
     const slug = await generateUniqueSlug(data.title, async (testSlug) => {
@@ -510,9 +509,8 @@ export class InterviewCourseService {
       throw new Error('Interview not found')
     }
 
-    if (interview.instructorId !== data.instructorId) {
-      throw new Error('Instructor can only create interview courses for their own interviews')
-    }
+    // Ownership validation is handled at the route layer
+    // Routes check: admin can create anywhere, instructors only for their own interviews
 
     // Generate unique slug for this interview
     const slug = await generateUniqueSlug(data.title, async (testSlug) => {

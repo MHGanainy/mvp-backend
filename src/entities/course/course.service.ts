@@ -15,7 +15,7 @@ export class CourseService {
       throw new Error('Instructor not found')
     }
 
-    // Verify the exam exists and belongs to the instructor
+    // Verify the exam exists
     const exam = await this.prisma.exam.findUnique({
       where: { id: data.examId }
     })
@@ -24,9 +24,8 @@ export class CourseService {
       throw new Error('Exam not found')
     }
 
-    if (exam.instructorId !== data.instructorId) {
-      throw new Error('Instructor can only create courses for their own exams')
-    }
+    // Ownership validation is handled at the route layer
+    // Routes check: admin can create anywhere, instructors only for their own exams
 
     // Generate unique slug for this exam
     const slug = await generateUniqueSlug(data.title, async (testSlug) => {
@@ -536,9 +535,8 @@ export class CourseService {
       throw new Error('Exam not found')
     }
 
-    if (exam.instructorId !== data.instructorId) {
-      throw new Error('Instructor can only create courses for their own exams')
-    }
+    // Ownership validation is handled at the route layer
+    // Routes check: admin can create anywhere, instructors only for their own exams
 
     // Generate unique slug for this exam
     const slug = await generateUniqueSlug(data.title, async (testSlug) => {
