@@ -1,5 +1,5 @@
-// src/services/stripe-webhook.service.ts
 import { PrismaClient, CreditTransactionType, CreditTransactionSource } from '@prisma/client';
+import { FastifyBaseLogger } from 'fastify';
 import { StripeService } from './stripe.service';
 import { emailService } from './email.service';
 import Stripe from 'stripe';
@@ -7,14 +7,10 @@ import Stripe from 'stripe';
 export class StripeWebhookService {
   private stripeService: StripeService;
 
-  constructor(private prisma: PrismaClient) {
+  constructor(private prisma: PrismaClient, private log: FastifyBaseLogger) {
     this.stripeService = new StripeService();
   }
 
-  /**
-   * Verify webhook signature
-   * Throws error if signature is invalid
-   */
   verifyWebhookSignature(payload: string, signature: string): Stripe.Event {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -29,9 +25,6 @@ export class StripeWebhookService {
     }
   }
 
-  /**
-   * Check if webhook event has already been processed (idempotency)
-   */
   async checkIdempotency(eventId: string): Promise<boolean> {
     const existingEvent = await this.prisma.stripeWebhookEvent.findUnique({
       where: { eventId },
@@ -40,9 +33,6 @@ export class StripeWebhookService {
     return existingEvent !== null;
   }
 
-  /**
-   * Record webhook event for idempotency and audit trail
-   */
   async recordWebhookEvent(eventId: string, eventType: string, payload: any): Promise<void> {
     await this.prisma.stripeWebhookEvent.create({
       data: {
@@ -54,12 +44,7 @@ export class StripeWebhookService {
     });
   }
 
-  /**
-   * Fulfill credits after successful payment
-   * Uses Prisma transaction for atomicity
-   */
   async fulfillCredits(sessionId: string): Promise<void> {
-    // Retrieve checkout session
     const checkoutSession = await this.prisma.stripeCheckoutSession.findUnique({
       where: { sessionId },
       include: {
@@ -76,13 +61,11 @@ export class StripeWebhookService {
       throw new Error(`Checkout session not found: ${sessionId}`);
     }
 
-    // Check if already fulfilled
     if (checkoutSession.status === 'COMPLETED') {
-      console.log(`⏩ Session ${sessionId} already fulfilled, skipping`);
+      this.log.info({ sessionId }, 'Session already fulfilled, skipping');
       return;
     }
 
-    // Verify session is in PENDING status
     if (checkoutSession.status !== 'PENDING') {
       throw new Error(`Session ${sessionId} has status ${checkoutSession.status}, cannot fulfill`);
     }
@@ -90,9 +73,8 @@ export class StripeWebhookService {
     const creditsToAdd = checkoutSession.creditsQuantity;
     const studentId = checkoutSession.studentId;
 
-    console.log(`💰 Fulfilling ${creditsToAdd} credits for student ${studentId}`);
+    this.log.info({ creditsToAdd, studentId }, 'Fulfilling credits');
 
-    // Use transaction to ensure atomicity
     await this.prisma.$transaction(async (tx) => {
       // 1. Get current student balance
       const student = await tx.student.findUnique({
@@ -141,10 +123,9 @@ export class StripeWebhookService {
         },
       });
 
-      console.log(`✅ Successfully added ${creditsToAdd} credits. New balance: ${newBalance}`);
+      this.log.info({ creditsToAdd, newBalance, studentId }, 'Credits added successfully');
     });
 
-    // 5. Send confirmation email (async, don't wait)
     try {
       const studentName = `${checkoutSession.student.firstName} ${checkoutSession.student.lastName}`;
       await emailService.sendCreditPurchaseConfirmation(
@@ -154,60 +135,52 @@ export class StripeWebhookService {
         checkoutSession.amountInCents,
         checkoutSession.creditPackage.name
       );
-      console.log(`📧 Confirmation email sent to ${checkoutSession.student.user.email}`);
-    } catch (emailError: any) {
-      // Log but don't fail - email is not critical
-      console.error(`⚠️  Failed to send confirmation email: ${emailError.message}`);
+      this.log.info({ email: checkoutSession.student.user.email }, 'Confirmation email sent');
+    } catch (emailError) {
+      this.log.error({ err: emailError }, 'Failed to send confirmation email (non-critical)');
     }
   }
 
-  /**
-   * Handle expired checkout session
-   */
   async handleExpiredSession(sessionId: string): Promise<void> {
     const checkoutSession = await this.prisma.stripeCheckoutSession.findUnique({
       where: { sessionId },
     });
 
     if (!checkoutSession) {
-      console.warn(`⚠️  Checkout session not found: ${sessionId}`);
+      this.log.warn({ sessionId }, 'Checkout session not found for expiry');
       return;
     }
 
-    // Only update if still in PENDING status
     if (checkoutSession.status === 'PENDING') {
       await this.prisma.stripeCheckoutSession.update({
         where: { sessionId },
         data: { status: 'EXPIRED' },
       });
 
-      console.log(`⏰ Session ${sessionId} marked as expired`);
+      this.log.info({ sessionId }, 'Session marked as expired');
     }
   }
 
-  /**
-   * Process Stripe webhook event
-   */
   async processWebhookEvent(event: Stripe.Event): Promise<void> {
-    console.log(`📥 Processing webhook event: ${event.type} (${event.id})`);
+    this.log.info({ eventType: event.type, eventId: event.id }, 'Processing webhook event');
 
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        console.log(`✅ Checkout session completed: ${session.id}`);
+        this.log.info({ sessionId: session.id }, 'Checkout session completed');
         await this.fulfillCredits(session.id);
         break;
       }
 
       case 'checkout.session.expired': {
         const session = event.data.object as Stripe.Checkout.Session;
-        console.log(`⏰ Checkout session expired: ${session.id}`);
+        this.log.info({ sessionId: session.id }, 'Checkout session expired');
         await this.handleExpiredSession(session.id);
         break;
       }
 
       default:
-        console.log(`ℹ️  Unhandled event type: ${event.type}`);
+        this.log.info({ eventType: event.type }, 'Unhandled webhook event type');
     }
   }
 }

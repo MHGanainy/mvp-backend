@@ -1,9 +1,6 @@
-/**
- * Transcript Processor Service
- *
- * Handles merging of split transcript messages from voice agent and
- * transforms them into clean format for AI feedback generation.
- */
+import pino from 'pino';
+
+const log = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 export interface VoiceAgentMessage {
   role: 'user' | 'assistant';
@@ -94,7 +91,7 @@ export class TranscriptProcessorService {
       const t2 = new Date(time2).getTime();
       return Math.abs(t2 - t1) <= windowMs;
     } catch (error) {
-      console.error('[TranscriptProcessor] Invalid timestamp:', error);
+      log.error({ err: error }, 'Invalid timestamp in transcript');
       return false;
     }
   }
@@ -125,7 +122,7 @@ export class TranscriptProcessorService {
         const lastTime = new Date(messages[messages.length - 1].timestamp).getTime();
         duration = Math.round((lastTime - firstTime) / 1000);
       } catch (error) {
-        console.error('[TranscriptProcessor] Error calculating duration:', error);
+        log.error({ err: error }, 'Error calculating transcript duration');
         duration = 0;
       }
     }

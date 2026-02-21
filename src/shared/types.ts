@@ -1,5 +1,4 @@
 import { PrismaClient } from '@prisma/client'
-import { RequestLogger } from '../lib/logger'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -8,7 +7,7 @@ declare module 'fastify' {
 
   interface FastifyRequest {
     rawBody?: string
-    requestLogger: RequestLogger
+    requestId: string
   }
 }
 

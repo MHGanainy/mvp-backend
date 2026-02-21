@@ -1,6 +1,10 @@
 // src/lib/external-api-logger.ts
-// Helper for logging external API calls with request/response details
+// PRESERVED FOR REFERENCE - No longer used after logging revamp.
+// Previously provided logExternalApiCall, logDatabaseQuery, logFunctionEntry/Exit
+// helpers that wrapped operations with structured logs sent to RequestLogger/appLogger.
+// These were removed in favour of inline structured pino logging via request.log.
 
+/*
 // Simple logger interface that both RequestLogger and appLogger satisfy
 export interface SimpleLogger {
   info: (message: string, data?: Record<string, unknown>) => void
@@ -10,13 +14,9 @@ export interface SimpleLogger {
 }
 
 export interface ExternalApiLogOptions {
-  /** Name of the external service (e.g., 'OpenAI', 'Groq', 'LiveKit') */
   service: string
-  /** The operation being performed (e.g., 'chat.completions', 'createSession') */
   operation: string
-  /** Request payload (will be truncated if too large) */
   request?: unknown
-  /** Maximum length for request/response logging */
   maxLength?: number
 }
 
@@ -27,10 +27,6 @@ export interface ExternalApiResult<T> {
   durationMs: number
 }
 
-/**
- * Wraps an external API call with logging
- * Logs: start, request details, response/error, duration
- */
 export async function logExternalApiCall<T>(
   logger: SimpleLogger,
   options: ExternalApiLogOptions,
@@ -75,9 +71,6 @@ export async function logExternalApiCall<T>(
   }
 }
 
-/**
- * Truncate large objects for logging
- */
 function truncateForLogging(obj: unknown, maxLength: number): unknown {
   if (obj === null || obj === undefined) {
     return obj
@@ -103,9 +96,6 @@ function truncateForLogging(obj: unknown, maxLength: number): unknown {
   }
 }
 
-/**
- * Log a database query with timing
- */
 export async function logDatabaseQuery<T>(
   logger: SimpleLogger,
   operation: string,
@@ -145,9 +135,6 @@ export async function logDatabaseQuery<T>(
   }
 }
 
-/**
- * Log entry into a function/method
- */
 export function logFunctionEntry(
   logger: SimpleLogger,
   functionName: string,
@@ -159,9 +146,6 @@ export function logFunctionEntry(
   })
 }
 
-/**
- * Log exit from a function/method
- */
 export function logFunctionExit(
   logger: SimpleLogger,
   functionName: string,
@@ -173,3 +157,4 @@ export function logFunctionExit(
     functionResult: result?.data ? truncateForLogging(result.data, 200) : undefined,
   })
 }
+*/

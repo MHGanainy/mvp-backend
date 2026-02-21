@@ -1,4 +1,3 @@
-// src/server.ts
 import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import fastifyJwt from "@fastify/jwt";
@@ -6,7 +5,6 @@ import fastifyCors from "@fastify/cors";
 import "./shared/types";
 import { optionalAuth } from "./middleware/auth.middleware";
 import { registerRequestLogging } from "./middleware/request-logger.middleware";
-import { appLogger, flushLogs } from "./lib/logger";
 
 // Add all imports
 import authRoutes from "./entities/auth/auth.routes";
@@ -43,10 +41,29 @@ import interviewCourseSubsectionRoutes from "./entities/interview-course-subsect
 import interviewCourseEnrollmentRoutes from "./entities/interview-course-enrollment/interview-course-enrollment.routes";
 import interviewSubsectionProgressRoutes from "./entities/interview-subsection-progress/interview-subsection-progress.routes";
 import affiliateRoutes from "./entities/affiliate/affiliate.routes";
-import { seedAdminUser } from "./services/seed-admin";
 import { CleanupService } from "./services/cleanup.service";
 
-const fastify = Fastify({ logger: false });
+const NODE_ENV = process.env.NODE_ENV || "development";
+const LOG_LEVEL = process.env.LOG_LEVEL || "info";
+
+const fastify = Fastify({
+  logger: NODE_ENV !== "production"
+    ? {
+        level: LOG_LEVEL,
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "SYS:standard",
+            ignore: "pid,hostname",
+          },
+        },
+      }
+    : {
+        level: LOG_LEVEL,
+      },
+});
+
 const prisma = new PrismaClient();
 
 // Register prisma on fastify instance
@@ -109,7 +126,6 @@ fastify.get("/health", async () => {
   return { status: "OK", timestamp: new Date().toISOString() };
 });
 
-// Health check with
 fastify.get("/api/health", async () => {
   return { status: "OK", timestamp: new Date().toISOString() };
 });
@@ -218,47 +234,42 @@ const start = async () => {
     const host = process.env.HOST || "0.0.0.0";
 
     await fastify.listen({ port, host });
-    appLogger.info(`Server running on ${host}:${port}`, { host, port });
-    appLogger.info('JWT authentication enabled with global auth hook');
-    appLogger.info('Admin users automatically identified on all routes');
-    appLogger.info('CORS enabled for ALL origins');
+    fastify.log.info({ host, port }, 'Server running');
+    fastify.log.info('JWT authentication enabled with global auth hook');
+    fastify.log.info('Admin users automatically identified on all routes');
+    fastify.log.info('CORS enabled for ALL origins');
 
     // Start cleanup service for pending registrations
-    const cleanupService = new CleanupService(prisma);
+    const cleanupService = new CleanupService(prisma, fastify.log.child({ service: 'CleanupService' }));
 
-    // Run initial cleanup
-    appLogger.info('Running initial cleanup');
+    fastify.log.info('Running initial cleanup');
     await cleanupService.cleanupExpiredOTPs();
 
-    // Run cleanup every 6 hours
     setInterval(async () => {
-      appLogger.info('Running scheduled cleanup');
+      fastify.log.info('Running scheduled cleanup');
       try {
         await cleanupService.cleanupExpiredOTPs();
         await cleanupService.cleanupExpiredPendingRegistrations();
       } catch (error) {
-        appLogger.error('Cleanup failed', error);
+        fastify.log.error({ err: error }, 'Cleanup failed');
       }
-    }, 6 * 60 * 60 * 1000); // 6 hours
+    }, 6 * 60 * 60 * 1000);
 
-    appLogger.info('Cleanup service started (runs every 6 hours)');
+    fastify.log.info('Cleanup service started (runs every 6 hours)');
   } catch (err) {
-    appLogger.error('Server startup failed', err);
+    fastify.log.error({ err }, 'Server startup failed');
     process.exit(1);
   }
 };
 
 start();
 
-// Graceful shutdown handlers - flush logs before exit
 process.on('SIGTERM', async () => {
-  appLogger.info('SIGTERM received, shutting down gracefully');
-  await flushLogs();
+  fastify.log.info('SIGTERM received, shutting down gracefully');
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  appLogger.info('SIGINT received, shutting down gracefully');
-  await flushLogs();
+  fastify.log.info('SIGINT received, shutting down gracefully');
   process.exit(0);
 });

@@ -15,7 +15,10 @@ import {
 export default async function interviewSimulationAttemptRoutes(
   fastify: FastifyInstance
 ) {
-  const interviewSimulationAttemptService = new InterviewSimulationAttemptService(fastify.prisma);
+  const interviewSimulationAttemptService = new InterviewSimulationAttemptService(
+    fastify.prisma,
+    fastify.log.child({ service: 'InterviewSimulationAttemptService' })
+  );
 
   // GET /interview-simulation-attempts - Get all interview simulation attempts (with query filters)
   fastify.get("/interview-simulation-attempts", async (request, reply) => {
@@ -250,7 +253,7 @@ export default async function interviewSimulationAttemptRoutes(
             minimumRequired: 1,
           });
         } else {
-          console.error("Validation error:", error);
+          request.log.error({ err: error }, 'Validation error creating interview simulation attempt');
           reply.status(400).send({
             error: "Invalid data",
             details: error.message,
@@ -481,7 +484,7 @@ export default async function interviewSimulationAttemptRoutes(
           },
         });
       } catch (error) {
-        console.error("Error completing interview simulation with transcript:", error);
+        request.log.error({ err: error }, 'Error completing interview simulation with transcript');
 
         if (error instanceof Error) {
           if (error.message === "Interview simulation attempt not found") {
@@ -611,7 +614,7 @@ export default async function interviewSimulationAttemptRoutes(
         ];
 
         // Call with correct parameter order
-        const result = await aiFeedbackService.generateFeedback(
+        const result = await aiFeedbackService(request.log).generateFeedback(
           testTranscript,
           testCaseInfo,
           testCaseTabs, // CaseTabs object (3rd parameter)
@@ -640,7 +643,7 @@ export default async function interviewSimulationAttemptRoutes(
           },
         });
       } catch (error) {
-        console.error("Error testing enhanced AI feedback:", error);
+        request.log.error({ err: error }, 'Error testing enhanced AI feedback');
         reply.status(500).send({
           error: "Failed to generate test AI feedback",
           details: error instanceof Error ? error.message : "Unknown error",
@@ -674,7 +677,7 @@ export default async function interviewSimulationAttemptRoutes(
             .status(400)
             .send({ error: "Cannot cancel a completed interview simulation attempt" });
         } else {
-          console.error("Error cancelling interview simulation attempt:", error);
+          request.log.error({ err: error }, 'Error cancelling interview simulation attempt');
           reply
             .status(400)
             .send({
