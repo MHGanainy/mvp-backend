@@ -1,12 +1,7 @@
 import OpenAI from 'openai';
 import Groq from 'groq-sdk';
 import { TranscriptClean } from '../../shared/types';
-import { appLogger } from '../../lib/logger';
-import {
-  logFunctionEntry,
-  logFunctionExit,
-  SimpleLogger,
-} from '../../lib/external-api-logger';
+import { FastifyBaseLogger } from 'fastify';
 
 // Add provider enum
 enum AIProvider {
@@ -85,6 +80,7 @@ interface AIFeedbackServiceConfig {
   provider?: AIProvider;
   apiKey?: string;
   model?: string;
+  log: FastifyBaseLogger;
 }
 
 export class AIFeedbackService {
@@ -92,9 +88,11 @@ export class AIFeedbackService {
   private groq?: Groq;
   private provider: AIProvider;
   private model: string;
+  private log: FastifyBaseLogger;
 
-  constructor(config?: AIFeedbackServiceConfig) {
-    this.provider = config?.provider || AIProvider.OPENAI;
+  constructor(config: AIFeedbackServiceConfig) {
+    this.log = config.log;
+    this.provider = config.provider || AIProvider.OPENAI;
     
     // Initialize the appropriate client based on provider
     if (this.provider === AIProvider.OPENAI) {
@@ -174,8 +172,8 @@ export class AIFeedbackService {
   }
 
   // New method to handle completions across providers
-  private async getCompletion(systemPrompt: string, userPrompt: string, logger?: SimpleLogger): Promise<string> {
-    const log = logger || appLogger;
+  private async getCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
+    const log = this.log;
     const messages = [
       { role: "system" as const, content: systemPrompt },
       { role: "user" as const, content: userPrompt }
@@ -391,15 +389,14 @@ export class AIFeedbackService {
     caseInfo: CaseInfo,
     caseTabs: CaseTabs,
     sessionDuration: number,
-    markingDomainsWithCriteria: MarkingDomainWithCriteria[],
-    logger?: SimpleLogger
+    markingDomainsWithCriteria: MarkingDomainWithCriteria[]
   ): Promise<{
     feedback: AIFeedbackResponse;
     score: number;
     prompts: { systemPrompt: string; userPrompt: string; };
     markingStructure: MarkingDomainWithCriteria[];
   }> {
-    const log = logger || appLogger;
+    const log = this.log;
     const startTime = Date.now();
 
     const totalCriteria = markingDomainsWithCriteria.reduce((sum, d) => sum + d.criteria.length, 0);
@@ -528,7 +525,7 @@ export class AIFeedbackService {
       });
 
       const aiCallStart = Date.now();
-      const responseContent = await this.getCompletion(systemPrompt, userPrompt, log);
+      const responseContent = await this.getCompletion(systemPrompt, userPrompt);
       const aiCallDurationMs = Date.now() - aiCallStart;
 
       log.info('[AI-FEEDBACK] [STEP 3/5] AI response received', {
@@ -994,9 +991,10 @@ Please provide your evaluation in the required JSON format.${jsonReminder}`;
 export { AIProvider };
 
 // Factory function for easier instantiation
-export function createAIFeedbackService(config?: AIFeedbackServiceConfig): AIFeedbackService {
+export function createAIFeedbackService(config: AIFeedbackServiceConfig): AIFeedbackService {
   return new AIFeedbackService(config);
 }
 
-// Default singleton for backward compatibility
-export const aiFeedbackService = new AIFeedbackService();
+export function aiFeedbackService(log: FastifyBaseLogger): AIFeedbackService {
+  return new AIFeedbackService({ log });
+}

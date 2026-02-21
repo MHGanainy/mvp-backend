@@ -13,15 +13,17 @@ import {
   VoiceAgentTranscript,
 } from "../../services/transcript-processor.service";
 import { StudentInterviewPracticeService } from "../student-interview-practice/student-interview-practice.service";
+import { FastifyBaseLogger } from 'fastify';
 
 export class InterviewSimulationAttemptService {
   private aiFeedbackService: ReturnType<typeof createAIFeedbackService>;
   private studentInterviewPracticeService: StudentInterviewPracticeService;
-  constructor(private prisma: PrismaClient) {
+  constructor(private prisma: PrismaClient, private log: FastifyBaseLogger) {
     this.aiFeedbackService = createAIFeedbackService({
       provider: AIProvider.GROQ,
       apiKey: process.env.GROQ_API_KEY,
-      model: "openai/gpt-oss-120b",
+      model: 'openai/gpt-oss-120b',
+      log: this.log,
     });
     this.studentInterviewPracticeService = new StudentInterviewPracticeService(prisma);
   }
@@ -109,13 +111,9 @@ export class InterviewSimulationAttemptService {
 
     // Log the attempt creation for billing tracking
     if (student.user.isAdmin) {
-      console.log(
-        `[BILLING] Admin interview simulation attempt created. ID: ${attempt.id}, Token: ${correlationToken} - NO CHARGES APPLY`
-      );
+      this.log.info({ attemptId: attempt.id, correlationToken }, '[BILLING] Admin interview simulation attempt created - NO CHARGES APPLY');
     } else {
-      console.log(
-        `[BILLING] Interview simulation attempt created without upfront charge. ID: ${attempt.id}, Token: ${correlationToken}`
-      );
+      this.log.info({ attemptId: attempt.id, correlationToken }, '[BILLING] Interview simulation attempt created without upfront charge');
     }
 
     // Create LiveKit session
@@ -123,8 +121,8 @@ export class InterviewSimulationAttemptService {
       // Use voiceId from frontend request, fallback to Ashley if not provided
       const voiceId = data.voiceId || "Ashley";
 
-      console.log(`[InterviewSimulationAttempt] Voice requested: ${voiceId}`);
-      console.log(`[InterviewSimulationAttempt] Correlation token: ${correlationToken}`);
+      this.log.info({ voiceId }, '[InterviewSimulationAttempt] Voice requested');
+      this.log.info({ correlationToken }, '[InterviewSimulationAttempt] Correlation token');
 
       const livekitConfig = await livekitVoiceService.createSession(
         correlationToken,
@@ -136,9 +134,7 @@ export class InterviewSimulationAttemptService {
         }
       );
 
-      console.log(
-        `[LiveKit] Session created for attempt ${attempt.id} with voice: ${voiceId}`
-      );
+      this.log.info({ attemptId: attempt.id, voiceId }, '[LiveKit] Session created for attempt');
 
       return {
         ...attempt,
@@ -151,7 +147,7 @@ export class InterviewSimulationAttemptService {
         isAdmin: student.user.isAdmin,
       };
     } catch (error: any) {
-      console.error(`[LiveKit] Failed to create session:`, error.message);
+      this.log.error({ err: error }, '[LiveKit] Failed to create session');
       throw new Error(`Failed to start voice session: ${error.message}`);
     }
   }
@@ -175,11 +171,9 @@ export class InterviewSimulationAttemptService {
 
     // Close the LiveKit session if it exists
     if (attempt.correlationToken) {
-      console.log(
-        `[InterviewSimulationAttempt] Closing LiveKit session for attempt ${id} (correlation: ${attempt.correlationToken})`
-      );
+      this.log.info({ attemptId: id, correlationToken: attempt.correlationToken }, '[InterviewSimulationAttempt] Closing LiveKit session for attempt');
       await livekitVoiceService.endSession(attempt.correlationToken);
-      console.log(`[InterviewSimulationAttempt] LiveKit session end request sent`);
+      this.log.info('[InterviewSimulationAttempt] LiveKit session end request sent');
     }
 
     const endTime = new Date();
@@ -230,7 +224,7 @@ export class InterviewSimulationAttemptService {
         updatedAttempt.interviewSimulation.interviewCase.id
       );
     } catch (practiceError) {
-      console.error('Interview practice status update failed (non-critical)', practiceError);
+      this.log.error({ err: practiceError }, 'Interview practice status update failed (non-critical)');
     }
 
     return updatedAttempt;
@@ -259,11 +253,9 @@ export class InterviewSimulationAttemptService {
 
     // Force close the LiveKit session (this commits transcript to database)
     if (attempt.correlationToken) {
-      console.log(
-        `[InterviewSimulationAttempt] Cancelling attempt ${id}, closing LiveKit session ${attempt.correlationToken}`
-      );
+      this.log.info({ attemptId: id, correlationToken: attempt.correlationToken }, '[InterviewSimulationAttempt] Cancelling attempt, closing LiveKit session');
       await livekitVoiceService.endSession(attempt.correlationToken);
-      console.log(`[InterviewSimulationAttempt] LiveKit session ended`);
+      this.log.info('[InterviewSimulationAttempt] LiveKit session ended');
     }
 
     // Fetch the attempt again to get the transcript that was just saved by session end
@@ -277,23 +269,16 @@ export class InterviewSimulationAttemptService {
 
     if (attemptWithTranscript?.transcript) {
       try {
-        console.log(
-          `[InterviewSimulationAttempt] Processing transcript to clean format...`
-        );
+        this.log.info('[InterviewSimulationAttempt] Processing transcript to clean format...');
         const voiceTranscript =
           attemptWithTranscript.transcript as unknown as VoiceAgentTranscript;
         const processedTranscript =
           TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
         cleanTranscript =
           processedTranscript as unknown as Prisma.InputJsonValue;
-        console.log(
-          `[InterviewSimulationAttempt] Transcript processed: ${processedTranscript.totalMessages} messages, ${processedTranscript.duration}s duration`
-        );
+        this.log.info({ totalMessages: processedTranscript.totalMessages, duration: processedTranscript.duration }, '[InterviewSimulationAttempt] Transcript processed');
       } catch (error) {
-        console.error(
-          `[InterviewSimulationAttempt] Failed to process transcript:`,
-          error
-        );
+        this.log.error({ err: error }, '[InterviewSimulationAttempt] Failed to process transcript');
         // Keep original transcript if processing fails
         cleanTranscript = attemptWithTranscript.transcript;
       }
@@ -321,7 +306,7 @@ export class InterviewSimulationAttemptService {
       },
     });
 
-    console.log(`[InterviewSimulationAttempt] Attempt ${id} cancelled successfully`);
+    this.log.info({ attemptId: id }, '[InterviewSimulationAttempt] Attempt cancelled successfully');
   }
 
   async findAll(query?: {
@@ -590,9 +575,7 @@ export class InterviewSimulationAttemptService {
 
     // Close the LiveKit session if it exists
     if (attempt.correlationToken) {
-      console.log(
-        `[InterviewSimulationAttempt] Deleting attempt ${id}, closing LiveKit session ${attempt.correlationToken}`
-      );
+      this.log.info({ attemptId: id, correlationToken: attempt.correlationToken }, '[InterviewSimulationAttempt] Deleting attempt, closing LiveKit session');
       await livekitVoiceService.endSession(attempt.correlationToken);
     }
 
@@ -627,7 +610,7 @@ export class InterviewSimulationAttemptService {
       });
     }
 
-    console.log(`[InterviewSimulationAttempt] Attempt ${id} deleted successfully`);
+    this.log.info({ attemptId: id }, '[InterviewSimulationAttempt] Attempt deleted successfully');
   }
 
   // BUSINESS LOGIC METHODS
@@ -771,24 +754,16 @@ export class InterviewSimulationAttemptService {
     attemptId: string,
     correlationToken: string
   ): Promise<any> {
-    console.log(
-      `[InterviewSimulationAttempt] Completing attempt ${attemptId} with transcript processing`
-    );
+    this.log.info({ attemptId }, '[InterviewSimulationAttempt] Completing attempt with transcript processing');
 
     // Step 1: End the LiveKit session (this commits transcript to database)
-    console.log(
-      `[InterviewSimulationAttempt] Ending LiveKit session for correlation token: ${correlationToken}`
-    );
-    const endResult = await livekitVoiceService.endSession(correlationToken);
+    this.log.info({ correlationToken }, '[InterviewSimulationAttempt] Ending LiveKit session for correlation token');
+    const endResult = await livekitVoiceService.endSession(correlationToken) as { status: string; message?: string };
 
     if (endResult.status === "error") {
-      console.warn(
-        `[InterviewSimulationAttempt] Session end failed (${endResult.message}). Will check if transcript is already in database.`
-      );
+      this.log.warn({ message: endResult.message }, '[InterviewSimulationAttempt] Session end failed. Will check if transcript is already in database.');
     } else {
-      console.log(
-        `[InterviewSimulationAttempt] LiveKit session ended successfully. Transcript should now be in database.`
-      );
+      this.log.info('[InterviewSimulationAttempt] LiveKit session ended successfully. Transcript should now be in database.');
     }
 
     // Step 2: Poll for transcript with retry logic (defense in depth)
@@ -844,17 +819,13 @@ export class InterviewSimulationAttemptService {
 
       // Check if transcript exists
       if (existingAttempt.transcript) {
-        console.log(
-          `[InterviewSimulationAttempt] Transcript found in database on attempt ${attempt}/${maxRetries}`
-        );
+        this.log.info({ attempt, maxRetries }, '[InterviewSimulationAttempt] Transcript found in database');
         break;
       }
 
       // Transcript not found yet, wait and retry
       if (attempt < maxRetries) {
-        console.log(
-          `[InterviewSimulationAttempt] Transcript not found yet, waiting ${retryDelayMs}ms before retry ${attempt + 1}/${maxRetries}...`
-        );
+        this.log.info({ retryDelayMs, nextAttempt: attempt + 1, maxRetries }, '[InterviewSimulationAttempt] Transcript not found yet, waiting before retry...');
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
       }
     }
@@ -866,7 +837,7 @@ export class InterviewSimulationAttemptService {
       );
     }
 
-    console.log(`[InterviewSimulationAttempt] Transcript found in database`);
+    this.log.info('[InterviewSimulationAttempt] Transcript found in database');
     const voiceTranscript =
       existingAttempt.transcript as unknown as VoiceAgentTranscript;
 
@@ -877,12 +848,10 @@ export class InterviewSimulationAttemptService {
 
     try {
       // Step 4: Process the transcript - transform and merge split messages
-      console.log(`[InterviewSimulationAttempt] Processing transcript...`);
+      this.log.info('[InterviewSimulationAttempt] Processing transcript...');
       const cleanTranscript =
         TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
-      console.log(
-        `[InterviewSimulationAttempt] Transcript processed: ${cleanTranscript.totalMessages} messages, ${cleanTranscript.duration}s duration`
-      );
+      this.log.info({ totalMessages: cleanTranscript.totalMessages, duration: cleanTranscript.duration }, '[InterviewSimulationAttempt] Transcript processed');
 
       // Extract case tabs (doctor's notes, patient script, medical notes)
       interface CaseTabs {
@@ -971,10 +940,8 @@ export class InterviewSimulationAttemptService {
 
       // Generate AI feedback
       try {
-        console.log(`[InterviewSimulationAttempt] Generating AI feedback...`);
-        console.log(
-          `[InterviewSimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`
-        );
+        this.log.info('[InterviewSimulationAttempt] Generating AI feedback...');
+        this.log.info({ domainsCount: markingDomainsWithCriteria.length }, '[InterviewSimulationAttempt] Using marking domains');
 
         const {
           feedback,
@@ -1009,14 +976,9 @@ export class InterviewSimulationAttemptService {
         score = calculatedScore;
         aiPrompt = prompts as unknown as Prisma.InputJsonValue;
 
-        console.log(
-          `[InterviewSimulationAttempt] AI feedback generated successfully with score: ${score}`
-        );
+        this.log.info({ score }, '[InterviewSimulationAttempt] AI feedback generated successfully');
       } catch (aiError) {
-        console.error(
-          "[InterviewSimulationAttempt] AI feedback generation failed:",
-          aiError
-        );
+        this.log.error({ err: aiError }, '[InterviewSimulationAttempt] AI feedback generation failed');
         aiFeedback = {
           analysisStatus: "failed",
           error:
@@ -1054,9 +1016,7 @@ export class InterviewSimulationAttemptService {
         },
       });
 
-      console.log(
-        `[InterviewSimulationAttempt] Attempt ${attemptId} completed successfully with AI feedback`
-      );
+      this.log.info({ attemptId }, '[InterviewSimulationAttempt] Attempt completed successfully with AI feedback');
 
       // Update student's interview practice status (non-critical)
       try {
@@ -1065,15 +1025,12 @@ export class InterviewSimulationAttemptService {
           updatedAttempt.interviewSimulation.interviewCase.id
         );
       } catch (practiceError) {
-        console.error('Interview practice status update failed (non-critical)', practiceError);
+        this.log.error({ err: practiceError }, 'Interview practice status update failed (non-critical)');
       }
 
       return updatedAttempt;
     } catch (error) {
-      console.error(
-        "[InterviewSimulationAttempt] Error processing transcript and generating feedback:",
-        error
-      );
+      this.log.error({ err: error }, '[InterviewSimulationAttempt] Error processing transcript and generating feedback');
 
       // Still mark as complete but with error status
       const fallbackAttempt = await this.prisma.interviewSimulationAttempt.update({
@@ -1105,9 +1062,7 @@ export class InterviewSimulationAttemptService {
         },
       });
 
-      console.log(
-        `[InterviewSimulationAttempt] Attempt ${attemptId} marked as complete with error`
-      );
+      this.log.info({ attemptId }, '[InterviewSimulationAttempt] Attempt marked as complete with error');
 
       // Update student's interview practice status even on AI failure (non-critical)
       try {
@@ -1116,7 +1071,7 @@ export class InterviewSimulationAttemptService {
           fallbackAttempt.interviewSimulation.interviewCase.id
         );
       } catch (practiceError) {
-        console.error('Interview practice status update failed (non-critical)', practiceError);
+        this.log.error({ err: practiceError }, 'Interview practice status update failed (non-critical)');
       }
 
       return fallbackAttempt;
@@ -1592,9 +1547,7 @@ export class InterviewSimulationAttemptService {
       const normalizedClassification = classification
         .toUpperCase()
         .replace(/\s+/g, "_");
-      console.log(
-        `[Analytics] Interview "${interviewTitle}" - Classification: "${classification}" -> Normalized: "${normalizedClassification}"`
-      );
+      this.log.info({ interviewTitle, classification, normalizedClassification }, '[Analytics] Interview classification');
 
       if (normalizedClassification === "CLEAR_PASS") {
         interviewStats.clearPassCount++;
@@ -1609,9 +1562,7 @@ export class InterviewSimulationAttemptService {
         interviewStats.borderlineFailCount++;
         interviewStats.failCount++;
       } else if (normalizedClassification !== "") {
-        console.warn(
-          `[Analytics] Unknown classification: "${classification}" (normalized: "${normalizedClassification}")`
-        );
+        this.log.warn({ classification, normalizedClassification }, '[Analytics] Unknown classification');
       }
 
       // Add to percentage sum for averaging later
@@ -1689,9 +1640,7 @@ export class InterviewSimulationAttemptService {
 
     // Overall summary
     const totalAttempts = attempts.length;
-    console.log(
-      `[Analytics] Processing ${totalAttempts} completed attempts with feedback`
-    );
+    this.log.info({ totalAttempts }, '[Analytics] Processing completed attempts with feedback');
 
     const overallPassCount = attempts.filter((a) => {
       const label =
@@ -1699,18 +1648,12 @@ export class InterviewSimulationAttemptService {
       // Normalize and check if it contains "PASS" (case-insensitive)
       const normalizedLabel = label.toUpperCase().replace(/\s+/g, "_");
       const isPass = normalizedLabel.includes("PASS");
-      console.log(
-        `[Analytics] Attempt classification: "${label}" -> "${normalizedLabel}" -> ${
-          isPass ? "PASS" : "FAIL"
-        }`
-      );
+      this.log.info({ label, normalizedLabel, result: isPass ? 'PASS' : 'FAIL' }, '[Analytics] Attempt classification');
       return isPass;
     }).length;
     const overallFailCount = totalAttempts - overallPassCount;
 
-    console.log(
-      `[Analytics] Overall: ${overallPassCount} passes, ${overallFailCount} fails`
-    );
+    this.log.info({ overallPassCount, overallFailCount }, '[Analytics] Overall pass/fail counts');
 
     return {
       studentId,

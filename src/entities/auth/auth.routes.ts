@@ -73,7 +73,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: error.message });
         } else {
           // Log the actual error for debugging
-          console.error("OTP verification error:", error.message);
+          request.log.error({ err: error }, 'OTP verification error');
           reply
             .status(400)
             .send({ error: `OTP verification failed: ${error.message}` });
@@ -108,7 +108,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           ) {
             reply.status(400).send({ error: error.message });
           } else {
-            console.error("Resend OTP error:", error.message);
+            request.log.error({ err: error }, 'Resend OTP error');
             reply
               .status(400)
               .send({ error: `Failed to resend OTP: ${error.message}` });

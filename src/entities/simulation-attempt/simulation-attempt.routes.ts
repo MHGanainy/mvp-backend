@@ -11,12 +11,13 @@ import {
   simulationAttemptQuerySchema,
   simulationAttemptStudentCaseParamsSchema,
 } from "./simulation-attempt.schema";
-import { getLogger } from "../../middleware/request-logger.middleware";
-
 export default async function simulationAttemptRoutes(
   fastify: FastifyInstance
 ) {
-  const simulationAttemptService = new SimulationAttemptService(fastify.prisma);
+  const simulationAttemptService = new SimulationAttemptService(
+    fastify.prisma,
+    fastify.log.child({ service: 'SimulationAttemptService' })
+  );
 
   // GET /simulation-attempts - Get all simulation attempts (with query filters)
   fastify.get("/simulation-attempts", async (request, reply) => {
@@ -223,31 +224,20 @@ export default async function simulationAttemptRoutes(
 
   // POST /simulation-attempts - Start new simulation attempt (NO upfront credit deduction)
   fastify.post("/simulation-attempts", async (request, reply) => {
-    const logger = getLogger(request)
-      .setService('SimulationAttemptService');
     try {
       const data = createSimulationAttemptSchema.parse(request.body);
 
-      // Set entity context for filtering
-      logger.setEntity({
+      request.log.info({
         studentId: data.studentId,
         simulationId: data.simulationId,
-      });
+      }, 'Creating new simulation attempt');
 
-      logger.info('Creating new simulation attempt', {
-        studentId: data.studentId,
-        simulationId: data.simulationId,
-      });
+      const attempt = await simulationAttemptService.create(data);
 
-      const attempt = await simulationAttemptService.create(data, logger);
-
-      // Update entity context with the created attempt ID
-      logger.setEntity({ simulationAttemptId: attempt.id });
-
-      logger.info('Simulation attempt created successfully', {
+      request.log.info({
         attemptId: attempt.id,
         correlationToken: attempt.voiceAssistantConfig?.correlationToken,
-      });
+      }, 'Simulation attempt created successfully');
 
       // The attempt now includes voiceAssistantConfig from LiveKit service
       reply.status(201).send({
@@ -265,26 +255,23 @@ export default async function simulationAttemptRoutes(
     } catch (error) {
       if (error instanceof Error) {
         if (error.message === "Student not found") {
-          logger.warn('Student not found', { error: error.message });
           reply.status(404).send({ error: "Student not found" });
         } else if (error.message === "Simulation not found") {
-          logger.warn('Simulation not found', { error: error.message });
           reply.status(404).send({ error: "Simulation not found" });
         } else if (error.message.includes("Insufficient credits")) {
-          logger.warn('Insufficient credits', { error: error.message });
           reply.status(400).send({
             error: error.message,
             minimumRequired: 1,
           });
         } else {
-          logger.error('Validation error creating simulation attempt', error);
+          request.log.error({ err: error }, 'Validation error creating simulation attempt');
           reply.status(400).send({
             error: "Invalid data",
             details: error.message,
           });
         }
       } else {
-        logger.error('Internal server error creating simulation attempt', error);
+        request.log.error({ err: error }, 'Internal server error creating simulation attempt');
         reply.status(500).send({ error: "Internal server error" });
       }
     }
@@ -446,20 +433,14 @@ export default async function simulationAttemptRoutes(
   fastify.patch(
     "/simulation-attempts/:id/complete-with-transcript",
     async (request, reply) => {
-      const logger = getLogger(request)
-        .setService('SimulationAttemptService');
       try {
         const { id } = simulationAttemptParamsSchema.parse(request.params);
 
-        // Set entity context for filtering
-        logger.setEntity({ simulationAttemptId: id });
-
-        logger.info('Completing simulation with transcript', { attemptId: id });
+        request.log.info({ attemptId: id }, 'Completing simulation with transcript');
 
         const existingAttempt = await simulationAttemptService.findById(id);
 
         if (!existingAttempt.correlationToken) {
-          logger.warn('No correlation token found for attempt', { attemptId: id });
           reply.status(400).send({
             error:
               "No correlation token found for this attempt. Cannot retrieve transcript.",
@@ -467,27 +448,26 @@ export default async function simulationAttemptRoutes(
           return;
         }
 
-        logger.info('Found correlation token, starting completion process', {
+        request.log.info({
           attemptId: id,
           correlationToken: existingAttempt.correlationToken,
-        });
+        }, 'Found correlation token, starting completion process');
 
         const attempt = await simulationAttemptService.completeWithTranscript(
           id,
-          existingAttempt.correlationToken,
-          logger
+          existingAttempt.correlationToken
         );
 
         const aiFeedback = attempt.aiFeedback as any;
         const aiAnalysisSuccessful = aiFeedback?.analysisStatus !== "failed";
 
-        logger.info('Simulation completion finished', {
+        request.log.info({
           attemptId: id,
           score: attempt.score,
           aiAnalysisSuccessful,
           transcriptCaptured: !!attempt.transcript,
           messagesCount: attempt.transcript ? (attempt.transcript as any).messages?.length : 0,
-        });
+        }, 'Simulation completion finished');
 
         reply.send({
           message: aiAnalysisSuccessful
@@ -531,7 +511,7 @@ export default async function simulationAttemptRoutes(
           },
         });
       } catch (error) {
-        logger.error("Error completing simulation with transcript", error);
+        request.log.error({ err: error }, 'Error completing simulation with transcript');
 
         if (error instanceof Error) {
           if (error.message === "Simulation attempt not found") {
@@ -601,7 +581,7 @@ export default async function simulationAttemptRoutes(
             : null,
         });
       } catch (error) {
-        console.error("Error regenerating feedback:", error);
+        request.log.error({ err: error }, 'Error regenerating feedback');
 
         if (error instanceof Error) {
           if (error.message === "Simulation attempt not found") {
@@ -718,7 +698,7 @@ export default async function simulationAttemptRoutes(
         ];
 
         // Call with correct parameter order
-        const result = await aiFeedbackService.generateFeedback(
+        const result = await aiFeedbackService(request.log).generateFeedback(
           testTranscript,
           testCaseInfo,
           testCaseTabs, // CaseTabs object (3rd parameter)
@@ -747,7 +727,7 @@ export default async function simulationAttemptRoutes(
           },
         });
       } catch (error) {
-        console.error("Error testing enhanced AI feedback:", error);
+        request.log.error({ err: error }, 'Error testing enhanced AI feedback');
         reply.status(500).send({
           error: "Failed to generate test AI feedback",
           details: error instanceof Error ? error.message : "Unknown error",
@@ -781,7 +761,7 @@ export default async function simulationAttemptRoutes(
             .status(400)
             .send({ error: "Cannot cancel a completed simulation attempt" });
         } else {
-          console.error("Error cancelling simulation attempt:", error);
+          request.log.error({ err: error }, 'Error cancelling simulation attempt');
           reply
             .status(400)
             .send({
