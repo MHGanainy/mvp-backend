@@ -885,7 +885,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         course: courseCase.course
       })
     } catch (error) {
-      console.error('Error fetching complete course case:', error)
+      request.log.error({ err: error }, 'Error fetching complete course case')
       reply.status(400).send({ error: 'Invalid request' })
     }
   })
@@ -1011,11 +1011,11 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         } else if (error.message === 'Course case not found') {
           reply.status(404).send({ error: 'Course case not found' })
         } else {
-          console.error('Error fetching complete course case by slug:', error)
+          request.log.error({ err: error }, 'Error fetching complete course case by slug')
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        console.error('Error fetching complete course case by slug:', error)
+        request.log.error({ err: error }, 'Error fetching complete course case by slug')
         reply.status(400).send({ error: 'Invalid request' })
       }
     }

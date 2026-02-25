@@ -1,12 +1,17 @@
-// src/services/livekit-voice.service.ts
 import axios, { AxiosInstance } from 'axios';
+import { FastifyBaseLogger } from 'fastify';
+import pino from 'pino';
+
+const defaultLog = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 export class LiveKitVoiceService {
   private client: AxiosInstance;
   private serviceUrl: string;
+  private log: FastifyBaseLogger | pino.Logger;
 
-  constructor() {
+  constructor(logger?: FastifyBaseLogger) {
     this.serviceUrl = process.env.LIVEKIT_SERVICE_URL || 'https://orchestrator-staging-c1dc.up.railway.app';
+    this.log = logger || defaultLog;
 
     this.client = axios.create({
       baseURL: this.serviceUrl,
@@ -31,23 +36,23 @@ export class LiveKitVoiceService {
     roomName: string;
   }> {
     try {
-      const voiceId = config.voiceId || 'Ashley';  // Use provided voice or default to Ashley
+      const voiceId = config.voiceId || 'Ashley';
 
       const requestPayload = {
         userName,
         correlationToken,
-        voiceId: voiceId,
+        voiceId,
         openingLine: config.openingLine,
         systemPrompt: config.systemPrompt
       };
 
-      console.log(`[LiveKitVoice] Creating session with payload:`, {
+      this.log.info({
         userName,
         correlationToken,
         voiceId,
         openingLine: config.openingLine.substring(0, 50) + '...',
         systemPromptLength: config.systemPrompt.length
-      });
+      }, 'Creating LiveKit session');
 
       const response = await this.client.post(
         '/orchestrator/session/start',
@@ -57,42 +62,41 @@ export class LiveKitVoiceService {
       // Python orchestrator should return the same correlationToken as sessionId/roomName
       const returnedSessionId = response.data.sessionId || response.data.roomName;
 
-      console.log(`[LiveKitVoice] Session created - Response from Python orchestrator:`, {
-        token: response.data.token ? `PRESENT (${response.data.token.substring(0, 20)}...)` : 'MISSING',
-        serverUrl: response.data.serverUrl,
+      this.log.info({
+        correlationTokenSent: correlationToken,
         sessionId: response.data.sessionId,
         roomName: response.data.roomName,
-        correlationTokenSent: correlationToken
-      });
+        serverUrl: response.data.serverUrl,
+        tokenPresent: !!response.data.token,
+      }, 'LiveKit session created');
 
-      // Validate that Python returned the same ID we sent
       if (returnedSessionId && returnedSessionId !== correlationToken) {
-        console.warn(`[LiveKitVoice] WARNING: Python returned different sessionId/roomName!`, {
+        this.log.warn({
           sent: correlationToken,
-          received: returnedSessionId
-        });
+          received: returnedSessionId,
+        }, 'Python returned different sessionId/roomName');
       }
 
       return {
         token: response.data.token,
         serverUrl: response.data.serverUrl,
-        // Use Python's returned roomName, fallback to sessionId, or use correlationToken if neither present
-        roomName: response.data.roomName || response.data.sessionId || correlationToken
+        roomName: response.data.roomName || response.data.sessionId || correlationToken,
       };
-    } catch (error: any) {
-      console.error(`[LiveKitVoice] Failed to create session:`, {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        correlationToken
-      });
-      throw new Error(`Failed to create LiveKit session: ${error.message}`);
+    } catch (error: unknown) {
+      const err = error as { message?: string; response?: { data: unknown; status: number } };
+      this.log.error({
+        err: error,
+        correlationToken,
+        responseData: err.response?.data,
+        status: err.response?.status,
+      }, 'Failed to create LiveKit session');
+      throw new Error(`Failed to create LiveKit session: ${err.message}`);
     }
   }
 
-  async endSession(correlationToken: string): Promise<any> {
+  async endSession(correlationToken: string): Promise<unknown> {
     try {
-      console.log(`[LiveKitVoice] Ending session for correlation token: ${correlationToken}`);
+      this.log.info({ correlationToken }, 'Ending LiveKit session');
 
       const response = await this.client.post(
         '/orchestrator/session/end',
@@ -101,20 +105,20 @@ export class LiveKitVoiceService {
         }
       );
 
-      console.log(`[LiveKitVoice] Session ended successfully. Transcript saved to database.`, response.data);
+      this.log.info({ correlationToken }, 'LiveKit session ended successfully');
       return response.data;
-    } catch (error: any) {
-      console.error(`[LiveKitVoice] Failed to end session:`, {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
+    } catch (error: unknown) {
+      const err = error as { message?: string; response?: { data: unknown; status: number } };
+      this.log.error({
+        err: error,
+        correlationToken,
+        responseData: err.response?.data,
+        status: err.response?.status,
+      }, 'Failed to end LiveKit session');
 
-      // Return error status so caller can handle it
-      return { status: 'error', message: error.message };
+      return { status: 'error', message: err.message };
     }
   }
 }
 
-// Export singleton instance
 export const livekitVoiceService = new LiveKitVoiceService();

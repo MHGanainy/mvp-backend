@@ -96,7 +96,7 @@ export class AuthService {
         data.name || data.firstName
       );
     } catch (error) {
-      console.error("Failed to send OTP email:", error);
+      this.fastify.log.error({ err: error }, 'Failed to send OTP email');
       throw new Error("Failed to send verification email");
     }
 
@@ -180,7 +180,7 @@ export class AuthService {
         data.name || data.firstName
       );
     } catch (error) {
-      console.error("Failed to send OTP email:", error);
+      this.fastify.log.error({ err: error }, 'Failed to send OTP email');
       throw new Error("Failed to send verification email");
     }
 
@@ -537,7 +537,7 @@ export class AuthService {
         freeCredits
       );
     } catch (error) {
-      console.error("Failed to send welcome email:", error);
+      this.fastify.log.error({ err: error }, 'Failed to send welcome email (non-critical)');
     }
 
     // Build profile
@@ -621,7 +621,7 @@ export class AuthService {
           pending.name || undefined
         );
       } catch (error) {
-        console.error("Failed to send OTP email:", error);
+        this.fastify.log.error({ err: error }, 'Failed to send OTP email');
         throw new Error("Failed to send OTP email");
       }
 
@@ -749,7 +749,7 @@ export class AuthService {
           freeCredits
         );
       } catch (error) {
-        console.error("Failed to send welcome email:", error);
+        this.fastify.log.error({ err: error }, 'Failed to send welcome email (non-critical)');
       }
     } else {
       // User exists - check if they have the required profile
@@ -901,8 +901,7 @@ export class AuthService {
         user.name || undefined
       );
     } catch (error) {
-      console.error("Failed to send password reset email:", error);
-      // Don't fail the request
+      this.fastify.log.error({ err: error }, 'Failed to send password reset email (non-critical)');
     }
 
     return {
@@ -949,7 +948,7 @@ export class AuthService {
         user.name || undefined
       );
     } catch (error) {
-      console.error("Failed to send password changed email:", error);
+      this.fastify.log.error({ err: error }, 'Failed to send password changed email (non-critical)');
     }
 
     return {
@@ -1002,7 +1001,7 @@ export class AuthService {
         user.name || undefined
       );
     } catch (error) {
-      console.error("Failed to send password changed email:", error);
+      this.fastify.log.error({ err: error }, 'Failed to send password changed email (non-critical)');
     }
 
     return {

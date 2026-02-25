@@ -239,11 +239,11 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
         } else if (error.message === 'Interview case not found') {
           reply.status(404).send({ error: 'Interview case not found' })
         } else {
-          console.error('Error fetching complete interview case by slug:', error)
+          request.log.error({ err: error }, 'Error fetching complete interview case by slug')
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        console.error('Error fetching complete interview case by slug:', error)
+        request.log.error({ err: error }, 'Error fetching complete interview case by slug')
         reply.status(400).send({ error: 'Invalid request' })
       }
     }
@@ -1016,7 +1016,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
         interviewCourse: interviewCase.interviewCourse
       })
     } catch (error) {
-      console.error('Error fetching complete interview case:', error)
+      request.log.error({ err: error }, 'Error fetching complete interview case')
       reply.status(400).send({ error: 'Invalid request' })
     }
   })
