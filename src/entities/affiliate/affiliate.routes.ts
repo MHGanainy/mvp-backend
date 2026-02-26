@@ -42,7 +42,7 @@ export default async function affiliateRoutes(fastify: FastifyInstance) {
       return
     }
     try {
-      const affiliates = await affiliateService.list()
+      const affiliates = await affiliateService.listWithStats()
       reply.send(affiliates)
     } catch (error) {
       fastify.log.error({ action: 'list_affiliates', error })
@@ -75,7 +75,7 @@ export default async function affiliateRoutes(fastify: FastifyInstance) {
     try {
       const { code } = affiliateParamsSchema.parse(request.params)
       const { page, limit } = referralListQuerySchema.parse(request.query)
-      const result = await affiliateService.getReferralsByAffiliate(code, page, limit)
+      const result = await affiliateService.getAffiliateReferralDetails(code, page, limit)
       reply.send(result)
     } catch (error) {
       fastify.log.error({ action: 'get_affiliate_referrals', params: request.params, error })
