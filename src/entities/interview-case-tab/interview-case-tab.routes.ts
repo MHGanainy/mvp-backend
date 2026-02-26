@@ -15,6 +15,7 @@ import {
   createAllTabsSchema
 } from './interview-case-tab.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function interviewCaseTabRoutes(fastify: FastifyInstance) {
   const interviewCaseTabService = new InterviewCaseTabService(fastify.prisma)
@@ -27,7 +28,7 @@ export default async function interviewCaseTabRoutes(fastify: FastifyInstance) {
       const interviewCaseTabs = await interviewCaseTabService.findAll()
       reply.send(interviewCaseTabs)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch interview case tabs' })
+      replyInternalError(request, reply, error, 'Failed to fetch interview case tabs')
     }
   })
 
@@ -140,7 +141,7 @@ export default async function interviewCaseTabRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create interview case tab')
       }
     }
   })
@@ -179,7 +180,7 @@ export default async function interviewCaseTabRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create all interview case tabs')
       }
     }
   })
@@ -248,7 +249,7 @@ export default async function interviewCaseTabRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to bulk update interview case tabs')
       }
     }
   })
@@ -333,7 +334,7 @@ export default async function interviewCaseTabRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update interview case tab content item')
       }
     }
   })
@@ -379,7 +380,7 @@ export default async function interviewCaseTabRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove interview case tab content item')
       }
     }
   })

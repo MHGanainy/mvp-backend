@@ -5,6 +5,7 @@ import {
   getStudentStatusForCourseSchema
 } from './student-case-practice.schema'
 import { z } from 'zod'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function studentCasePracticeRoutes(fastify: FastifyInstance) {
   const studentCasePracticeService = new StudentCasePracticeService(fastify.prisma)
@@ -29,10 +30,10 @@ export default async function studentCasePracticeRoutes(fastify: FastifyInstance
         if (error.message === 'Student not found' || error.message === 'Course case not found') {
           reply.status(404).send({ error: error.message })
         } else {
-          reply.status(500).send({ error: 'Internal server error' })
+          replyInternalError(request, reply, error, 'Failed to toggle bookmark')
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to toggle bookmark')
       }
     }
   })
@@ -44,7 +45,7 @@ export default async function studentCasePracticeRoutes(fastify: FastifyInstance
       const result = await studentCasePracticeService.getStudentStatus(studentId, courseCaseId)
       reply.send(result)
     } catch (error) {
-      reply.status(500).send({ error: 'Internal server error' })
+      replyInternalError(request, reply, error, 'Failed to fetch student case status')
     }
   })
 
@@ -59,10 +60,10 @@ export default async function studentCasePracticeRoutes(fastify: FastifyInstance
         if (error.message === 'Student not found' || error.message === 'Course not found') {
           reply.status(404).send({ error: error.message })
         } else {
-          reply.status(500).send({ error: 'Internal server error' })
+          replyInternalError(request, reply, error, 'Failed to fetch student course statuses')
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to fetch student course statuses')
       }
     }
   })
@@ -75,7 +76,7 @@ export default async function studentCasePracticeRoutes(fastify: FastifyInstance
       const result = await studentCasePracticeService.getBookmarkedCases(studentId, courseId)
       reply.send(result)
     } catch (error) {
-      reply.status(500).send({ error: 'Internal server error' })
+      replyInternalError(request, reply, error, 'Failed to fetch bookmarked cases')
     }
   })
 
@@ -87,7 +88,7 @@ export default async function studentCasePracticeRoutes(fastify: FastifyInstance
       const result = await studentCasePracticeService.getPracticeStats(studentId, courseId)
       reply.send(result)
     } catch (error) {
-      reply.status(500).send({ error: 'Internal server error' })
+      replyInternalError(request, reply, error, 'Failed to fetch practice stats')
     }
   })
 }

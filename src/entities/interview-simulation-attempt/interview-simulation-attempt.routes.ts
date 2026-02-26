@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { InterviewSimulationAttemptService } from "./interview-simulation-attempt.service";
 import { aiFeedbackService } from "../simulation-attempt/ai-feedback.service";
+import { replyInternalError } from '../../shared/route-error'
 import {
   createInterviewSimulationAttemptSchema,
   completeInterviewSimulationAttemptSchema,
@@ -27,7 +28,7 @@ export default async function interviewSimulationAttemptRoutes(
       const attempts = await interviewSimulationAttemptService.findAll(query);
       reply.send(attempts);
     } catch (error) {
-      reply.status(500).send({ error: "Failed to fetch interview simulation attempts" });
+      replyInternalError(request, reply, error, 'Failed to fetch interview simulation attempts');
     }
   });
 
@@ -82,7 +83,7 @@ export default async function interviewSimulationAttemptRoutes(
             reply.status(400).send({ error: "Invalid request" });
           }
         } else {
-          reply.status(500).send({ error: "Internal server error" });
+          replyInternalError(request, reply, error, 'Failed to fetch interview simulation attempts by student and case');
         }
       }
     }
@@ -260,7 +261,7 @@ export default async function interviewSimulationAttemptRoutes(
           });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, 'Failed to create interview simulation attempt');
       }
     }
   });
@@ -294,7 +295,7 @@ export default async function interviewSimulationAttemptRoutes(
           reply.status(400).send({ error: "Invalid request" });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, 'Failed to complete interview simulation attempt');
       }
     }
   });
@@ -514,7 +515,7 @@ export default async function interviewSimulationAttemptRoutes(
               .send({ error: "Invalid request", details: error.message });
           }
         } else {
-          reply.status(500).send({ error: "Internal server error" });
+          replyInternalError(request, reply, error, 'Failed to complete interview simulation with transcript');
         }
       }
     }
@@ -686,7 +687,7 @@ export default async function interviewSimulationAttemptRoutes(
             });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, 'Failed to cancel interview simulation attempt');
       }
     }
   });

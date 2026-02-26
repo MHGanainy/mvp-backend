@@ -28,6 +28,7 @@ import {
   filterInterviewCaseQuerySchema as filterQuerySchema
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 const genderParamsSchema = z.object({
   interviewCourseId: z.string().uuid('Invalid interview course ID'),
@@ -87,7 +88,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
       reply.send(interviewCases)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch interview cases' })
+      replyInternalError(request, reply, error, 'Failed to fetch interview cases')
     }
   })
 
@@ -288,7 +289,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
       } else if (error instanceof z.ZodError) {
         reply.status(400).send({ error: 'Invalid query parameters', details: error.errors })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch paginated interview cases' })
+        replyInternalError(request, reply, error, 'Failed to fetch paginated interview cases')
       }
     }
   })
@@ -394,7 +395,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create interview case')
       }
     }
   })
@@ -430,7 +431,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update interview case')
       }
     }
   })
@@ -501,7 +502,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to reorder interview case')
       }
     }
   })
@@ -619,7 +620,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign specialties to interview case')
       }
     }
   })
@@ -659,7 +660,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign curriculums to interview case')
       }
     }
   })
@@ -695,7 +696,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
       if (error instanceof Error) {
         reply.status(400).send({ error: error.message })
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to bulk assign filters to interview cases')
       }
     }
   })
@@ -730,7 +731,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove specialty from interview case')
       }
     }
   })
@@ -765,7 +766,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove curriculum from interview case')
       }
     }
   })
@@ -866,7 +867,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create complete interview case')
       }
     }
   })
@@ -908,7 +909,7 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update complete interview case')
       }
     }
   })

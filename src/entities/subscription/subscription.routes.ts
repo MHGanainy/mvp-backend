@@ -12,6 +12,7 @@ import {
   requireAuth,
   getCurrentStudentId,
 } from "../../middleware/auth.middleware";
+import { replyInternalError } from "../../shared/route-error";
 
 export default async function subscriptionRoutes(fastify: FastifyInstance) {
   const subscriptionService = new SubscriptionService(fastify.prisma);
@@ -28,7 +29,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
         const subscriptions = await subscriptionService.findAll(query);
         reply.send(subscriptions);
       } catch (error) {
-        reply.status(500).send({ error: "Failed to fetch subscriptions" });
+        replyInternalError(request, reply, error, 'Failed to fetch subscriptions');
       }
     }
   );
@@ -49,7 +50,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
         );
         reply.send(subscriptions);
       } catch (error) {
-        reply.status(500).send({ error: "Failed to fetch your subscriptions" });
+        replyInternalError(request, reply, error, 'Failed to fetch subscriptions');
       }
     }
   );
@@ -165,9 +166,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
         const stats = await subscriptionService.getStudentStats(studentId);
         reply.send(stats);
       } catch (error) {
-        reply
-          .status(500)
-          .send({ error: "Failed to fetch subscription statistics" });
+        replyInternalError(request, reply, error, 'Failed to fetch subscription statistics');
       }
     }
   );
@@ -228,7 +227,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
           courses,
         });
       } catch (error) {
-        reply.status(500).send({ error: "Failed to fetch accessible courses" });
+        replyInternalError(request, reply, error, 'Failed to fetch accessible courses');
       }
     }
   );
@@ -338,7 +337,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
             reply.status(400).send({ error: "Invalid subscription data" });
           }
         } else {
-          reply.status(500).send({ error: "Internal server error" });
+          replyInternalError(request, reply, error, 'Failed to create subscription');
         }
       }
     }

@@ -12,6 +12,7 @@ import {
   VoiceModelEnum
 } from './simulation.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 const creditCostUpdateSchema = z.object({
   creditCost: z.number().int().min(1).max(10)
@@ -45,7 +46,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
       const simulations = await simulationService.findAll()
       reply.send(simulations)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch simulations' })
+      replyInternalError(request, reply, error, 'Failed to fetch simulations')
     }
   })
 
@@ -65,7 +66,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to fetch simulation by course case')
       }
     }
   })
@@ -109,7 +110,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
       const stats = await simulationService.getSimulationStats()
       reply.send(stats)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch simulation statistics' })
+      replyInternalError(request, reply, error, 'Failed to fetch simulation statistics')
     }
   })
 
@@ -169,7 +170,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create simulation')
       }
     }
   })
@@ -240,7 +241,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update simulation credit cost')
       }
     }
   })
@@ -280,7 +281,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update simulation time limit')
       }
     }
   })
@@ -316,7 +317,7 @@ export default async function simulationRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to delete simulation')
       }
     }
   })

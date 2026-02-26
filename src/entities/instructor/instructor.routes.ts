@@ -5,6 +5,7 @@ import {
   createInstructorSchema, 
   updateInstructorSchema 
 } from './instructor.schema'
+import { replyInternalError } from '../../shared/route-error'
 
 // Updated params schema for userId (integer)
 const instructorUserParamsSchema = z.object({
@@ -20,7 +21,7 @@ export default async function instructorRoutes(fastify: FastifyInstance) {
       const instructors = await instructorService.findAll()
       reply.send(instructors)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch instructors' })
+      replyInternalError(request, reply, error, 'Failed to fetch instructors')
     }
   })
 

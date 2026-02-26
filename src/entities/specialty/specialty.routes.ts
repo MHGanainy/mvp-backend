@@ -7,6 +7,7 @@ import {
   specialtyParamsSchema 
 } from './specialty.schema'
 import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function specialtyRoutes(fastify: FastifyInstance) {
   const specialtyService = new SpecialtyService(fastify.prisma)
@@ -17,7 +18,7 @@ export default async function specialtyRoutes(fastify: FastifyInstance) {
       const specialties = await specialtyService.findAll()
       reply.send(specialties)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch specialties' })
+      replyInternalError(request, reply, error, 'Failed to fetch specialties')
     }
   })
 

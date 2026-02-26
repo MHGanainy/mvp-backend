@@ -15,6 +15,7 @@ import {
   getCurrentInstructorId,
   isAdmin,
 } from "../../middleware/auth.middleware";
+import { replyInternalError } from "../../shared/route-error";
 
 export default async function markingCriterionRoutes(fastify: FastifyInstance) {
   const service = new MarkingCriterionService(fastify.prisma);
@@ -119,7 +120,7 @@ export default async function markingCriterionRoutes(fastify: FastifyInstance) {
             reply.status(400).send({ error: "Invalid data" });
           }
         } else {
-          reply.status(500).send({ error: "Internal server error" });
+          replyInternalError(request, reply, error, 'Failed to create marking criterion');
         }
       }
     }

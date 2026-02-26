@@ -13,6 +13,7 @@ import {
   getCurrentInstructorId,
   isAdmin
 } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function interviewCourseSectionRoutes(fastify: FastifyInstance) {
   const sectionService = new InterviewCourseSectionService(fastify.prisma)
@@ -34,7 +35,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
       const sections = await sectionService.findAll()
       reply.send(sections)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch sections' })
+      replyInternalError(request, reply, error, 'Failed to fetch sections')
     }
   })
 
@@ -53,7 +54,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
       if (error instanceof Error && error.message === 'Section not found') {
         reply.status(404).send({ error: 'Section not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch section' })
+        replyInternalError(request, reply, error, 'Failed to fetch section')
       }
     }
   })
@@ -73,7 +74,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
       if (error instanceof Error && error.message === 'Interview course not found') {
         reply.status(404).send({ error: 'Interview course not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch sections' })
+        replyInternalError(request, reply, error, 'Failed to fetch sections for interview course')
       }
     }
   })
@@ -115,7 +116,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create interview course section')
       }
     }
   })
@@ -151,7 +152,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create complete interview course section')
       }
     }
   })
@@ -190,7 +191,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update interview course section')
       }
     }
   })
@@ -224,7 +225,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
       if (error instanceof Error && error.message.includes('Invalid section IDs')) {
         reply.status(400).send({ error: error.message })
       } else {
-        reply.status(500).send({ error: 'Failed to reorder sections' })
+        replyInternalError(request, reply, error, 'Failed to reorder sections')
       }
     }
   })
@@ -256,7 +257,7 @@ export default async function interviewCourseSectionRoutes(fastify: FastifyInsta
       if (error instanceof Error && error.message === 'Section not found') {
         reply.status(404).send({ error: 'Section not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to delete section' })
+        replyInternalError(request, reply, error, 'Failed to delete section')
       }
     }
   })

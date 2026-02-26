@@ -13,6 +13,7 @@ import {
   changePasswordSchema,
   googleAuthSchema,
 } from "./auth.schema";
+import { replyInternalError } from "../../shared/route-error";
 
 export default async function authRoutes(fastify: FastifyInstance) {
   const authService = new AuthService(fastify.prisma, fastify);
@@ -31,7 +32,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: "Invalid registration data" });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to register student");
       }
     }
   });
@@ -50,7 +51,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: "Invalid registration data" });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to register instructor");
       }
     }
   });
@@ -79,7 +80,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
             .send({ error: `OTP verification failed: ${error.message}` });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to verify OTP");
       }
     }
   });
@@ -114,7 +115,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
               .send({ error: `Failed to resend OTP: ${error.message}` });
           }
         } else {
-          reply.status(500).send({ error: "Internal server error" });
+          replyInternalError(request, reply, error, "Failed to resend OTP");
         }
       }
     }
@@ -142,7 +143,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: "Invalid login data" });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to login");
       }
     }
   });
@@ -164,7 +165,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: "Google authentication failed" });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to authenticate with Google");
       }
     }
   });
@@ -176,7 +177,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const result = await authService.forgotPassword(data);
       reply.send(result);
     } catch (error) {
-      reply.status(500).send({ error: "Internal server error" });
+      replyInternalError(request, reply, error, "Failed to process forgot password");
     }
   });
 
@@ -194,7 +195,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: "Password reset failed" });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to reset password");
       }
     }
   });
@@ -229,7 +230,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
             reply.status(400).send({ error: "Password change failed" });
           }
         } else {
-          reply.status(500).send({ error: "Internal server error" });
+          replyInternalError(request, reply, error, "Failed to change password");
         }
       }
     }
@@ -316,7 +317,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
           },
         });
       } catch (error) {
-        reply.status(500).send({ error: "Failed to fetch user information" });
+        replyInternalError(request, reply, error, "Failed to fetch user information");
       }
     }
   );

@@ -13,6 +13,7 @@ import {
   InterviewCourseStyleEnum
 } from './interview-course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 const pricingUpdateSchema = z.object({
   price3Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
@@ -68,7 +69,7 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
 
       reply.send(interviewCourses)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch interview courses' })
+      replyInternalError(request, reply, error, 'Failed to fetch interview courses')
     }
   })
 
@@ -99,7 +100,7 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
       const interviewCourses = await interviewCourseService.findPublished()
       reply.send(interviewCourses)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch published interview courses' })
+      replyInternalError(request, reply, error, 'Failed to fetch published interview courses')
     }
   })
 
@@ -257,7 +258,7 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create interview course')
       }
     }
   })
@@ -443,7 +444,7 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
           reply.status(400).send({ error: error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create structured complete interview course')
       }
     }
   })
@@ -479,7 +480,7 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
           reply.status(400).send({ error: error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update structured complete interview course')
       }
     }
   })

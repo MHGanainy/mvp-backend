@@ -6,6 +6,7 @@ import {
   updateStudentSchema, 
   studentUserParamsSchema 
 } from './student.schema'
+import { replyInternalError } from '../../shared/route-error'
 
 // Credit operation schemas
 const creditOperationSchema = z.object({
@@ -28,7 +29,7 @@ export default async function studentRoutes(fastify: FastifyInstance) {
       const students = await studentService.findAll()
       reply.send(students)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch students' })
+      replyInternalError(request, reply, error, 'Failed to fetch students')
     }
   })
 
@@ -238,7 +239,7 @@ export default async function studentRoutes(fastify: FastifyInstance) {
       if (error instanceof Error && error.message === 'Student not found') {
         reply.status(404).send({ error: 'Student not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch quick access data' })
+        replyInternalError(request, reply, error, 'Failed to fetch quick access data')
       }
     }
   })

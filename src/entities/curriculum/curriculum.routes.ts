@@ -7,6 +7,7 @@ import {
   curriculumParamsSchema 
 } from './curriculum.schema'
 import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function curriculumRoutes(fastify: FastifyInstance) {
   const curriculumService = new CurriculumService(fastify.prisma)
@@ -17,7 +18,7 @@ export default async function curriculumRoutes(fastify: FastifyInstance) {
       const curriculums = await curriculumService.findAll()
       reply.send(curriculums)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch curriculums' })
+      replyInternalError(request, reply, error, 'Failed to fetch curriculums')
     }
   })
 

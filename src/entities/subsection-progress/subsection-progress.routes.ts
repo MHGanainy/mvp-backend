@@ -12,6 +12,7 @@ import {
   getCurrentStudentId,
   isAdmin
 } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function subsectionProgressRoutes(fastify: FastifyInstance) {
   const progressService = new SubsectionProgressService(fastify.prisma)
@@ -38,7 +39,7 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
       if (error instanceof Error && error.message === 'Progress not found') {
         reply.status(404).send({ error: 'Progress not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch progress' })
+        replyInternalError(request, reply, error, 'Failed to fetch progress')
       }
     }
   })
@@ -71,7 +72,7 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
       const progress = await progressService.findByEnrollment(enrollmentId)
       reply.send(progress)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch progress' })
+      replyInternalError(request, reply, error, 'Failed to fetch progress')
     }
   })
 
@@ -111,7 +112,7 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
           reply.status(400).send({ error: error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to start subsection progress')
       }
     }
   })
@@ -139,7 +140,7 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
       if (error instanceof Error && error.message === 'Progress not found') {
         reply.status(404).send({ error: 'Progress not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to update progress' })
+        replyInternalError(request, reply, error, 'Failed to update progress')
       }
     }
   })
@@ -170,10 +171,10 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
         } else if (error.message === 'Subsection already completed') {
           reply.status(400).send({ error: error.message })
         } else {
-          reply.status(500).send({ error: 'Failed to complete subsection' })
+          replyInternalError(request, reply, error, 'Failed to complete subsection')
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to complete subsection')
       }
     }
   })
@@ -203,10 +204,10 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
         } else if (error.message === 'Subsection is not completed') {
           reply.status(400).send({ error: error.message })
         } else {
-          reply.status(500).send({ error: 'Failed to uncomplete subsection' })
+          replyInternalError(request, reply, error, 'Failed to uncomplete subsection')
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to uncomplete subsection')
       }
     }
   })
@@ -239,7 +240,7 @@ export default async function subsectionProgressRoutes(fastify: FastifyInstance)
       if (error instanceof Error && error.message === 'Progress not found') {
         reply.status(404).send({ error: 'Progress not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to add time' })
+        replyInternalError(request, reply, error, 'Failed to add time')
       }
     }
   })

@@ -13,6 +13,7 @@ import {
   CourseStyleEnum
 } from './course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 const pricingUpdateSchema = z.object({
   price3Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
@@ -68,7 +69,7 @@ export default async function courseRoutes(fastify: FastifyInstance) {
       
       reply.send(courses)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch courses' })
+      replyInternalError(request, reply, error, 'Failed to fetch courses')
     }
   })
 
@@ -78,7 +79,7 @@ export default async function courseRoutes(fastify: FastifyInstance) {
       const courses = await courseService.findPublished()
       reply.send(courses)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch published courses' })
+      replyInternalError(request, reply, error, 'Failed to fetch published courses')
     }
   })
 
@@ -227,7 +228,7 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create course')
       }
     }
   })
@@ -413,7 +414,7 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create structured complete course')
       }
     }
   })
@@ -451,7 +452,7 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update structured complete course')
       }
     }
   })

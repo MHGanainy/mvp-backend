@@ -13,6 +13,7 @@ import {
   isAdmin,
   canAccessStudentResource
 } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
   const enrollmentService = new CourseEnrollmentService(fastify.prisma)
@@ -41,7 +42,7 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
       if (error instanceof Error && error.message === 'Enrollment not found') {
         reply.status(404).send({ error: 'Enrollment not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch enrollment' })
+        replyInternalError(request, reply, error, 'Failed to fetch enrollment')
       }
     }
   })
@@ -69,7 +70,7 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
       if (error instanceof Error && error.message === 'Student not found') {
         reply.status(404).send({ error: 'Student not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch enrollments' })
+        replyInternalError(request, reply, error, 'Failed to fetch enrollments')
       }
     }
   })
@@ -92,7 +93,7 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
       })
       reply.send(enrollments)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch enrollments' })
+      replyInternalError(request, reply, error, 'Failed to fetch enrollments')
     }
   })
 
@@ -117,7 +118,7 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
 
       reply.send(enrollment)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch enrollment' })
+      replyInternalError(request, reply, error, 'Failed to fetch enrollment')
     }
   })
 
@@ -154,7 +155,7 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create enrollment')
       }
     }
   })
@@ -181,7 +182,7 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
       if (error instanceof Error && error.message === 'Enrollment not found') {
         reply.status(404).send({ error: 'Enrollment not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to update access time' })
+        replyInternalError(request, reply, error, 'Failed to update access time')
       }
     }
   })
@@ -203,7 +204,7 @@ export default async function courseEnrollmentRoutes(fastify: FastifyInstance) {
       if (error instanceof Error && error.message === 'Enrollment not found') {
         reply.status(404).send({ error: 'Enrollment not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to delete enrollment' })
+        replyInternalError(request, reply, error, 'Failed to delete enrollment')
       }
     }
   })

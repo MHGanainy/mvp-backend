@@ -20,6 +20,7 @@ import {
   interviewRemoveMarkingDomainParamsSchema
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 const interviewIdParamsSchema = z.object({
   interviewId: z.string().uuid('Invalid interview ID')
@@ -63,7 +64,7 @@ export default async function interviewRoutes(fastify: FastifyInstance) {
 
       reply.send(interviews)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch interviews' })
+      replyInternalError(request, reply, error, 'Failed to fetch interviews')
     }
   })
 
@@ -73,7 +74,7 @@ export default async function interviewRoutes(fastify: FastifyInstance) {
       const interviews = await interviewService.findActive()
       reply.send(interviews)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch active interviews' })
+      replyInternalError(request, reply, error, 'Failed to fetch active interviews')
     }
   })
 
@@ -174,7 +175,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create interview')
       }
     }
   })
@@ -211,7 +212,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create complete interview')
       }
     }
   })
@@ -246,7 +247,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update interview')
       }
     }
   })
@@ -286,7 +287,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update complete interview')
       }
     }
   })
@@ -459,7 +460,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign specialties')
       }
     }
   })
@@ -498,7 +499,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign curriculums')
       }
     }
   })
@@ -537,7 +538,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign marking domains')
       }
     }
   })
@@ -571,7 +572,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to bulk configure interview')
       }
     }
   })
@@ -605,7 +606,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove interview specialty')
       }
     }
   })
@@ -639,7 +640,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove interview curriculum')
       }
     }
   })
@@ -673,7 +674,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove interview marking domain')
       }
     }
   })

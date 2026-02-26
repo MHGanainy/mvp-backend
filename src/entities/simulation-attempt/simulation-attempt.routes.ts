@@ -11,6 +11,7 @@ import {
   simulationAttemptQuerySchema,
   simulationAttemptStudentCaseParamsSchema,
 } from "./simulation-attempt.schema";
+import { replyInternalError } from "../../shared/route-error";
 export default async function simulationAttemptRoutes(
   fastify: FastifyInstance
 ) {
@@ -26,7 +27,7 @@ export default async function simulationAttemptRoutes(
       const attempts = await simulationAttemptService.findAll(query);
       reply.send(attempts);
     } catch (error) {
-      reply.status(500).send({ error: "Failed to fetch simulation attempts" });
+      replyInternalError(request, reply, error, "Failed to fetch simulation attempts");
     }
   });
 
@@ -81,7 +82,7 @@ export default async function simulationAttemptRoutes(
             reply.status(400).send({ error: "Invalid request" });
           }
         } else {
-          reply.status(500).send({ error: "Internal server error" });
+          replyInternalError(request, reply, error, "Failed to fetch simulation attempts by student and case");
         }
       }
     }
@@ -306,7 +307,7 @@ export default async function simulationAttemptRoutes(
           reply.status(400).send({ error: "Invalid request" });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to complete simulation attempt");
       }
     }
   });
@@ -770,7 +771,7 @@ export default async function simulationAttemptRoutes(
             });
         }
       } else {
-        reply.status(500).send({ error: "Internal server error" });
+        replyInternalError(request, reply, error, "Failed to cancel simulation attempt");
       }
     }
   });

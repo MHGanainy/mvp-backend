@@ -28,6 +28,7 @@ import {
   filterQuerySchema
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 const genderParamsSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
@@ -87,7 +88,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       
       reply.send(courseCases)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch course cases' })
+      replyInternalError(request, reply, error, 'Failed to fetch course cases')
     }
   })
 
@@ -130,7 +131,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       } else if (error instanceof z.ZodError) {
         reply.status(400).send({ error: 'Invalid query parameters', details: error.errors })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch paginated course cases' })
+        replyInternalError(request, reply, error, 'Failed to fetch paginated course cases')
       }
     }
   })
@@ -263,7 +264,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create course case')
       }
     }
   })
@@ -299,7 +300,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update course case')
       }
     }
   })
@@ -370,7 +371,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to reorder course case')
       }
     }
   })
@@ -488,7 +489,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign specialties to course case')
       }
     }
   })
@@ -528,7 +529,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign curriculums to course case')
       }
     }
   })
@@ -564,7 +565,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       if (error instanceof Error) {
         reply.status(400).send({ error: error.message })
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to bulk assign filters')
       }
     }
   })
@@ -599,7 +600,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove specialty from course case')
       }
     }
   })
@@ -634,7 +635,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove curriculum from course case')
       }
     }
   })
@@ -735,7 +736,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create complete course case')
       }
     }
   })
@@ -777,7 +778,7 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update complete course case')
       }
     }
   })

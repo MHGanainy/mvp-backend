@@ -7,6 +7,7 @@ import {
   markingDomainParamsSchema 
 } from './marking-domain.schema'
 import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function markingDomainRoutes(fastify: FastifyInstance) {
   const markingDomainService = new MarkingDomainService(fastify.prisma)
@@ -17,7 +18,7 @@ export default async function markingDomainRoutes(fastify: FastifyInstance) {
       const markingDomains = await markingDomainService.findAll()
       reply.send(markingDomains)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch marking domains' })
+      replyInternalError(request, reply, error, 'Failed to fetch marking domains')
     }
   })
 

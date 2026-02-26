@@ -20,6 +20,7 @@ import {
   examRemoveMarkingDomainParamsSchema
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 const examIdParamsSchema = z.object({
   examId: z.string().uuid('Invalid exam ID')
@@ -63,7 +64,7 @@ export default async function examRoutes(fastify: FastifyInstance) {
       
       reply.send(exams)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch exams' })
+      replyInternalError(request, reply, error, 'Failed to fetch exams')
     }
   })
 
@@ -73,7 +74,7 @@ export default async function examRoutes(fastify: FastifyInstance) {
       const exams = await examService.findActive()
       reply.send(exams)
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch active exams' })
+      replyInternalError(request, reply, error, 'Failed to fetch active exams')
     }
   })
 
@@ -174,7 +175,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create exam')
       }
     }
   })
@@ -211,7 +212,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create complete exam')
       }
     }
   })
@@ -246,7 +247,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update exam')
       }
     }
   })
@@ -286,7 +287,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data: ' + error.message })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to update complete exam')
       }
     }
   })
@@ -459,7 +460,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign specialties to exam')
       }
     }
   })
@@ -498,7 +499,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign curriculums to exam')
       }
     }
   })
@@ -537,7 +538,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to assign marking domains to exam')
       }
     }
   })
@@ -571,7 +572,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to bulk configure exam')
       }
     }
   })
@@ -605,7 +606,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove specialty from exam')
       }
     }
   })
@@ -639,7 +640,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove curriculum from exam')
       }
     }
   })
@@ -673,7 +674,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           reply.status(400).send({ error: 'Invalid request' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to remove marking domain from exam')
       }
     }
   })

@@ -11,6 +11,7 @@ import {
   getCurrentInstructorId,
   isAdmin
 } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function interviewCourseSubsectionRoutes(fastify: FastifyInstance) {
   const subsectionService = new InterviewCourseSubsectionService(fastify.prisma)
@@ -25,7 +26,7 @@ export default async function interviewCourseSubsectionRoutes(fastify: FastifyIn
       if (error instanceof Error && error.message === 'Subsection not found') {
         reply.status(404).send({ error: 'Subsection not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch subsection' })
+        replyInternalError(request, reply, error, 'Failed to fetch subsection')
       }
     }
   })
@@ -40,7 +41,7 @@ export default async function interviewCourseSubsectionRoutes(fastify: FastifyIn
       if (error instanceof Error && error.message === 'Section not found') {
         reply.status(404).send({ error: 'Section not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to fetch subsections' })
+        replyInternalError(request, reply, error, 'Failed to fetch subsections')
       }
     }
   })
@@ -81,7 +82,7 @@ export default async function interviewCourseSubsectionRoutes(fastify: FastifyIn
           reply.status(400).send({ error: 'Invalid data' })
         }
       } else {
-        reply.status(500).send({ error: 'Internal server error' })
+        replyInternalError(request, reply, error, 'Failed to create subsection')
       }
     }
   })
@@ -109,7 +110,7 @@ export default async function interviewCourseSubsectionRoutes(fastify: FastifyIn
       if (error instanceof Error && error.message === 'Subsection not found') {
         reply.status(404).send({ error: 'Subsection not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to update subsection' })
+        replyInternalError(request, reply, error, 'Failed to update subsection')
       }
     }
   })
@@ -136,7 +137,7 @@ export default async function interviewCourseSubsectionRoutes(fastify: FastifyIn
       if (error instanceof Error && error.message === 'Subsection not found') {
         reply.status(404).send({ error: 'Subsection not found' })
       } else {
-        reply.status(500).send({ error: 'Failed to delete subsection' })
+        replyInternalError(request, reply, error, 'Failed to delete subsection')
       }
     }
   })
@@ -175,7 +176,7 @@ export default async function interviewCourseSubsectionRoutes(fastify: FastifyIn
       if (error instanceof Error && error.message.includes('Invalid subsection IDs')) {
         reply.status(400).send({ error: error.message })
       } else {
-        reply.status(500).send({ error: 'Failed to reorder subsections' })
+        replyInternalError(request, reply, error, 'Failed to reorder subsections')
       }
     }
   })
