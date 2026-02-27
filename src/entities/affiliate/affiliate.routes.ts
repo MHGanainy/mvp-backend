@@ -5,11 +5,38 @@ import {
   updateAffiliateSchema,
   affiliateParamsSchema,
   referralListQuerySchema,
+  affiliatePortalSchema,
+  affiliatePortalQuerySchema,
 } from './affiliate.schema'
 import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function affiliateRoutes(fastify: FastifyInstance) {
   const affiliateService = new AffiliateService(fastify.prisma)
+
+  fastify.post('/affiliates/me', async (request, reply) => {
+    try {
+      const { email, code } = affiliatePortalSchema.parse(request.body)
+      const { page, limit } = affiliatePortalQuerySchema.parse(request.query)
+
+      const affiliate = await fastify.prisma.affiliate.findUnique({ where: { code } })
+
+      if (
+        !affiliate ||
+        !affiliate.isActive ||
+        !affiliate.email ||
+        affiliate.email.toLowerCase() !== email.toLowerCase()
+      ) {
+        reply.status(401).send({ error: 'Invalid code or email' })
+        return
+      }
+
+      const result = await affiliateService.getAffiliateReferralDetails(code, page, limit)
+      reply.send(result)
+    } catch (error) {
+      replyInternalError(request, reply, error, 'Failed to fetch affiliate portal data')
+    }
+  })
 
   // POST /affiliates
   fastify.post('/affiliates', { preHandler: authenticate }, async (request, reply) => {
