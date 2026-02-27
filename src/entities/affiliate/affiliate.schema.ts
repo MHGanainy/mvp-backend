@@ -7,12 +7,13 @@ export const createAffiliateSchema = z.object({
     .min(3, 'Code must be at least 3 characters')
     .max(30, 'Code must be less than 30 characters')
     .regex(/^[a-z0-9-]+$/, 'Code must be lowercase alphanumeric with hyphens only')
-    .trim(),
+    .trim()
+    .optional(),
 })
 
 export const updateAffiliateSchema = z.object({
   name: z.string().min(1).max(100).trim().optional(),
-  email: z.string().email('Invalid email').optional(),
+  email: z.string().email('Invalid email').nullable().optional(),
   isActive: z.boolean().optional(),
 })
 
