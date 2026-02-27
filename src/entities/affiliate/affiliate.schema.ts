@@ -13,7 +13,7 @@ export const createAffiliateSchema = z.object({
 
 export const updateAffiliateSchema = z.object({
   name: z.string().min(1).max(100).trim().optional(),
-  email: z.string().email('Invalid email').optional(),
+  email: z.string().email('Invalid email').nullable().optional(),
   isActive: z.boolean().optional(),
 })
 
