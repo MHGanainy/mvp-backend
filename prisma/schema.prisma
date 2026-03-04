@@ -907,6 +907,12 @@ enum CheckoutSessionStatus {
   FAILED
 }
 
+enum ResourceType {
+  COURSE
+  INTERVIEW_COURSE
+  BUNDLE
+}
+
 // ========================================
 // STRIPE CREDIT TOP-UP MODELS
 // ========================================
@@ -959,4 +965,31 @@ model StripeWebhookEvent {
   @@index([eventId])
   @@index([processed])
   @@map("stripe_webhook_events")
+}
+
+// ========================================
+// PRICING PLAN MODEL
+// ========================================
+
+model PricingPlan {
+  id               String       @id @default(uuid())
+  resourceType     ResourceType @map("resource_type")
+  resourceId       String       @map("resource_id")
+  name             String
+  description      String?
+  durationMonths   Int?         @map("duration_months")
+  durationHours    Int?         @map("duration_hours")
+  priceInCents     Int          @map("price_in_cents")
+  creditsIncluded  Int?         @map("credits_included")
+  isFreeTrialPlan  Boolean      @default(false) @map("is_free_trial_plan")
+  featurePoints    String[]     @default([]) @map("feature_points")
+  displayOrder     Int          @map("display_order")
+  isPopular        Boolean      @default(false) @map("is_popular")
+  isActive         Boolean      @default(true) @map("is_active")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  @@index([resourceType, resourceId, isActive])
+  @@index([resourceType, resourceId, isFreeTrialPlan])
+  @@map("pricing_plans")
 }

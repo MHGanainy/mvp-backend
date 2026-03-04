@@ -41,6 +41,7 @@ import interviewCourseSubsectionRoutes from "./entities/interview-course-subsect
 import interviewCourseEnrollmentRoutes from "./entities/interview-course-enrollment/interview-course-enrollment.routes";
 import interviewSubsectionProgressRoutes from "./entities/interview-subsection-progress/interview-subsection-progress.routes";
 import affiliateRoutes from "./entities/affiliate/affiliate.routes";
+import pricingPlanRoutes from "./entities/pricing-plan/pricing-plan.routes";
 import { CleanupService } from "./services/cleanup.service";
 
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -219,6 +220,7 @@ const start = async () => {
     await fastify.register(simulationAttemptRoutes, { prefix: "/api" });
     await fastify.register(interviewSimulationAttemptRoutes, { prefix: "/api" });
     await fastify.register(paymentRoutes, { prefix: "/api" });
+    await fastify.register(pricingPlanRoutes, { prefix: "/api" });
     await fastify.register(markingCriterionRoutes, { prefix: "/api" });
     await fastify.register(billingRoutes, { prefix: "/api" });
     await fastify.register(creditPackageRoutes, { prefix: "/api/credit-packages" });
