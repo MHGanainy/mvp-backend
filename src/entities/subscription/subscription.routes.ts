@@ -362,9 +362,9 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // GET /subscriptions/check/:resourceType/:resourceId - Unified subscription check
+  // GET /subscriptions/my/check/:resourceType/:resourceId - Unified subscription check
   fastify.get(
-    "/subscriptions/check/:resourceType/:resourceId",
+    "/subscriptions/my/check/:resourceType/:resourceId",
     {
       preHandler: requireAuth("student"),
     },
