@@ -159,11 +159,12 @@ export class InterviewCourseEnrollmentService {
       return null
     }
 
-    // Check if student has active interview subscription to this course
-    const activeSubscription = await this.prisma.interviewSubscription.findFirst({
+    // Check if student has active subscription to this interview course
+    const activeSubscription = await this.prisma.subscription.findFirst({
       where: {
         studentId,
-        interviewCourseId,
+        resourceType: 'INTERVIEW_COURSE',
+        resourceId: interviewCourseId,
         isActive: true,
         endDate: { gte: new Date() }
       }

@@ -168,7 +168,8 @@ export class CourseEnrollmentService {
     const activeSubscription = await this.prisma.subscription.findFirst({
       where: {
         studentId,
-        courseId,
+        resourceType: 'COURSE',
+        resourceId: courseId,
         isActive: true,
         endDate: { gte: new Date() }
       }

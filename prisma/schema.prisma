@@ -90,7 +90,6 @@ model Student {
   casePractice                StudentCasePractice[]
   interviewCasePractice       StudentInterviewPractice[]
   interviewCourseEnrollments  InterviewCourseEnrollment[]
-  interviewSubscriptions      InterviewSubscription[]
 
   @@map("students")
 }
@@ -355,7 +354,6 @@ model InterviewCourse {
   interviewCases            InterviewCase[]
   interviewCourseSections   InterviewCourseSection[]
   interviewCourseEnrollments InterviewCourseEnrollment[]
-  interviewSubscriptions    InterviewSubscription[]
   interview                 Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   instructor                Instructor      @relation(fields: [instructorId], references: [id])
 
@@ -476,7 +474,6 @@ model Payment {
   student                 Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   pricingPlan             PricingPlan?  @relation(fields: [pricingPlanId], references: [id])
   subscription            Subscription?
-  interviewSubscription   InterviewSubscription?
 
   @@map("payments")
 }
@@ -490,8 +487,8 @@ model Subscription {
   startDate          DateTime      @map("start_date")
   endDate            DateTime      @map("end_date")
   isActive           Boolean       @map("is_active")
-  resourceType       ResourceType? @map("resource_type")
-  resourceId         String?       @map("resource_id")
+  resourceType       ResourceType  @map("resource_type")
+  resourceId         String        @map("resource_id")
   pricingPlanId      String?       @map("pricing_plan_id")
   subscriptionSource String?       @map("subscription_source")
   isFreeTrial        Boolean       @default(false) @map("is_free_trial")
@@ -501,6 +498,7 @@ model Subscription {
   pricingPlan        PricingPlan?  @relation(fields: [pricingPlanId], references: [id])
   student            Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
+  @@unique([studentId, resourceType, resourceId])
   @@map("subscriptions")
 }
 
@@ -805,22 +803,6 @@ model InterviewSubsectionProgress {
   @@map("interview_subsection_progress")
 }
 
-model InterviewSubscription {
-  id                String          @id @default(uuid())
-  studentId         String          @map("student_id")
-  interviewCourseId String          @map("interview_course_id")
-  paymentId         String          @unique @map("payment_id")
-  durationMonths    Int             @map("duration_months")
-  startDate         DateTime        @map("start_date") @db.Date
-  endDate           DateTime        @map("end_date") @db.Date
-  isActive          Boolean         @map("is_active")
-  createdAt         DateTime        @default(now()) @map("created_at")
-  interviewCourse   InterviewCourse @relation(fields: [interviewCourseId], references: [id])
-  payment           Payment         @relation(fields: [paymentId], references: [id])
-  student           Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
-
-  @@map("interview_subscriptions")
-}
 
 // ============================================
 // AFFILIATE REFERRAL TRACKING

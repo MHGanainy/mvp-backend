@@ -1,5 +1,5 @@
 // src/entities/subscription/subscription.service.ts
-import { PrismaClient, Prisma, PaymentStatus, CreditTransactionType, CreditTransactionSource } from '@prisma/client'
+import { PrismaClient, Prisma, PaymentStatus, CreditTransactionType, CreditTransactionSource, ResourceType } from '@prisma/client'
 import { CreateSubscriptionInput } from './subscription.schema'
 
 export class SubscriptionService {
@@ -79,7 +79,10 @@ export class SubscriptionService {
           durationMonths: data.durationMonths,
           startDate: startDate,
           endDate: endDate,
-          isActive: true
+          isActive: true,
+          resourceType: 'COURSE',
+          resourceId: data.courseId,
+          subscriptionSource: 'DIRECT_PURCHASE'
         },
         include: {
           course: {
@@ -191,7 +194,8 @@ export class SubscriptionService {
               }
             }
           }
-        }
+        },
+        pricingPlan: true
       }
     })
 
@@ -295,80 +299,7 @@ export class SubscriptionService {
   }
 
   async checkSubscription(studentId: string, courseId: string) {
-    // Check if student is admin
-    const student = await this.prisma.student.findUnique({
-      where: { id: studentId },
-      include: { user: true }
-    })
-
-    if (!student) {
-      throw new Error('Student not found')
-    }
-
-    // Admin has access to everything
-    if (student.user.isAdmin) {
-      return {
-        hasActiveSubscription: true,
-        subscription: {
-          id: 'admin-access',
-          studentId: studentId,
-          courseId: courseId,
-          isActive: true,
-          startDate: new Date(2020, 0, 1), // Arbitrary past date
-          endDate: new Date(2099, 11, 31), // Far future date
-          durationMonths: 999,
-          isAdmin: true
-        },
-        daysRemaining: 99999,
-        isExpired: false,
-        isAdmin: true
-      }
-    }
-
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        studentId,
-        courseId,
-        endDate: { gte: new Date() }
-      },
-      include: {
-        course: {
-          include: {
-            exam: {
-              select: {
-                id: true,
-                title: true,
-                slug: true
-              }
-            }
-          }
-        }
-      }
-    })
-
-    if (!subscription) {
-      return {
-        hasActiveSubscription: false,
-        subscription: undefined,
-        daysRemaining: 0,
-        isExpired: true,
-        isAdmin: false
-      }
-    }
-
-    const daysRemaining = Math.ceil((subscription.endDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-    const isActive = this.isSubscriptionActive(subscription)
-
-    return {
-      hasActiveSubscription: isActive,
-      subscription: {
-        ...subscription,
-        isActive
-      },
-      daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
-      isExpired: !isActive,
-      isAdmin: false
-    }
+    return this.checkSubscriptionByResource(studentId, 'COURSE', courseId)
   }
 
   async checkActiveSubscription(studentId: string, courseId: string): Promise<boolean> {
@@ -504,72 +435,274 @@ export class SubscriptionService {
     return subscription.startDate <= now && subscription.endDate >= now
   }
 
-  // Method to check if student can access course content - UPDATED for admin
+  // Check if student can access course content (admin → case-level isFree → subscription)
   async canAccessCourseContent(studentId: string, courseId: string): Promise<boolean> {
-    // Check if student is admin
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
       include: { user: true }
     })
-    
-    if (student?.user.isAdmin) {
-      return true // Admin has access to everything
-    }
 
-    // Check if the course case is free first
+    if (student?.user.isAdmin) return true
+
+    // Check isFree at case level (existing behavior)
     const courseCase = await this.prisma.courseCase.findFirst({
       where: { courseId }
     })
+    if (courseCase?.isFree) return true
 
-    if (courseCase?.isFree) {
-      return true // Free content is always accessible
-    }
-
-    // Check subscription
-    return await this.checkActiveSubscription(studentId, courseId)
+    // Delegate subscription check to unified method
+    const result = await this.canAccessResource(studentId, 'COURSE', courseId)
+    return result.hasAccess
   }
 
-  // Method to get all courses a student has access to - UPDATED for admin
-  async getAccessibleCourses(studentId: string) {
-    // Check if student is admin
+  // Check if student can access interview course content (admin → case-level isFree → subscription)
+  async canAccessInterviewCourseContent(
+    studentId: string,
+    interviewCourseId: string,
+    caseId?: string
+  ): Promise<boolean> {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+
+    if (!student) throw new Error('Student not found')
+    if (student.user.isAdmin) return true
+
+    // Check isFree at case level
+    if (caseId) {
+      const interviewCase = await this.prisma.interviewCase.findFirst({
+        where: { id: caseId, interviewCourseId, isFree: true }
+      })
+      if (interviewCase) return true
+    } else {
+      const freeCase = await this.prisma.interviewCase.findFirst({
+        where: { interviewCourseId, isFree: true }
+      })
+      if (freeCase) return true
+    }
+
+    // Delegate subscription check to unified method
+    const result = await this.canAccessResource(studentId, 'INTERVIEW_COURSE', interviewCourseId)
+    return result.hasAccess
+  }
+
+  // Get all courses a student has an active subscription to
+  async getAccessibleCourses(studentId: string): Promise<string[]> {
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
       include: { user: true }
     })
 
     if (student?.user.isAdmin) {
-      // Admin has access to all published courses
-      const allPublishedCourses = await this.prisma.course.findMany({
+      const courses = await this.prisma.course.findMany({
         where: { isPublished: true },
         select: { id: true }
       })
-      return allPublishedCourses.map((c:any) => c.id)
+      return courses.map(c => c.id)
     }
 
-    const activeSubscriptions = await this.findByStudent(studentId, { active: true })
-    
-    const subscribedCourseIds = activeSubscriptions.map((sub:any) => sub.courseId)
-    
-    // Also get courses with free content
-    const coursesWithFreeContent = await this.prisma.course.findMany({
-      where: {
-        courseCases: {
-          some: {
-            isFree: true
-          }
-        },
-        isPublished: true
-      },
-      select: {
-        id: true
-      }
+    const subscriptions = await this.prisma.subscription.findMany({
+      where: { studentId, isActive: true, endDate: { gte: new Date() }, resourceType: 'COURSE' },
+      select: { resourceId: true }
     })
 
-    const freeCourseIds = coursesWithFreeContent.map((c:any) => c.id)
-    
-    // Combine and deduplicate
-    const accessibleCourseIds = [...new Set([...subscribedCourseIds, ...freeCourseIds])]
-    
-    return accessibleCourseIds
+    return subscriptions.map(s => s.resourceId)
+  }
+
+  // Get all resources (courses + interview courses) a student has active subscriptions to
+  async getAccessibleResources(studentId: string) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+
+    if (!student) throw new Error('Student not found')
+
+    if (student.user.isAdmin) {
+      const [courses, interviewCourses] = await Promise.all([
+        this.prisma.course.findMany({ where: { isPublished: true }, select: { id: true } }),
+        this.prisma.interviewCourse.findMany({ where: { isPublished: true }, select: { id: true } })
+      ])
+      return {
+        courses: courses.map(c => c.id),
+        interviewCourses: interviewCourses.map(ic => ic.id)
+      }
+    }
+
+    const subscriptions = await this.prisma.subscription.findMany({
+      where: { studentId, isActive: true, endDate: { gte: new Date() } },
+      select: { resourceType: true, resourceId: true }
+    })
+
+    return {
+      courses: subscriptions.filter(s => s.resourceType === 'COURSE').map(s => s.resourceId),
+      interviewCourses: subscriptions.filter(s => s.resourceType === 'INTERVIEW_COURSE').map(s => s.resourceId)
+    }
+  }
+
+  // Core unified subscription check — all other check methods delegate to this
+  async checkSubscriptionByResource(
+    studentId: string,
+    resourceType: string,
+    resourceId: string
+  ) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+    if (!student) throw new Error('Student not found')
+
+    // Admin bypass
+    if (student.user.isAdmin) {
+      return {
+        hasActiveSubscription: true,
+        daysRemaining: 99999,
+        hoursRemaining: null,
+        isExpired: false,
+        isAdmin: true,
+        subscription: null
+      }
+    }
+
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        studentId,
+        resourceType: resourceType as ResourceType,
+        resourceId,
+        endDate: { gte: new Date() }
+      },
+      include: { pricingPlan: true },
+      orderBy: { endDate: 'desc' }
+    })
+
+    if (!subscription) {
+      return {
+        hasActiveSubscription: false,
+        daysRemaining: 0,
+        hoursRemaining: null,
+        isExpired: true,
+        isAdmin: false,
+        subscription: null
+      }
+    }
+
+    const now = new Date()
+    const daysRemaining = Math.ceil(
+      (subscription.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    )
+
+    return {
+      hasActiveSubscription: this.isSubscriptionActive(subscription),
+      daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
+      hoursRemaining: null,
+      isExpired: !this.isSubscriptionActive(subscription),
+      isAdmin: false,
+      subscription: {
+        id: subscription.id,
+        resourceType: subscription.resourceType,
+        resourceId: subscription.resourceId,
+        startDate: subscription.startDate.toISOString(),
+        endDate: subscription.endDate.toISOString(),
+        durationMonths: subscription.durationMonths,
+        isFreeTrial: subscription.isFreeTrial,
+        subscriptionSource: subscription.subscriptionSource,
+        pricingPlan: subscription.pricingPlan ? {
+          id: subscription.pricingPlan.id,
+          name: subscription.pricingPlan.name,
+          priceInCents: subscription.pricingPlan.priceInCents
+        } : null
+      }
+    }
+  }
+
+  // Unified resource-level access check — subscription + admin only, no isFree
+  async canAccessResource(
+    studentId: string,
+    resourceType: string,
+    resourceId: string
+  ) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+    if (!student) throw new Error('Student not found')
+
+    // Admin bypass
+    if (student.user.isAdmin) {
+      return { hasAccess: true, accessReason: 'ADMIN' as const, subscription: null }
+    }
+
+    // Check subscription
+    const result = await this.checkSubscriptionByResource(studentId, resourceType, resourceId)
+    if (result.hasActiveSubscription) {
+      return { hasAccess: true, accessReason: 'SUBSCRIPTION' as const, subscription: result.subscription }
+    }
+
+    return { hasAccess: false, accessReason: null, subscription: null }
+  }
+
+  // Unified subscription list — returns all types with resource titles
+  async findAllByStudent(studentId: string, query?: { active?: boolean; includeExpired?: boolean }) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+    if (!student) throw new Error('Student not found')
+    if (student.user.isAdmin) return []
+
+    const where: any = { studentId }
+    if (query?.active !== undefined) where.isActive = query.active
+    if (!query?.includeExpired) where.endDate = { gte: new Date() }
+
+    const subscriptions = await this.prisma.subscription.findMany({
+      where,
+      include: { pricingPlan: true },
+      orderBy: { endDate: 'desc' }
+    })
+
+    // Batch-fetch resource titles (2 queries, no N+1)
+    const courseIds = subscriptions
+      .filter(s => s.resourceType === 'COURSE')
+      .map(s => s.resourceId)
+    const interviewCourseIds = subscriptions
+      .filter(s => s.resourceType === 'INTERVIEW_COURSE')
+      .map(s => s.resourceId)
+
+    const [courses, interviewCourses] = await Promise.all([
+      courseIds.length > 0
+        ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+        : [],
+      interviewCourseIds.length > 0
+        ? this.prisma.interviewCourse.findMany({ where: { id: { in: interviewCourseIds } }, select: { id: true, title: true } })
+        : []
+    ])
+
+    const titleMap = new Map<string, string>()
+    courses.forEach(c => titleMap.set(c.id, c.title))
+    interviewCourses.forEach(ic => titleMap.set(ic.id, ic.title))
+
+    const now = new Date()
+    return subscriptions.map(sub => ({
+      id: sub.id,
+      resourceType: sub.resourceType,
+      resourceId: sub.resourceId,
+      resourceTitle: titleMap.get(sub.resourceId) || 'Unknown',
+      startDate: sub.startDate.toISOString(),
+      endDate: sub.endDate.toISOString(),
+      durationMonths: sub.durationMonths,
+      isActive: this.isSubscriptionActive(sub),
+      isFreeTrial: sub.isFreeTrial,
+      subscriptionSource: sub.subscriptionSource,
+      daysRemaining: sub.endDate > now
+        ? Math.ceil((sub.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        : null,
+      isExpired: sub.endDate < now,
+      pricingPlan: sub.pricingPlan ? {
+        id: sub.pricingPlan.id,
+        name: sub.pricingPlan.name,
+        priceInCents: sub.pricingPlan.priceInCents
+      } : null
+    }))
   }
 }

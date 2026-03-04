@@ -227,13 +227,16 @@ export class StripeWebhookService {
       });
 
       // 2. Create or update subscription
-      if (existingSub && existingSub.endDate >= now) {
-        // Extend active subscription
+      if (existingSub) {
+        // Existing subscription (active or expired) — update the same row
         await tx.subscription.update({
           where: { id: existingSub.id },
           data: {
             endDate,
-            durationMonths: existingSub.durationMonths + durationMonths,
+            startDate,
+            durationMonths: existingSub.endDate >= now
+              ? existingSub.durationMonths + durationMonths  // extending: accumulate
+              : durationMonths,                               // renewing: reset
             isActive: true,
             pricingPlanId,
             resourceType,
@@ -242,7 +245,7 @@ export class StripeWebhookService {
           },
         });
       } else {
-        // Create new subscription — need a unique paymentId, use the payment we just created
+        // No subscription exists — create new row
         const payment = await tx.payment.findUnique({
           where: { stripePaymentId: sessionId },
         });

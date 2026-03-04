@@ -7,6 +7,7 @@ import {
   subscriptionCourseParamsSchema,
   subscriptionCheckParamsSchema,
   subscriptionQuerySchema,
+  subscriptionResourceParamsSchema,
 } from "./subscription.schema";
 import {
   requireAuth,
@@ -34,7 +35,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // GET /subscriptions/my - Get current student's subscriptions
+  // GET /subscriptions/my - Get current student's subscriptions (unified — all types)
   fastify.get(
     "/subscriptions/my",
     {
@@ -44,7 +45,7 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
       try {
         const studentId = getCurrentStudentId(request)!;
         const query = subscriptionQuerySchema.parse(request.query);
-        const subscriptions = await subscriptionService.findByStudent(
+        const subscriptions = await subscriptionService.findAllByStudent(
           studentId,
           query
         );
@@ -361,7 +362,43 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // Helper endpoint to check content access
+  // GET /subscriptions/check/:resourceType/:resourceId - Unified subscription check
+  fastify.get(
+    "/subscriptions/check/:resourceType/:resourceId",
+    {
+      preHandler: requireAuth("student"),
+    },
+    async (request, reply) => {
+      try {
+        const { resourceType, resourceId } = subscriptionResourceParamsSchema.parse(request.params);
+        const studentId = getCurrentStudentId(request)!;
+        const result = await subscriptionService.checkSubscriptionByResource(studentId, resourceType, resourceId);
+        reply.send(result);
+      } catch (error) {
+        replyInternalError(request, reply, error, 'Failed to check subscription');
+      }
+    }
+  );
+
+  // GET /subscriptions/can-access/:resourceType/:resourceId - Unified access check
+  fastify.get(
+    "/subscriptions/can-access/:resourceType/:resourceId",
+    {
+      preHandler: requireAuth("student"),
+    },
+    async (request, reply) => {
+      try {
+        const { resourceType, resourceId } = subscriptionResourceParamsSchema.parse(request.params);
+        const studentId = getCurrentStudentId(request)!;
+        const result = await subscriptionService.canAccessResource(studentId, resourceType, resourceId);
+        reply.send(result);
+      } catch (error) {
+        replyInternalError(request, reply, error, 'Failed to check access');
+      }
+    }
+  );
+
+  // Helper endpoint to check content access (legacy — course-only)
   fastify.get(
     "/subscriptions/can-access/:courseId",
     {
