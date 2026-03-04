@@ -1,9 +1,11 @@
 import { FastifyInstance } from 'fastify'
 import { PaymentService } from './payment.service'
 import { StripeCheckoutService } from './stripe-checkout.service'
+import { SubscriptionCheckoutService } from './subscription-checkout.service'
 import {
   paymentParamsSchema,
   createCreditCheckoutSchema,
+  createSubscriptionCheckoutSchema,
   checkoutSessionParamSchema
 } from './payment.schema'
 import { requireAuth, getCurrentStudentId } from '../../middleware/auth.middleware'
@@ -11,6 +13,7 @@ import { requireAuth, getCurrentStudentId } from '../../middleware/auth.middlewa
 export default async function paymentRoutes(fastify: FastifyInstance) {
   const paymentService = new PaymentService(fastify.prisma)
   const checkoutService = new StripeCheckoutService(fastify.prisma)
+  const subscriptionCheckoutService = new SubscriptionCheckoutService(fastify.prisma)
 
   // GET /payments/:id - Get payment details
   fastify.get('/payments/:id', {
@@ -72,6 +75,51 @@ export default async function paymentRoutes(fastify: FastifyInstance) {
     try {
       const { sessionId } = checkoutSessionParamSchema.parse(request.params)
       const status = await checkoutService.getCheckoutSessionStatus(sessionId)
+
+      reply.send(status)
+    } catch (error: any) {
+      fastify.log.error(error)
+      if (error.message === 'Checkout session not found') {
+        reply.status(404).send({ error: error.message })
+      } else {
+        reply.status(500).send({ error: 'Failed to fetch checkout session status' })
+      }
+    }
+  })
+
+  // POST /payments/subscription-checkout - Create Stripe Checkout Session for subscription purchase (student only)
+  fastify.post('/payments/subscription-checkout', {
+    preHandler: requireAuth('student'),
+  }, async (request, reply) => {
+    try {
+      const studentId = getCurrentStudentId(request)!
+      const { pricingPlanId } = createSubscriptionCheckoutSchema.parse(request.body)
+
+      const session = await subscriptionCheckoutService.createSubscriptionCheckoutSession(studentId, pricingPlanId)
+
+      reply.status(201).send({
+        message: 'Checkout session created successfully',
+        ...session,
+      })
+    } catch (error: any) {
+      fastify.log.error(error)
+      if (error.message === 'Student not found' || error.message === 'Pricing plan not found' || error.message === 'Course not found' || error.message === 'Interview course not found') {
+        reply.status(404).send({ error: error.message })
+      } else if (error.message === 'This pricing plan is no longer available' || error.message === 'Free trial plans cannot be purchased through checkout' || error.message === 'This course is not currently available' || error.message === 'This interview course is not currently available' || error.message === 'Pricing plan must have a duration') {
+        reply.status(400).send({ error: error.message })
+      } else {
+        reply.status(500).send({ error: 'Failed to create checkout session' })
+      }
+    }
+  })
+
+  // GET /payments/subscription-checkout-status/:sessionId - Check subscription checkout session status (authenticated)
+  fastify.get('/payments/subscription-checkout-status/:sessionId', {
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    try {
+      const { sessionId } = checkoutSessionParamSchema.parse(request.params)
+      const status = await subscriptionCheckoutService.getSubscriptionCheckoutStatus(sessionId)
 
       reply.send(status)
     } catch (error: any) {

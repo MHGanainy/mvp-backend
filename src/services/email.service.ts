@@ -358,6 +358,108 @@ export class EmailService {
     await this.transporter.sendMail(mailOptions);
   }
 
+  async sendSubscriptionConfirmation(
+    email: string,
+    name: string,
+    planName: string,
+    amountInPence: number,
+    durationMonths: number,
+    creditsIncluded: number,
+    startDate: Date,
+    endDate: Date
+  ): Promise<void> {
+    const amountInPounds = (amountInPence / 100).toFixed(2);
+    const formatDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+    const creditsRow = creditsIncluded > 0
+      ? `<div class="receipt-row">
+                    <span>Credits Included:</span>
+                    <span><strong>${creditsIncluded}</strong></span>
+                  </div>`
+      : "";
+
+    const creditsText = creditsIncluded > 0 ? `\nCredits Included: ${creditsIncluded}` : "";
+
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || "Your App"}" <${
+        process.env.SMTP_USER
+      }>`,
+      to: email,
+      subject: `Subscription Confirmed - ${planName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #003180; color: white; padding: 20px; text-align: center; }
+            .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
+            .receipt { background-color: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
+            .receipt-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+            .receipt-row:last-child { border-bottom: none; font-weight: bold; }
+            .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Subscription Confirmed!</h1>
+            </div>
+            <div class="content">
+              <p>Hi ${name},</p>
+              <p>Thank you for your purchase! Your subscription has been activated successfully.</p>
+
+              <div class="receipt">
+                <h3 style="margin-top: 0;">Receipt</h3>
+                <div class="receipt-row">
+                  <span>Plan:</span>
+                  <span><strong>${planName}</strong></span>
+                </div>
+                <div class="receipt-row">
+                  <span>Duration:</span>
+                  <span><strong>${durationMonths} month${durationMonths > 1 ? "s" : ""}</strong></span>
+                </div>
+                <div class="receipt-row">
+                  <span>Start Date:</span>
+                  <span><strong>${formatDate(startDate)}</strong></span>
+                </div>
+                <div class="receipt-row">
+                  <span>End Date:</span>
+                  <span><strong>${formatDate(endDate)}</strong></span>
+                </div>
+                ${creditsRow}
+                <div class="receipt-row">
+                  <span>Amount Paid:</span>
+                  <span><strong>&pound;${amountInPounds} GBP</strong></span>
+                </div>
+              </div>
+
+              <p>Your subscription is now active. Start learning today!</p>
+
+              <p style="margin-top: 30px;">
+                <a href="${process.env.FRONTEND_URL || "http://localhost:5173"}"
+                   style="background-color: #003180; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                  Go to Dashboard
+                </a>
+              </p>
+            </div>
+            <div class="footer">
+              <p>This is an automated email. Please do not reply.</p>
+              <p>Need help? Contact our support team.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `Hi ${name},\n\nThank you for your purchase! Your subscription has been activated successfully.\n\nReceipt:\nPlan: ${planName}\nDuration: ${durationMonths} month${durationMonths > 1 ? "s" : ""}\nStart Date: ${formatDate(startDate)}\nEnd Date: ${formatDate(endDate)}${creditsText}\nAmount Paid: \u00A3${amountInPounds} GBP\n\nYour subscription is now active. Start learning today!\n\nVisit: ${
+        process.env.FRONTEND_URL || "http://localhost:5173"
+      }`,
+    };
+
+    await this.transporter.sendMail(mailOptions);
+  }
+
   // Test email configuration
   async verifyConnection(): Promise<boolean> {
     try {

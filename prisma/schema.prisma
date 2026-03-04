@@ -85,6 +85,7 @@ model Student {
   user                        User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   subscriptions               Subscription[]
   checkoutSessions            StripeCheckoutSession[]
+  subscriptionCheckoutSessions SubscriptionCheckoutSession[]
   enrollments                 CourseEnrollment[]
   casePractice                StudentCasePractice[]
   interviewCasePractice       StudentInterviewPractice[]
@@ -470,8 +471,10 @@ model Payment {
   courseId                String?       @map("course_id")
   subscriptionDuration    Int?          @map("subscription_duration")
   creditsAmount           Int?          @map("credits_amount")
+  pricingPlanId           String?       @map("pricing_plan_id")
   createdAt               DateTime      @default(now()) @map("created_at")
   student                 Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  pricingPlan             PricingPlan?  @relation(fields: [pricingPlanId], references: [id])
   subscription            Subscription?
   interviewSubscription   InterviewSubscription?
 
@@ -479,18 +482,24 @@ model Payment {
 }
 
 model Subscription {
-  id             String   @id @default(uuid())
-  studentId      String   @map("student_id")
-  courseId       String   @map("course_id")
-  paymentId      String   @unique @map("payment_id")
-  durationMonths Int      @map("duration_months")
-  startDate      DateTime @map("start_date") @db.Date
-  endDate        DateTime @map("end_date") @db.Date
-  isActive       Boolean  @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  course         Course   @relation(fields: [courseId], references: [id])
-  payment        Payment  @relation(fields: [paymentId], references: [id])
-  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  id                 String        @id @default(uuid())
+  studentId          String        @map("student_id")
+  courseId            String?       @map("course_id")
+  paymentId          String        @unique @map("payment_id")
+  durationMonths     Int           @map("duration_months")
+  startDate          DateTime      @map("start_date")
+  endDate            DateTime      @map("end_date")
+  isActive           Boolean       @map("is_active")
+  resourceType       ResourceType? @map("resource_type")
+  resourceId         String?       @map("resource_id")
+  pricingPlanId      String?       @map("pricing_plan_id")
+  subscriptionSource String?       @map("subscription_source")
+  isFreeTrial        Boolean       @default(false) @map("is_free_trial")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  course             Course?       @relation(fields: [courseId], references: [id])
+  payment            Payment       @relation(fields: [paymentId], references: [id])
+  pricingPlan        PricingPlan?  @relation(fields: [pricingPlanId], references: [id])
+  student            Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("subscriptions")
 }
@@ -972,24 +981,56 @@ model StripeWebhookEvent {
 // ========================================
 
 model PricingPlan {
-  id               String       @id @default(uuid())
-  resourceType     ResourceType @map("resource_type")
-  resourceId       String       @map("resource_id")
-  name             String
-  description      String?
-  durationMonths   Int?         @map("duration_months")
-  durationHours    Int?         @map("duration_hours")
-  priceInCents     Int          @map("price_in_cents")
-  creditsIncluded  Int?         @map("credits_included")
-  isFreeTrialPlan  Boolean      @default(false) @map("is_free_trial_plan")
-  featurePoints    String[]     @default([]) @map("feature_points")
-  displayOrder     Int          @map("display_order")
-  isPopular        Boolean      @default(false) @map("is_popular")
-  isActive         Boolean      @default(true) @map("is_active")
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
+  id                          String                        @id @default(uuid())
+  resourceType                ResourceType                  @map("resource_type")
+  resourceId                  String                        @map("resource_id")
+  name                        String
+  description                 String?
+  durationMonths              Int?                          @map("duration_months")
+  durationHours               Int?                          @map("duration_hours")
+  priceInCents                Int                           @map("price_in_cents")
+  creditsIncluded             Int?                          @map("credits_included")
+  isFreeTrialPlan             Boolean                       @default(false) @map("is_free_trial_plan")
+  featurePoints               String[]                      @default([]) @map("feature_points")
+  displayOrder                Int                           @map("display_order")
+  isPopular                   Boolean                       @default(false) @map("is_popular")
+  isActive                    Boolean                       @default(true) @map("is_active")
+  createdAt                   DateTime                      @default(now()) @map("created_at")
+  updatedAt                   DateTime                      @updatedAt @map("updated_at")
+  subscriptionCheckoutSessions SubscriptionCheckoutSession[]
+  subscriptions               Subscription[]
+  payments                    Payment[]
 
   @@index([resourceType, resourceId, isActive])
   @@index([resourceType, resourceId, isFreeTrialPlan])
   @@map("pricing_plans")
+}
+
+// ========================================
+// SUBSCRIPTION CHECKOUT SESSION MODEL
+// ========================================
+
+model SubscriptionCheckoutSession {
+  id              String                @id @default(uuid())
+  sessionId       String                @unique @map("session_id")
+  studentId       String                @map("student_id")
+  pricingPlanId   String                @map("pricing_plan_id")
+  resourceType    ResourceType          @map("resource_type")
+  resourceId      String                @map("resource_id")
+  status          CheckoutSessionStatus
+  amountInCents   Int                   @map("amount_in_cents")
+  durationMonths  Int                   @map("duration_months")
+  creditsIncluded Int                   @default(0) @map("credits_included")
+  metadata        Json?
+  expiresAt       DateTime              @map("expires_at")
+  completedAt     DateTime?             @map("completed_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  student         Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  pricingPlan     PricingPlan           @relation(fields: [pricingPlanId], references: [id])
+
+  @@index([studentId])
+  @@index([sessionId])
+  @@index([status, expiresAt])
+  @@map("subscription_checkout_sessions")
 }

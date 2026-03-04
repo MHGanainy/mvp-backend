@@ -297,12 +297,12 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
           message: "Subscription created successfully",
           subscription,
           creditsAdded:
-            subscription.course.style === "RANDOM"
+            subscription.course?.style === "RANDOM"
               ? data.durationMonths === 3
-                ? subscription.course.credits3Months
+                ? subscription.course?.credits3Months
                 : data.durationMonths === 6
-                ? subscription.course.credits6Months
-                : subscription.course.credits12Months
+                ? subscription.course?.credits6Months
+                : subscription.course?.credits12Months
               : 0,
           newCreditBalance: student?.creditBalance || 0,
         });
