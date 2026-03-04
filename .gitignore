@@ -84,6 +84,7 @@ debug-*.js
 FEEDBACK_ANALYSIS.md
 DURATION_DOCUMENTATION.md
 MIGRATION_NOTES.md
+docs/
 
 # OS Files
 .bash_history
