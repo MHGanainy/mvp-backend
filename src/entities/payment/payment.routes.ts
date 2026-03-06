@@ -6,14 +6,30 @@ import {
   paymentParamsSchema,
   createCreditCheckoutSchema,
   createSubscriptionCheckoutSchema,
-  checkoutSessionParamSchema
+  checkoutSessionParamSchema,
+  paymentHistoryQuerySchema
 } from './payment.schema'
 import { requireAuth, getCurrentStudentId } from '../../middleware/auth.middleware'
+import { replyInternalError } from '../../shared/route-error'
 
 export default async function paymentRoutes(fastify: FastifyInstance) {
   const paymentService = new PaymentService(fastify.prisma)
   const checkoutService = new StripeCheckoutService(fastify.prisma)
   const subscriptionCheckoutService = new SubscriptionCheckoutService(fastify.prisma)
+
+  // GET /payments/my - Get current student's payment history
+  fastify.get('/payments/my', {
+    preHandler: requireAuth('student'),
+  }, async (request, reply) => {
+    try {
+      const studentId = getCurrentStudentId(request)!;
+      const query = paymentHistoryQuerySchema.parse(request.query);
+      const result = await paymentService.findByStudent(studentId, query);
+      reply.send(result);
+    } catch (error) {
+      replyInternalError(request, reply, error, 'Failed to fetch payment history');
+    }
+  });
 
   // GET /payments/:id - Get payment details
   fastify.get('/payments/:id', {

@@ -20,8 +20,16 @@ export const createSubscriptionCheckoutSchema = z.object({
   pricingPlanId: z.string().uuid('Invalid pricing plan ID'),
 })
 
+// Payment History Query Schema
+export const paymentHistoryQuerySchema = z.object({
+  paymentType: z.enum(['SUBSCRIPTION', 'CREDITS']).optional(),
+  page: z.string().transform(Number).pipe(z.number().min(1)).optional(),
+  limit: z.string().transform(Number).pipe(z.number().min(1).max(100)).optional(),
+})
+
 // Type exports
 export type PaymentParams = z.infer<typeof paymentParamsSchema>
 export type CreateCreditCheckoutInput = z.infer<typeof createCreditCheckoutSchema>
 export type CreateSubscriptionCheckoutInput = z.infer<typeof createSubscriptionCheckoutSchema>
 export type CheckoutSessionParam = z.infer<typeof checkoutSessionParamSchema>
+export type PaymentHistoryQuery = z.infer<typeof paymentHistoryQuerySchema>
