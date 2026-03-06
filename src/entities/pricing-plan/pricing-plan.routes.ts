@@ -24,6 +24,10 @@ export default async function pricingPlanRoutes(fastify: FastifyInstance) {
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400).send({ error: 'Invalid parameters', details: error.errors });
+      } else if (error.message?.includes('not found')) {
+        reply.status(404).send({ error: error.message });
+      } else if (error.message?.includes('not currently available')) {
+        reply.status(403).send({ error: error.message });
       } else {
         replyInternalError(request, reply, error, 'Failed to fetch pricing plans');
       }

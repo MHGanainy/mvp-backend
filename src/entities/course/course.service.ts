@@ -202,7 +202,8 @@ export class CourseService {
     const course = await this.prisma.course.findFirst({
       where: {
         examId: exam.id,
-        slug: courseSlug
+        slug: courseSlug,
+        isPublished: true
       },
       include: {
         exam: {
@@ -242,7 +243,7 @@ export class CourseService {
     }
 
     return await this.prisma.course.findMany({
-      where: { examId },
+      where: { examId, isPublished: true },
       include: {
         exam: {
           select: {

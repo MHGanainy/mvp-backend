@@ -7,6 +7,23 @@ export class PricingPlanService {
   constructor(private prisma: PrismaClient) {}
 
   async findByResource(resourceType: ResourceType, resourceId: string) {
+    // Verify the resource exists and is published
+    if (resourceType === 'COURSE') {
+      const course = await this.prisma.course.findUnique({
+        where: { id: resourceId },
+        select: { isPublished: true },
+      });
+      if (!course) throw new Error('Course not found');
+      if (!course.isPublished) throw new Error('This course is not currently available');
+    } else if (resourceType === 'INTERVIEW_COURSE') {
+      const ic = await this.prisma.interviewCourse.findUnique({
+        where: { id: resourceId },
+        select: { isPublished: true },
+      });
+      if (!ic) throw new Error('Interview course not found');
+      if (!ic.isPublished) throw new Error('This interview course is not currently available');
+    }
+
     return await this.prisma.pricingPlan.findMany({
       where: {
         resourceType,

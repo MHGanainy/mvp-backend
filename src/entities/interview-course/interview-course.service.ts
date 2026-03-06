@@ -243,7 +243,7 @@ export class InterviewCourseService {
     }
 
     return await this.prisma.interviewCourse.findMany({
-      where: { interviewId },
+      where: { interviewId, isPublished: true },
       include: {
         interview: {
           select: {
