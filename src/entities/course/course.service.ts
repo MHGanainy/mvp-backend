@@ -189,7 +189,7 @@ export class CourseService {
    * @param examSlug - The slug of the exam
    * @param courseSlug - The slug of the course
    */
-  async findBySlug(examSlug: string, courseSlug: string) {
+  async findBySlug(examSlug: string, courseSlug: string, includeUnpublished = false) {
     // First find the exam by slug
     const exam = await this.prisma.exam.findUnique({
       where: { slug: examSlug }
@@ -203,7 +203,7 @@ export class CourseService {
       where: {
         examId: exam.id,
         slug: courseSlug,
-        isPublished: true
+        ...(!includeUnpublished && { isPublished: true })
       },
       include: {
         exam: {
@@ -232,7 +232,7 @@ export class CourseService {
     return course
   }
 
-  async findByExam(examId: string) {
+  async findByExam(examId: string, includeUnpublished = false) {
     // Verify exam exists
     const exam = await this.prisma.exam.findUnique({
       where: { id: examId }
@@ -243,7 +243,7 @@ export class CourseService {
     }
 
     return await this.prisma.course.findMany({
-      where: { examId, isPublished: true },
+      where: { examId, ...(!includeUnpublished && { isPublished: true }) },
       include: {
         exam: {
           select: {

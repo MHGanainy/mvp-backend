@@ -86,7 +86,16 @@ export default async function courseRoutes(fastify: FastifyInstance) {
   fastify.get('/courses/exam/:examId', async (request, reply) => {
     try {
       const { examId } = courseExamParamsSchema.parse(request.params)
-      const courses = await courseService.findByExam(examId)
+
+      let includeUnpublished = false
+      try {
+        await request.jwtVerify()
+        includeUnpublished = isAdmin(request) || !!getCurrentInstructorId(request)
+      } catch {
+        // Not authenticated - public access
+      }
+
+      const courses = await courseService.findByExam(examId, includeUnpublished)
       reply.send(courses)
     } catch (error) {
       if (error instanceof Error && error.message === 'Exam not found') {
@@ -140,7 +149,16 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
   fastify.get('/exams/:examSlug/courses/:courseSlug', async (request, reply) => {
     try {
       const { examSlug, courseSlug } = request.params as { examSlug: string; courseSlug: string }
-      const course = await courseService.findBySlug(examSlug, courseSlug)
+
+      let includeUnpublished = false
+      try {
+        await request.jwtVerify()
+        includeUnpublished = isAdmin(request) || !!getCurrentInstructorId(request)
+      } catch {
+        // Not authenticated
+      }
+
+      const course = await courseService.findBySlug(examSlug, courseSlug, includeUnpublished)
       reply.send(course)
     } catch (error) {
       if (error instanceof Error) {
