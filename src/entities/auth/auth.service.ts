@@ -22,7 +22,10 @@ import { CREDITS } from "../../shared/constants";
 export class AuthService {
   private fastify: FastifyInstance;
 
-  constructor(private prisma: PrismaClient, fastify: FastifyInstance) {
+  constructor(
+    private prisma: PrismaClient,
+    fastify: FastifyInstance,
+  ) {
     this.fastify = fastify;
   }
 
@@ -93,10 +96,10 @@ export class AuthService {
       await emailService.sendOTPEmail(
         normalizedEmail,
         otp,
-        data.name || data.firstName
+        data.name || data.firstName,
       );
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Failed to send OTP email');
+      this.fastify.log.error({ err: error }, "Failed to send OTP email");
       throw new Error("Failed to send verification email");
     }
 
@@ -177,10 +180,10 @@ export class AuthService {
       await emailService.sendOTPEmail(
         normalizedEmail,
         otp,
-        data.name || data.firstName
+        data.name || data.firstName,
       );
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Failed to send OTP email');
+      this.fastify.log.error({ err: error }, "Failed to send OTP email");
       throw new Error("Failed to send verification email");
     }
 
@@ -203,7 +206,7 @@ export class AuthService {
 
     if (pending) {
       throw new Error(
-        "Please verify your email first. Check your inbox for the OTP code."
+        "Please verify your email first. Check your inbox for the OTP code.",
       );
     }
 
@@ -223,7 +226,7 @@ export class AuthService {
     // Check if email is verified (skip for OAuth users and admins)
     if (!user.emailVerified && !user.isAdmin && user.oauthProvider === null) {
       throw new Error(
-        "Email not verified. Please verify your email before logging in."
+        "Email not verified. Please verify your email before logging in.",
       );
     }
 
@@ -237,7 +240,7 @@ export class AuthService {
     if (user.passwordHash) {
       const isValidPassword = await this.comparePassword(
         data.password,
-        user.passwordHash
+        user.passwordHash,
       );
 
       if (!isValidPassword) {
@@ -339,7 +342,7 @@ export class AuthService {
     try {
       // Verify refresh token
       const decoded = (await this.fastify.jwt.verify(
-        refreshToken
+        refreshToken,
       )) as JWTPayload;
 
       // Check if user still exists
@@ -411,7 +414,7 @@ export class AuthService {
     const isValidOTP = otpService.verifyOTP(
       pending.otp,
       pending.otpExpiresAt,
-      data.otp
+      data.otp,
     );
 
     if (!isValidOTP) {
@@ -421,7 +424,7 @@ export class AuthService {
     // Verify userType matches
     if (pending.userType !== data.userType) {
       throw new Error(
-        `This registration is for ${pending.userType}, not ${data.userType}`
+        `This registration is for ${pending.userType}, not ${data.userType}`,
       );
     }
 
@@ -466,7 +469,7 @@ export class AuthService {
         if (pending.referralCode) {
           const affiliate = await tx.affiliate.findUnique({
             where: { code: pending.referralCode, isActive: true },
-          })
+          });
           if (affiliate) {
             await tx.referral.create({
               data: {
@@ -474,7 +477,7 @@ export class AuthService {
                 userId: user.id,
                 code: pending.referralCode,
               },
-            })
+            });
           }
         }
 
@@ -524,7 +527,7 @@ export class AuthService {
 
           return { user, student: null, instructor };
         }
-      }
+      },
     );
 
     // Send welcome email with free credits info for students
@@ -534,10 +537,13 @@ export class AuthService {
       await emailService.sendWelcomeEmail(
         normalizedEmail,
         result.user.name || undefined,
-        freeCredits
+        freeCredits,
       );
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Failed to send welcome email (non-critical)');
+      this.fastify.log.error(
+        { err: error },
+        "Failed to send welcome email (non-critical)",
+      );
     }
 
     // Build profile
@@ -618,10 +624,10 @@ export class AuthService {
         await emailService.sendOTPEmail(
           normalizedEmail,
           otp,
-          pending.name || undefined
+          pending.name || undefined,
         );
       } catch (error) {
-        this.fastify.log.error({ err: error }, 'Failed to send OTP email');
+        this.fastify.log.error({ err: error }, "Failed to send OTP email");
         throw new Error("Failed to send OTP email");
       }
 
@@ -674,7 +680,7 @@ export class AuthService {
           if (data.referralCode) {
             const affiliate = await tx.affiliate.findUnique({
               where: { code: data.referralCode, isActive: true },
-            })
+            });
             if (affiliate) {
               await tx.referral.create({
                 data: {
@@ -682,7 +688,7 @@ export class AuthService {
                   userId: newUser.id,
                   code: data.referralCode,
                 },
-              })
+              });
             }
           }
 
@@ -724,7 +730,7 @@ export class AuthService {
 
             return { user: newUser, student: null, instructor };
           }
-        }
+        },
       );
 
       user = await this.prisma.user.findUnique({
@@ -746,10 +752,13 @@ export class AuthService {
         await emailService.sendWelcomeEmail(
           normalizedEmail,
           user.name || undefined,
-          freeCredits
+          freeCredits,
         );
       } catch (error) {
-        this.fastify.log.error({ err: error }, 'Failed to send welcome email (non-critical)');
+        this.fastify.log.error(
+          { err: error },
+          "Failed to send welcome email (non-critical)",
+        );
       }
     } else {
       // User exists - check if they have the required profile
@@ -898,10 +907,13 @@ export class AuthService {
       await emailService.sendPasswordResetEmail(
         normalizedEmail,
         resetToken,
-        user.name || undefined
+        user.name || undefined,
       );
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Failed to send password reset email (non-critical)');
+      this.fastify.log.error(
+        { err: error },
+        "Failed to send password reset email (non-critical)",
+      );
     }
 
     return {
@@ -945,10 +957,13 @@ export class AuthService {
     try {
       await emailService.sendPasswordChangedEmail(
         user.email,
-        user.name || undefined
+        user.name || undefined,
       );
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Failed to send password changed email (non-critical)');
+      this.fastify.log.error(
+        { err: error },
+        "Failed to send password changed email (non-critical)",
+      );
     }
 
     return {
@@ -969,14 +984,14 @@ export class AuthService {
     // Check if user uses OAuth (no password to change)
     if (user.oauthProvider || !user.passwordHash) {
       throw new Error(
-        "OAuth users cannot change password. Please use your OAuth provider."
+        "OAuth users cannot change password. Please use your OAuth provider.",
       );
     }
 
     // Verify current password
     const isValidPassword = await this.comparePassword(
       data.currentPassword,
-      user.passwordHash
+      user.passwordHash,
     );
 
     if (!isValidPassword) {
@@ -998,10 +1013,13 @@ export class AuthService {
     try {
       await emailService.sendPasswordChangedEmail(
         user.email,
-        user.name || undefined
+        user.name || undefined,
       );
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Failed to send password changed email (non-critical)');
+      this.fastify.log.error(
+        { err: error },
+        "Failed to send password changed email (non-critical)",
+      );
     }
 
     return {
