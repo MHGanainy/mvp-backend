@@ -15,18 +15,6 @@ import {
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 import { replyInternalError } from '../../shared/route-error'
 
-const pricingUpdateSchema = z.object({
-  price3Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
-  price6Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
-  price12Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional()
-})
-
-const creditsUpdateSchema = z.object({
-  credits3Months: z.number().int().min(0).max(1000).optional(),
-  credits6Months: z.number().int().min(0).max(1000).optional(),
-  credits12Months: z.number().int().min(0).max(1000).optional()
-})
-
 const styleParamsSchema = z.object({
   style: CourseStyleEnum
 })
@@ -184,21 +172,6 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // GET /courses/:id/pricing - Get pricing information
-  fastify.get('/courses/:id/pricing', async (request, reply) => {
-    try {
-      const { id } = courseParamsSchema.parse(request.params)
-      const pricingInfo = await courseService.getPricingInfo(id)
-      reply.send(pricingInfo)
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Course not found') {
-        reply.status(404).send({ error: 'Course not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid request' })
-      }
-    }
-  })
-
   // POST /courses - Create new course
   fastify.post('/courses', {
     preHandler: authenticate
@@ -289,70 +262,6 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
         reply.status(404).send({ error: 'Course not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
-      }
-    }
-  })
-
-  // PATCH /courses/:id/pricing - Update pricing
-  fastify.patch('/courses/:id/pricing', {
-    preHandler: authenticate
-  }, async (request, reply) => {
-    try {
-      const { id } = courseParamsSchema.parse(request.params)
-      const pricing = pricingUpdateSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update pricing for your own courses' })
-          return
-        }
-      }
-      
-      const course = await courseService.updatePricing(id, pricing)
-      reply.send({
-        message: 'Course pricing updated successfully',
-        course
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Course not found') {
-        reply.status(404).send({ error: 'Course not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid pricing data' })
-      }
-    }
-  })
-
-  // PATCH /courses/:id/credits - Update credits
-  fastify.patch('/courses/:id/credits', {
-    preHandler: authenticate
-  }, async (request, reply) => {
-    try {
-      const { id } = courseParamsSchema.parse(request.params)
-      const credits = creditsUpdateSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update credits for your own courses' })
-          return
-        }
-      }
-      
-      const course = await courseService.updateCredits(id, credits)
-      reply.send({
-        message: 'Course credit allocation updated successfully',
-        course
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Course not found') {
-        reply.status(404).send({ error: 'Course not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid credits data' })
       }
     }
   })

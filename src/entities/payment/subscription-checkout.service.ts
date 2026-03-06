@@ -36,7 +36,7 @@ export class SubscriptionCheckoutService {
       throw new Error('Free trial plans cannot be purchased through checkout');
     }
 
-    if (!plan.durationMonths) {
+    if (!plan.durationMonths && !plan.durationHours) {
       throw new Error('Pricing plan must have a duration');
     }
 
@@ -117,7 +117,8 @@ export class SubscriptionCheckoutService {
         resourceId: plan.resourceId,
         status: 'PENDING',
         amountInCents: plan.priceInCents,
-        durationMonths: plan.durationMonths,
+        durationMonths: plan.durationMonths || null,
+        durationHours: plan.durationHours || null,
         creditsIncluded: plan.creditsIncluded || 0,
         expiresAt,
         metadata: {
@@ -132,7 +133,8 @@ export class SubscriptionCheckoutService {
       sessionUrl: checkoutSession.url,
       expiresAt: savedSession.expiresAt,
       amount: plan.priceInCents,
-      durationMonths: plan.durationMonths,
+      durationMonths: plan.durationMonths || null,
+      durationHours: plan.durationHours || null,
       creditsIncluded: plan.creditsIncluded || 0,
       resourceType: plan.resourceType,
       resourceTitle,
@@ -148,6 +150,7 @@ export class SubscriptionCheckoutService {
             name: true,
             description: true,
             durationMonths: true,
+            durationHours: true,
             creditsIncluded: true,
             resourceType: true,
           },
@@ -164,6 +167,7 @@ export class SubscriptionCheckoutService {
       status: session.status,
       amountInCents: session.amountInCents,
       durationMonths: session.durationMonths,
+      durationHours: session.durationHours,
       creditsIncluded: session.creditsIncluded,
       resourceType: session.resourceType,
       expiresAt: session.expiresAt,

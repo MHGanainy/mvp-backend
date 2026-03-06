@@ -185,10 +185,10 @@ export class StripeWebhookService {
       throw new Error(`Session ${sessionId} has status ${checkoutSession.status}, cannot fulfill`);
     }
 
-    const { studentId, resourceType, resourceId, durationMonths, creditsIncluded, pricingPlanId } = checkoutSession;
+    const { studentId, resourceType, resourceId, durationMonths, durationHours, creditsIncluded, pricingPlanId } = checkoutSession;
     const now = new Date();
 
-    this.log.info({ studentId, resourceType, resourceId, durationMonths }, 'Fulfilling subscription');
+    this.log.info({ studentId, resourceType, resourceId, durationMonths, durationHours }, 'Fulfilling subscription');
 
     // Check for existing subscription
     const existingSub = await this.prisma.subscription.findFirst({
@@ -199,16 +199,25 @@ export class StripeWebhookService {
     let startDate: Date;
     let endDate: Date;
 
+    // Helper to extend a date by the plan's duration
+    const extendDate = (base: Date) => {
+      const d = new Date(base);
+      if (durationMonths) {
+        d.setMonth(d.getMonth() + durationMonths);
+      } else if (durationHours) {
+        d.setTime(d.getTime() + durationHours * 60 * 60 * 1000);
+      }
+      return d;
+    };
+
     if (existingSub && existingSub.endDate >= now) {
       // Active subscription — extend from existing endDate
       startDate = existingSub.startDate;
-      endDate = new Date(existingSub.endDate);
-      endDate.setMonth(endDate.getMonth() + durationMonths);
+      endDate = extendDate(existingSub.endDate);
     } else {
       // No subscription or expired — start fresh
       startDate = now;
-      endDate = new Date(now);
-      endDate.setMonth(endDate.getMonth() + durationMonths);
+      endDate = extendDate(now);
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -234,9 +243,16 @@ export class StripeWebhookService {
           data: {
             endDate,
             startDate,
-            durationMonths: existingSub.endDate >= now
-              ? existingSub.durationMonths + durationMonths  // extending: accumulate
-              : durationMonths,                               // renewing: reset
+            durationMonths: durationMonths
+              ? (existingSub.endDate >= now
+                  ? (existingSub.durationMonths || 0) + durationMonths
+                  : durationMonths)
+              : null,
+            durationHours: durationHours
+              ? (existingSub.endDate >= now
+                  ? (existingSub.durationHours || 0) + durationHours
+                  : durationHours)
+              : null,
             isActive: true,
             pricingPlanId,
             resourceType,
@@ -255,7 +271,8 @@ export class StripeWebhookService {
             studentId,
             courseId: resourceType === 'COURSE' ? resourceId : null,
             paymentId: payment!.id,
-            durationMonths,
+            durationMonths: durationMonths || null,
+            durationHours: durationHours || null,
             startDate,
             endDate,
             isActive: true,
@@ -312,7 +329,7 @@ export class StripeWebhookService {
         },
       });
 
-      this.log.info({ studentId, resourceType, resourceId, durationMonths, endDate }, 'Subscription fulfilled successfully');
+      this.log.info({ studentId, resourceType, resourceId, durationMonths, durationHours, endDate }, 'Subscription fulfilled successfully');
     });
 
     // Auto-enroll (non-critical)
@@ -334,6 +351,7 @@ export class StripeWebhookService {
         creditsIncluded,
         startDate,
         endDate,
+        durationHours,
       );
       this.log.info({ email: checkoutSession.student.user.email }, 'Subscription confirmation email sent');
     } catch (emailError) {

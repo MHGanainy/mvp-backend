@@ -48,13 +48,7 @@ export class InterviewCourseService {
         title: data.title,
         description: data.description,
         style: data.style,
-        infoPoints: data.infoPoints || [],  // ADDED THIS LINE
-        price3Months: data.price3Months,
-        price6Months: data.price6Months,
-        price12Months: data.price12Months,
-        credits3Months: data.credits3Months,
-        credits6Months: data.credits6Months,
-        credits12Months: data.credits12Months,
+        infoPoints: data.infoPoints || [],
         isPublished: data.isPublished ?? false
       },
       include: {
@@ -342,8 +336,21 @@ export class InterviewCourseService {
     // Check if interview course exists
     await this.findById(id)
 
-    return await this.prisma.interviewCourse.delete({
-      where: { id }
+    return await this.prisma.$transaction(async (tx) => {
+      // Clean up non-cascading references that use resourceId
+      await tx.subscriptionCheckoutSession.deleteMany({
+        where: { resourceType: 'INTERVIEW_COURSE', resourceId: id }
+      })
+      await tx.subscription.deleteMany({
+        where: { resourceType: 'INTERVIEW_COURSE', resourceId: id }
+      })
+      await tx.pricingPlan.deleteMany({
+        where: { resourceType: 'INTERVIEW_COURSE', resourceId: id }
+      })
+      // Now delete the interview course (cascading relations handle the rest)
+      return await tx.interviewCourse.delete({
+        where: { id }
+      })
     })
   }
 
@@ -375,68 +382,6 @@ export class InterviewCourseService {
   }
 
   // BUSINESS LOGIC METHODS
-
-  async updatePricing(id: string, pricing: {
-    price3Months?: number
-    price6Months?: number
-    price12Months?: number
-  }) {
-    const interviewCourse = await this.findById(id)
-
-    return await this.prisma.interviewCourse.update({
-      where: { id },
-      data: pricing,
-      include: {
-        interview: {
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            isActive: true
-          }
-        },
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
-    })
-  }
-
-  async updateCredits(id: string, credits: {
-    credits3Months?: number
-    credits6Months?: number
-    credits12Months?: number
-  }) {
-    const interviewCourse = await this.findById(id)
-
-    return await this.prisma.interviewCourse.update({
-      where: { id },
-      data: credits,
-      include: {
-        interview: {
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            isActive: true
-          }
-        },
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            bio: true
-          }
-        }
-      }
-    })
-  }
 
   async updateInfoPoints(id: string, infoPoints: string[]) {
     const interviewCourse = await this.findById(id)
@@ -470,12 +415,6 @@ export class InterviewCourseService {
     instructorId: string
     title: string
     description?: string
-    price3Months: number
-    price6Months: number
-    price12Months: number
-    credits3Months: number
-    credits6Months: number
-    credits12Months: number
     infoPoints?: string[]
     isPublished?: boolean
     sections: Array<{
@@ -530,12 +469,6 @@ export class InterviewCourseService {
           title: data.title,
           description: data.description,
           style: 'STRUCTURED',
-          price3Months: data.price3Months,
-          price6Months: data.price6Months,
-          price12Months: data.price12Months,
-          credits3Months: data.credits3Months,
-          credits6Months: data.credits6Months,
-          credits12Months: data.credits12Months,
           infoPoints: data.infoPoints || [],
           isPublished: data.isPublished || false
         }
@@ -610,12 +543,6 @@ export class InterviewCourseService {
       if (data.title !== undefined) courseUpdateData.title = data.title
       if (data.description !== undefined) courseUpdateData.description = data.description
       if (data.infoPoints !== undefined) courseUpdateData.infoPoints = data.infoPoints
-      if (data.price3Months !== undefined) courseUpdateData.price3Months = data.price3Months
-      if (data.price6Months !== undefined) courseUpdateData.price6Months = data.price6Months
-      if (data.price12Months !== undefined) courseUpdateData.price12Months = data.price12Months
-      if (data.credits3Months !== undefined) courseUpdateData.credits3Months = data.credits3Months
-      if (data.credits6Months !== undefined) courseUpdateData.credits6Months = data.credits6Months
-      if (data.credits12Months !== undefined) courseUpdateData.credits12Months = data.credits12Months
       if (data.isPublished !== undefined) courseUpdateData.isPublished = data.isPublished
 
       // Update interview course entity (only if there are fields to update)
@@ -710,30 +637,4 @@ export class InterviewCourseService {
     })
   }
 
-  async getPricingInfo(id: string) {
-    const interviewCourse = await this.findById(id)
-
-    return {
-      interviewCourseId: interviewCourse.id,
-      title: interviewCourse.title,
-      infoPoints: interviewCourse.infoPoints || [],  // Include info points in pricing info
-      pricing: {
-        threeMonths: {
-          price: interviewCourse.price3Months,
-          credits: interviewCourse.credits3Months,
-          pricePerMonth: Number((Number(interviewCourse.price3Months) / 3).toFixed(2))
-        },
-        sixMonths: {
-          price: interviewCourse.price6Months,
-          credits: interviewCourse.credits6Months,
-          pricePerMonth: Number((Number(interviewCourse.price6Months) / 6).toFixed(2))
-        },
-        twelveMonths: {
-          price: interviewCourse.price12Months,
-          credits: interviewCourse.credits12Months,
-          pricePerMonth: Number((Number(interviewCourse.price12Months) / 12).toFixed(2))
-        }
-      }
-    }
-  }
 }

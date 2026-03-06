@@ -363,13 +363,19 @@ export class EmailService {
     name: string,
     planName: string,
     amountInPence: number,
-    durationMonths: number,
+    durationMonths: number | null,
     creditsIncluded: number,
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    durationHours?: number | null
   ): Promise<void> {
     const amountInPounds = (amountInPence / 100).toFixed(2);
     const formatDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const durationText = durationMonths
+      ? `${durationMonths} month${durationMonths > 1 ? "s" : ""}`
+      : durationHours
+        ? `${durationHours} hour${durationHours > 1 ? "s" : ""}`
+        : "N/A";
 
     const creditsRow = creditsIncluded > 0
       ? `<div class="receipt-row">
@@ -418,7 +424,7 @@ export class EmailService {
                 </div>
                 <div class="receipt-row">
                   <span>Duration:</span>
-                  <span><strong>${durationMonths} month${durationMonths > 1 ? "s" : ""}</strong></span>
+                  <span><strong>${durationText}</strong></span>
                 </div>
                 <div class="receipt-row">
                   <span>Start Date:</span>
@@ -452,7 +458,7 @@ export class EmailService {
         </body>
         </html>
       `,
-      text: `Hi ${name},\n\nThank you for your purchase! Your subscription has been activated successfully.\n\nReceipt:\nPlan: ${planName}\nDuration: ${durationMonths} month${durationMonths > 1 ? "s" : ""}\nStart Date: ${formatDate(startDate)}\nEnd Date: ${formatDate(endDate)}${creditsText}\nAmount Paid: \u00A3${amountInPounds} GBP\n\nYour subscription is now active. Start learning today!\n\nVisit: ${
+      text: `Hi ${name},\n\nThank you for your purchase! Your subscription has been activated successfully.\n\nReceipt:\nPlan: ${planName}\nDuration: ${durationText}\nStart Date: ${formatDate(startDate)}\nEnd Date: ${formatDate(endDate)}${creditsText}\nAmount Paid: \u00A3${amountInPounds} GBP\n\nYour subscription is now active. Start learning today!\n\nVisit: ${
         process.env.FRONTEND_URL || "http://localhost:5173"
       }`,
     };

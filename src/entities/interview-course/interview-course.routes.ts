@@ -15,18 +15,6 @@ import {
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 import { replyInternalError } from '../../shared/route-error'
 
-const pricingUpdateSchema = z.object({
-  price3Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
-  price6Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional(),
-  price12Months: z.number().positive().max(99999.99).transform(val => Number(val.toFixed(2))).optional()
-})
-
-const creditsUpdateSchema = z.object({
-  credits3Months: z.number().int().min(0).max(1000).optional(),
-  credits6Months: z.number().int().min(0).max(1000).optional(),
-  credits12Months: z.number().int().min(0).max(1000).optional()
-})
-
 const styleParamsSchema = z.object({
   style: InterviewCourseStyleEnum
 })
@@ -214,21 +202,6 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
     }
   })
 
-  // GET /interview-courses/:id/pricing - Get pricing information
-  fastify.get('/interview-courses/:id/pricing', async (request, reply) => {
-    try {
-      const { id } = interviewCourseParamsSchema.parse(request.params)
-      const pricingInfo = await interviewCourseService.getPricingInfo(id)
-      reply.send(pricingInfo)
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Interview course not found') {
-        reply.status(404).send({ error: 'Interview course not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid request' })
-      }
-    }
-  })
-
   // POST /interview-courses - Create new interview course
   fastify.post('/interview-courses', {
     preHandler: authenticate
@@ -319,70 +292,6 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
         reply.status(404).send({ error: 'Interview course not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
-      }
-    }
-  })
-
-  // PATCH /interview-courses/:id/pricing - Update pricing
-  fastify.patch('/interview-courses/:id/pricing', {
-    preHandler: authenticate
-  }, async (request, reply) => {
-    try {
-      const { id } = interviewCourseParamsSchema.parse(request.params)
-      const pricing = pricingUpdateSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update pricing for your own interview courses' })
-          return
-        }
-      }
-
-      const interviewCourse = await interviewCourseService.updatePricing(id, pricing)
-      reply.send({
-        message: 'Interview course pricing updated successfully',
-        interviewCourse
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Interview course not found') {
-        reply.status(404).send({ error: 'Interview course not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid pricing data' })
-      }
-    }
-  })
-
-  // PATCH /interview-courses/:id/credits - Update credits
-  fastify.patch('/interview-courses/:id/credits', {
-    preHandler: authenticate
-  }, async (request, reply) => {
-    try {
-      const { id } = interviewCourseParamsSchema.parse(request.params)
-      const credits = creditsUpdateSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update credits for your own interview courses' })
-          return
-        }
-      }
-
-      const interviewCourse = await interviewCourseService.updateCredits(id, credits)
-      reply.send({
-        message: 'Interview course credit allocation updated successfully',
-        interviewCourse
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Interview course not found') {
-        reply.status(404).send({ error: 'Interview course not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid credits data' })
       }
     }
   })

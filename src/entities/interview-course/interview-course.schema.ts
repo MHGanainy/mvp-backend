@@ -22,58 +22,7 @@ export const createInterviewCourseSchema = z.object({
     .optional()
     .default([]),
 
-  // Pricing validation (business rules)
-  price3Months: z.number()
-    .positive('3-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2))),
-  price6Months: z.number()
-    .positive('6-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2))),
-  price12Months: z.number()
-    .positive('12-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2))),
-
-  // Credit allocation validation
-  credits3Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high'),
-  credits6Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high'),
-  credits12Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high'),
-
   isPublished: z.boolean().default(false).optional()
-}).refine((data) => {
-  // Business rule: 6-month should be cheaper per month than 3-month
-  const monthly3 = data.price3Months / 3
-  const monthly6 = data.price6Months / 6
-  return monthly6 <= monthly3
-}, {
-  message: '6-month plan should offer better value than 3-month plan',
-  path: ['price6Months']
-}).refine((data) => {
-  // Business rule: 12-month should be cheapest per month
-  const monthly6 = data.price6Months / 6
-  const monthly12 = data.price12Months / 12
-  return monthly12 <= monthly6
-}, {
-  message: '12-month plan should offer best value',
-  path: ['price12Months']
-}).refine((data) => {
-  // Business rule: Longer subscriptions should have more credits
-  return data.credits6Months >= data.credits3Months &&
-         data.credits12Months >= data.credits6Months
-}, {
-  message: 'Longer subscriptions should include more credits',
-  path: ['credits12Months']
 })
 
 // Update InterviewCourse Schema
@@ -88,36 +37,6 @@ export const updateInterviewCourseSchema = z.object({
     .optional(),
   infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
     .max(10, 'Maximum 10 info points allowed')
-    .optional(),
-  price3Months: z.number()
-    .positive('3-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2)))
-    .optional(),
-  price6Months: z.number()
-    .positive('6-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2)))
-    .optional(),
-  price12Months: z.number()
-    .positive('12-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2)))
-    .optional(),
-  credits3Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high')
-    .optional(),
-  credits6Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high')
-    .optional(),
-  credits12Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high')
     .optional(),
   isPublished: z.boolean().optional()
 })
@@ -146,30 +65,6 @@ export const createStructuredInterviewCourseCompleteSchema = z.object({
     .max(10, 'Maximum 10 info points allowed')
     .optional()
     .default([]),
-  price3Months: z.number()
-    .positive('3-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2))),
-  price6Months: z.number()
-    .positive('6-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2))),
-  price12Months: z.number()
-    .positive('12-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2))),
-  credits3Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high'),
-  credits6Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high'),
-  credits12Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high'),
   isPublished: z.boolean().default(false).optional(),
   sections: z.array(z.object({
     title: z.string()
@@ -210,36 +105,6 @@ export const updateStructuredInterviewCourseCompleteSchema = z.object({
     .optional(),
   infoPoints: z.array(z.string().trim().min(1, 'Info point cannot be empty'))
     .max(10, 'Maximum 10 info points allowed')
-    .optional(),
-  price3Months: z.number()
-    .positive('3-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2)))
-    .optional(),
-  price6Months: z.number()
-    .positive('6-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2)))
-    .optional(),
-  price12Months: z.number()
-    .positive('12-month price must be positive')
-    .max(99999.99, 'Price too high')
-    .transform(val => Number(val.toFixed(2)))
-    .optional(),
-  credits3Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high')
-    .optional(),
-  credits6Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high')
-    .optional(),
-  credits12Months: z.number()
-    .int('Credits must be whole numbers')
-    .min(0, 'Credits cannot be negative')
-    .max(1000, 'Credits too high')
     .optional(),
   isPublished: z.boolean().optional(),
   sections: z.array(z.object({
@@ -291,12 +156,6 @@ export const interviewCourseResponseSchema = z.object({
   description: z.string().nullable(),
   style: InterviewCourseStyleEnum,
   infoPoints: z.array(z.string()), // Added info points
-  price3Months: z.number(),
-  price6Months: z.number(),
-  price12Months: z.number(),
-  credits3Months: z.number(),
-  credits6Months: z.number(),
-  credits12Months: z.number(),
   isPublished: z.boolean(),
   createdAt: z.date(),
   updatedAt: z.date(),
