@@ -106,6 +106,8 @@ export default async function pricingPlanRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: error.message });
       } else if (error.message.includes('Maximum') && error.message.includes('active plans')) {
         reply.status(400).send({ error: error.message });
+      } else if (error.message === 'Only one active free trial plan is allowed per resource') {
+        reply.status(400).send({ error: error.message });
       } else if (error.message === 'Unsupported resource type') {
         reply.status(400).send({ error: error.message });
       } else {

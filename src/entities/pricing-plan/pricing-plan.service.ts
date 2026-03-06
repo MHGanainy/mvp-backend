@@ -63,6 +63,21 @@ export class PricingPlanService {
       throw new Error(`Maximum ${MAX_ACTIVE_PLANS} active plans allowed per resource`);
     }
 
+    if (data.isFreeTrialPlan) {
+      const existingTrialPlan = await this.prisma.pricingPlan.findFirst({
+        where: {
+          resourceType: data.resourceType as ResourceType,
+          resourceId: data.resourceId,
+          isFreeTrialPlan: true,
+          isActive: true,
+        },
+      });
+
+      if (existingTrialPlan) {
+        throw new Error('Only one active free trial plan is allowed per resource');
+      }
+    }
+
     return await this.prisma.pricingPlan.create({
       data: {
         resourceType: data.resourceType as ResourceType,

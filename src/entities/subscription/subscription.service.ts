@@ -292,6 +292,65 @@ export class SubscriptionService {
     }
   }
 
+  async checkTrialEligibility(studentId: string, resourceType: string, resourceId: string) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    })
+    if (!student) throw new Error('Student not found')
+
+    if (student.user.isAdmin) {
+      return { eligible: false, reason: 'Admin users have full access' }
+    }
+
+    // Any subscription row = not eligible (first-touch only)
+    const existingSubscription = await this.prisma.subscription.findFirst({
+      where: {
+        studentId,
+        resourceType: resourceType as ResourceType,
+        resourceId,
+      }
+    })
+
+    if (existingSubscription) {
+      if (existingSubscription.isFreeTrial && existingSubscription.endDate >= new Date()) {
+        return { eligible: false, reason: 'You already have an active free trial for this resource' }
+      }
+      if (existingSubscription.isFreeTrial) {
+        return { eligible: false, reason: 'You have already used your free trial for this resource' }
+      }
+      if (existingSubscription.endDate >= new Date()) {
+        return { eligible: false, reason: 'You already have an active subscription for this resource' }
+      }
+      return { eligible: false, reason: 'Free trials are only available for first-time access' }
+    }
+
+    // Check if a free trial plan exists for this resource
+    const trialPlan = await this.prisma.pricingPlan.findFirst({
+      where: {
+        resourceType: resourceType as ResourceType,
+        resourceId,
+        isFreeTrialPlan: true,
+        isActive: true,
+      }
+    })
+
+    if (!trialPlan) {
+      return { eligible: false, reason: 'No free trial available for this resource' }
+    }
+
+    return {
+      eligible: true,
+      trialPlan: {
+        id: trialPlan.id,
+        name: trialPlan.name,
+        durationMonths: trialPlan.durationMonths,
+        durationHours: trialPlan.durationHours,
+        creditsIncluded: trialPlan.creditsIncluded,
+      }
+    }
+  }
+
   // Core unified subscription check — all other check methods delegate to this
   async checkSubscriptionByResource(
     studentId: string,
@@ -442,6 +501,7 @@ export class SubscriptionService {
       startDate: sub.startDate.toISOString(),
       endDate: sub.endDate.toISOString(),
       durationMonths: sub.durationMonths,
+      durationHours: sub.durationHours,
       isActive: this.isSubscriptionActive(sub),
       isFreeTrial: sub.isFreeTrial,
       subscriptionSource: sub.subscriptionSource,

@@ -79,7 +79,13 @@ export const subscriptionListItemSchema = z.object({
   }).nullable()
 })
 
+// Trial activation
+export const activateTrialSchema = z.object({
+  pricingPlanId: z.string().uuid('Invalid pricing plan ID'),
+});
+
 // Type exports
+export type ActivateTrialInput = z.infer<typeof activateTrialSchema>;
 export type SubscriptionParams = z.infer<typeof subscriptionParamsSchema>;
 export type SubscriptionStudentParams = z.infer<
   typeof subscriptionStudentParamsSchema

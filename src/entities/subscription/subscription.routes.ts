@@ -1,10 +1,12 @@
 import { FastifyInstance } from "fastify";
 import { SubscriptionService } from "./subscription.service";
+import { TrialActivationService } from "./trial-activation.service";
 import {
   subscriptionParamsSchema,
   subscriptionStudentParamsSchema,
   subscriptionQuerySchema,
   subscriptionResourceParamsSchema,
+  activateTrialSchema,
 } from "./subscription.schema";
 import {
   requireAuth,
@@ -14,6 +16,7 @@ import { replyInternalError } from "../../shared/route-error";
 
 export default async function subscriptionRoutes(fastify: FastifyInstance) {
   const subscriptionService = new SubscriptionService(fastify.prisma);
+  const trialActivationService = new TrialActivationService(fastify.prisma);
 
   // GET /subscriptions - Get all subscriptions (admin only - instructors)
   fastify.get(
@@ -243,6 +246,54 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
         reply.send(result);
       } catch (error) {
         replyInternalError(request, reply, error, 'Failed to check access');
+      }
+    }
+  );
+
+  // GET /subscriptions/trial-eligibility/:resourceType/:resourceId - Check trial eligibility
+  fastify.get(
+    "/subscriptions/trial-eligibility/:resourceType/:resourceId",
+    {
+      preHandler: requireAuth("student"),
+    },
+    async (request, reply) => {
+      try {
+        const { resourceType, resourceId } = subscriptionResourceParamsSchema.parse(request.params);
+        const studentId = getCurrentStudentId(request)!;
+        const result = await subscriptionService.checkTrialEligibility(studentId, resourceType, resourceId);
+        reply.send(result);
+      } catch (error) {
+        replyInternalError(request, reply, error, 'Failed to check trial eligibility');
+      }
+    }
+  );
+
+  // POST /subscriptions/activate-trial - Activate a free trial (student only)
+  fastify.post(
+    "/subscriptions/activate-trial",
+    {
+      preHandler: requireAuth("student"),
+    },
+    async (request, reply) => {
+      try {
+        const studentId = getCurrentStudentId(request)!;
+        const { pricingPlanId } = activateTrialSchema.parse(request.body);
+        const result = await trialActivationService.activateTrial(studentId, pricingPlanId);
+        reply.status(201).send(result);
+      } catch (error: any) {
+        if (error.message === 'Student not found' || error.message === 'Pricing plan not found' ||
+            error.message === 'Course not found' || error.message === 'Interview course not found') {
+          reply.status(404).send({ error: error.message });
+        } else if (error.message === 'This pricing plan is no longer available' ||
+                   error.message === 'This plan is not a free trial plan' ||
+                   error.message === 'Free trial plan must have a duration' ||
+                   error.message === 'Free trials are only available for first-time access' ||
+                   error.message === 'This course is not currently available' ||
+                   error.message === 'This interview course is not currently available') {
+          reply.status(400).send({ error: error.message });
+        } else {
+          replyInternalError(request, reply, error, 'Failed to activate free trial');
+        }
       }
     }
   );
