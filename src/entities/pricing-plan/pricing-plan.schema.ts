@@ -108,6 +108,7 @@ export const updatePricingPlanSchema = z.object({
     .max(4)
     .optional(),
   isPopular: z.boolean().optional(),
+  isActive: z.boolean().optional(),
 });
 
 export const planIdParamsSchema = z.object({

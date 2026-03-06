@@ -94,7 +94,7 @@ export class SubscriptionCheckoutService {
           quantity: 1,
         },
       ],
-      success_url: `${frontendUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${frontendUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&type=subscription`,
       cancel_url: `${frontendUrl}/checkout/cancel`,
       metadata: {
         type: 'subscription',

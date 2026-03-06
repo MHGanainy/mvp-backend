@@ -48,10 +48,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         await webhookService.processWebhookEvent(event);
       } catch (error) {
         log.error({ err: error, eventId: event.id }, 'Error processing webhook event');
-        await webhookService.recordWebhookEvent(event.id, event.type, {
-          ...event,
-          processingError: error instanceof Error ? error.message : String(error),
-        });
+        // Do NOT record the event on failure — let Stripe retry
         reply.status(500).send({ error: 'Event processing failed' });
         return;
       }

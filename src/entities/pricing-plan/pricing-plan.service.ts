@@ -81,6 +81,7 @@ export class PricingPlanService {
         ...(data.featurePoints !== undefined && { featurePoints: data.featurePoints }),
         ...(data.displayOrder !== undefined && { displayOrder: data.displayOrder }),
         ...(data.isPopular !== undefined && { isPopular: data.isPopular }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     });
   }
