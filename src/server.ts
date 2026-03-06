@@ -77,7 +77,7 @@ const JWT_SECRET =
 fastify.register(fastifyJwt, {
   secret: JWT_SECRET,
   sign: {
-    expiresIn: "1h",
+    expiresIn: "2m",
   },
 });
 
