@@ -1,14 +1,19 @@
-import { PrismaClient, ResourceType } from '@prisma/client';
+import { PrismaClient, ResourceType, CreditTransactionType, CreditTransactionSource } from '@prisma/client';
 import { StripeService } from '../../services/stripe.service';
+import { PromoCodeService } from '../promo-code/promo-code.service';
+import { randomUUID } from 'crypto';
+import { emailService } from '../../services/email.service';
 
 export class SubscriptionCheckoutService {
   private stripeService: StripeService;
+  private promoCodeService: PromoCodeService;
 
   constructor(private prisma: PrismaClient) {
     this.stripeService = new StripeService();
+    this.promoCodeService = new PromoCodeService(prisma);
   }
 
-  async createSubscriptionCheckoutSession(studentId: string, pricingPlanId: string) {
+  async createSubscriptionCheckoutSession(studentId: string, pricingPlanId: string, promoCode?: string) {
     // 1. Fetch student + user
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
@@ -43,7 +48,28 @@ export class SubscriptionCheckoutService {
     // 3. Validate resource exists and is published — get title
     const resourceTitle = await this.getResourceTitle(plan.resourceType, plan.resourceId);
 
-    // 4. Get or create Stripe customer (same pattern as stripe-checkout.service.ts)
+    // 4. Promo code validation (if provided)
+    let promoValidation: { promoCodeId: string; finalPriceInCents: number; discountAmountInCents: number } | null = null;
+    if (promoCode) {
+      const result = await this.promoCodeService.validate(promoCode, pricingPlanId, studentId);
+      if (!result.valid) {
+        throw new Error(`Promo code invalid: ${result.reason}`);
+      }
+      promoValidation = {
+        promoCodeId: result.promoCodeId!,
+        finalPriceInCents: result.finalPriceInCents!,
+        discountAmountInCents: result.discountAmountInCents!,
+      };
+    }
+
+    const unitAmount = promoValidation ? promoValidation.finalPriceInCents : plan.priceInCents;
+
+    // 5. If 100% discount, bypass Stripe and fulfill directly
+    if (unitAmount === 0 && promoValidation) {
+      return this.fulfillFreePromoCheckout(student, plan, resourceTitle, promoValidation);
+    }
+
+    // 6. Get or create Stripe customer (same pattern as stripe-checkout.service.ts)
     let stripeCustomerId = student.stripeCustomerId;
 
     if (stripeCustomerId) {
@@ -72,11 +98,11 @@ export class SubscriptionCheckoutService {
       });
     }
 
-    // 5. Calculate session expiry (24 hours)
+    // 7. Calculate session expiry (24 hours)
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
-    // 6. Create Stripe Checkout Session
+    // 8. Create Stripe Checkout Session
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     const checkoutSession = await this.stripeService.createCheckoutSession({
@@ -89,7 +115,7 @@ export class SubscriptionCheckoutService {
             product_data: {
               name: `${resourceTitle} — ${plan.name}`,
             },
-            unit_amount: plan.priceInCents,
+            unit_amount: unitAmount,
           },
           quantity: 1,
         },
@@ -102,12 +128,13 @@ export class SubscriptionCheckoutService {
         pricingPlanId,
         resourceType: plan.resourceType,
         resourceId: plan.resourceId,
+        ...(promoValidation && { promoCodeId: promoValidation.promoCodeId }),
       },
-      allow_promotion_codes: true,
+      allow_promotion_codes: promoValidation ? false : true,
       expires_at: Math.floor(expiresAt.getTime() / 1000),
     });
 
-    // 7. Save checkout session to database
+    // 9. Save checkout session to database
     const savedSession = await this.prisma.subscriptionCheckoutSession.create({
       data: {
         sessionId: checkoutSession.id,
@@ -125,6 +152,11 @@ export class SubscriptionCheckoutService {
           stripeCustomerId,
           checkoutUrl: checkoutSession.url,
         },
+        ...(promoValidation && {
+          promoCodeId: promoValidation.promoCodeId,
+          discountAmountInCents: promoValidation.discountAmountInCents,
+          finalAmountInCents: promoValidation.finalPriceInCents,
+        }),
       },
     });
 
@@ -133,6 +165,225 @@ export class SubscriptionCheckoutService {
       sessionUrl: checkoutSession.url,
       expiresAt: savedSession.expiresAt,
       amount: plan.priceInCents,
+      durationMonths: plan.durationMonths || null,
+      durationHours: plan.durationHours || null,
+      creditsIncluded: plan.creditsIncluded || 0,
+      resourceType: plan.resourceType,
+      resourceTitle,
+    };
+  }
+
+  // 100% discount: bypass Stripe entirely, fulfill subscription directly.
+  // Uses the same subscription upsert pattern as fulfillSubscription in stripe-webhook.service.ts.
+  private async fulfillFreePromoCheckout(
+    student: { id: string; firstName: string; lastName: string; user: { email: string } },
+    plan: {
+      id: string; name: string; resourceType: ResourceType; resourceId: string;
+      durationMonths: number | null; durationHours: number | null;
+      creditsIncluded: number | null; priceInCents: number;
+    },
+    resourceTitle: string,
+    promo: { promoCodeId: string; discountAmountInCents: number; finalPriceInCents: number },
+  ) {
+    const studentId = student.id;
+    const now = new Date();
+
+    // Check for existing subscription (same upsert logic as webhook's fulfillSubscription)
+    const existingSub = await this.prisma.subscription.findFirst({
+      where: { studentId, resourceType: plan.resourceType, resourceId: plan.resourceId },
+      orderBy: { endDate: 'desc' },
+    });
+
+    const extendDate = (base: Date) => {
+      const d = new Date(base);
+      if (plan.durationMonths) {
+        d.setMonth(d.getMonth() + plan.durationMonths);
+      } else if (plan.durationHours) {
+        d.setTime(d.getTime() + plan.durationHours * 60 * 60 * 1000);
+      }
+      return d;
+    };
+
+    let startDate: Date;
+    let endDate: Date;
+
+    if (existingSub && existingSub.endDate >= now) {
+      // Active subscription — extend from existing endDate
+      startDate = existingSub.startDate;
+      endDate = extendDate(existingSub.endDate);
+    } else {
+      // No subscription or expired — start fresh
+      startDate = now;
+      endDate = extendDate(now);
+    }
+
+    const syntheticSessionId = `promo-free-${randomUUID()}`;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Create Payment (amount=0, synthetic stripePaymentId)
+      const payment = await tx.payment.create({
+        data: {
+          studentId,
+          stripePaymentId: syntheticSessionId,
+          amount: 0,
+          currency: 'GBP',
+          paymentType: 'SUBSCRIPTION',
+          paymentStatus: 'COMPLETED',
+          pricingPlanId: plan.id,
+          courseId: plan.resourceType === 'COURSE' ? plan.resourceId : undefined,
+        },
+      });
+
+      // 2. Create or update subscription (upsert pattern from webhook fulfillSubscription)
+      if (existingSub) {
+        const durationMonths = plan.durationMonths;
+        const durationHours = plan.durationHours;
+        await tx.subscription.update({
+          where: { id: existingSub.id },
+          data: {
+            endDate,
+            startDate,
+            durationMonths: durationMonths
+              ? (existingSub.endDate >= now
+                  ? (existingSub.durationMonths || 0) + durationMonths
+                  : durationMonths)
+              : null,
+            durationHours: durationHours
+              ? (existingSub.endDate >= now
+                  ? (existingSub.durationHours || 0) + durationHours
+                  : durationHours)
+              : null,
+            isActive: true,
+            pricingPlanId: plan.id,
+            resourceType: plan.resourceType,
+            resourceId: plan.resourceId,
+            subscriptionSource: 'DIRECT_PURCHASE',
+          },
+        });
+      } else {
+        await tx.subscription.create({
+          data: {
+            studentId,
+            courseId: plan.resourceType === 'COURSE' ? plan.resourceId : null,
+            paymentId: payment.id,
+            durationMonths: plan.durationMonths || null,
+            durationHours: plan.durationHours || null,
+            startDate,
+            endDate,
+            isActive: true,
+            resourceType: plan.resourceType,
+            resourceId: plan.resourceId,
+            pricingPlanId: plan.id,
+            subscriptionSource: 'DIRECT_PURCHASE',
+          },
+        });
+      }
+
+      // 3. Grant credits if included
+      const creditsIncluded = plan.creditsIncluded || 0;
+      if (creditsIncluded > 0) {
+        const currentStudent = await tx.student.findUnique({
+          where: { id: studentId },
+          select: { creditBalance: true },
+        });
+
+        if (currentStudent) {
+          const newBalance = currentStudent.creditBalance + creditsIncluded;
+
+          await tx.creditTransaction.create({
+            data: {
+              studentId,
+              transactionType: CreditTransactionType.CREDIT,
+              amount: creditsIncluded,
+              balanceAfter: newBalance,
+              sourceType: CreditTransactionSource.SUBSCRIPTION,
+              sourceId: syntheticSessionId,
+              description: `${plan.name} — ${creditsIncluded} credits included`,
+              expiresAt: endDate,
+              metadata: {
+                pricingPlanId: plan.id,
+                planName: plan.name,
+                isPromoFree: true,
+              },
+            },
+          });
+
+          await tx.student.update({
+            where: { id: studentId },
+            data: { creditBalance: newBalance },
+          });
+        }
+      }
+
+      // 4. Create checkout session record (status = COMPLETED immediately)
+      await tx.subscriptionCheckoutSession.create({
+        data: {
+          sessionId: syntheticSessionId,
+          studentId,
+          pricingPlanId: plan.id,
+          resourceType: plan.resourceType,
+          resourceId: plan.resourceId,
+          status: 'COMPLETED',
+          amountInCents: plan.priceInCents,
+          durationMonths: plan.durationMonths || null,
+          durationHours: plan.durationHours || null,
+          creditsIncluded: plan.creditsIncluded || 0,
+          expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+          completedAt: now,
+          promoCodeId: promo.promoCodeId,
+          discountAmountInCents: promo.discountAmountInCents,
+          finalAmountInCents: 0,
+        },
+      });
+
+      // 5. Record promo code redemption + increment usage
+      await tx.promoCodeRedemption.create({
+        data: {
+          promoCodeId: promo.promoCodeId,
+          studentId,
+          paymentId: payment.id,
+          amountSaved: promo.discountAmountInCents,
+        },
+      });
+      await tx.promoCode.update({
+        where: { id: promo.promoCodeId },
+        data: { currentUses: { increment: 1 } },
+      });
+
+      return { payment };
+    });
+
+    // Auto-enroll (non-critical)
+    try {
+      await this.autoEnroll(studentId, plan.resourceType, plan.resourceId);
+    } catch (err) {
+      console.error('Failed to auto-enroll (non-critical):', err);
+    }
+
+    // Send confirmation email (non-critical)
+    try {
+      const studentName = `${student.firstName} ${student.lastName}`;
+      await emailService.sendSubscriptionConfirmation(
+        student.user.email,
+        studentName,
+        plan.name,
+        0,
+        plan.durationMonths,
+        plan.creditsIncluded || 0,
+        startDate,
+        endDate,
+        plan.durationHours,
+      );
+    } catch (err) {
+      console.error('Failed to send promo confirmation email (non-critical):', err);
+    }
+
+    return {
+      sessionId: null,
+      sessionUrl: null,
+      subscriptionActivated: true,
+      expiresAt: null,
+      amount: 0,
       durationMonths: plan.durationMonths || null,
       durationHours: plan.durationHours || null,
       creditsIncluded: plan.creditsIncluded || 0,
@@ -199,5 +450,43 @@ export class SubscriptionCheckoutService {
     }
 
     throw new Error(`Unsupported resource type: ${resourceType}`);
+  }
+
+  private async autoEnroll(studentId: string, resourceType: ResourceType, resourceId: string): Promise<void> {
+    if (resourceType === 'COURSE') {
+      const course = await this.prisma.course.findUnique({
+        where: { id: resourceId },
+        select: { style: true },
+      });
+
+      if (course?.style === 'STRUCTURED') {
+        const existing = await this.prisma.courseEnrollment.findUnique({
+          where: { studentId_courseId: { studentId, courseId: resourceId } },
+        });
+
+        if (!existing) {
+          await this.prisma.courseEnrollment.create({
+            data: { studentId, courseId: resourceId },
+          });
+        }
+      }
+    } else if (resourceType === 'INTERVIEW_COURSE') {
+      const ic = await this.prisma.interviewCourse.findUnique({
+        where: { id: resourceId },
+        select: { style: true },
+      });
+
+      if (ic?.style === 'STRUCTURED') {
+        const existing = await this.prisma.interviewCourseEnrollment.findUnique({
+          where: { studentId_interviewCourseId: { studentId, interviewCourseId: resourceId } },
+        });
+
+        if (!existing) {
+          await this.prisma.interviewCourseEnrollment.create({
+            data: { studentId, interviewCourseId: resourceId },
+          });
+        }
+      }
+    }
   }
 }

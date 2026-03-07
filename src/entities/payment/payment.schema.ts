@@ -18,6 +18,7 @@ export const checkoutSessionParamSchema = z.object({
 // Subscription Checkout Schema
 export const createSubscriptionCheckoutSchema = z.object({
   pricingPlanId: z.string().uuid('Invalid pricing plan ID'),
+  promoCode: z.string().min(1).max(30).optional(),
 })
 
 // Payment History Query Schema

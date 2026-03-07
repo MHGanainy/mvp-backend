@@ -109,19 +109,21 @@ export default async function paymentRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const studentId = getCurrentStudentId(request)!
-      const { pricingPlanId } = createSubscriptionCheckoutSchema.parse(request.body)
+      const { pricingPlanId, promoCode } = createSubscriptionCheckoutSchema.parse(request.body)
 
-      const session = await subscriptionCheckoutService.createSubscriptionCheckoutSession(studentId, pricingPlanId)
+      const session = await subscriptionCheckoutService.createSubscriptionCheckoutSession(studentId, pricingPlanId, promoCode)
 
-      reply.status(201).send({
-        message: 'Checkout session created successfully',
-        ...session,
-      })
+      const message = ('subscriptionActivated' in session && session.subscriptionActivated)
+        ? 'Subscription activated successfully'
+        : 'Checkout session created successfully';
+      reply.status(201).send({ message, ...session })
     } catch (error: any) {
       fastify.log.error(error)
       if (error.message === 'Student not found' || error.message === 'Pricing plan not found' || error.message === 'Course not found' || error.message === 'Interview course not found') {
         reply.status(404).send({ error: error.message })
       } else if (error.message === 'This pricing plan is no longer available' || error.message === 'Free trial plans cannot be purchased through checkout' || error.message === 'This course is not currently available' || error.message === 'This interview course is not currently available' || error.message === 'Pricing plan must have a duration') {
+        reply.status(400).send({ error: error.message })
+      } else if (error.message?.startsWith('Promo code invalid:')) {
         reply.status(400).send({ error: error.message })
       } else {
         reply.status(500).send({ error: 'Failed to create checkout session' })

@@ -2,6 +2,7 @@ import { PrismaClient, CreditTransactionType, CreditTransactionSource, ResourceT
 import { FastifyBaseLogger } from 'fastify';
 import { StripeService } from './stripe.service';
 import { emailService } from './email.service';
+import { PromoCodeService } from '../entities/promo-code/promo-code.service';
 import Stripe from 'stripe';
 
 export class StripeWebhookService {
@@ -221,12 +222,12 @@ export class StripeWebhookService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      // 1. Create payment record
+      // 1. Create payment record (use final amount if promo was applied, else original)
       await tx.payment.create({
         data: {
           studentId,
           stripePaymentId: sessionId,
-          amount: checkoutSession.amountInCents / 100,
+          amount: (checkoutSession.finalAmountInCents ?? checkoutSession.amountInCents) / 100,
           currency: 'GBP',
           paymentType: 'SUBSCRIPTION',
           paymentStatus: 'COMPLETED',
@@ -331,6 +332,25 @@ export class StripeWebhookService {
 
       this.log.info({ studentId, resourceType, resourceId, durationMonths, durationHours, endDate }, 'Subscription fulfilled successfully');
     });
+
+    // Record promo code redemption (non-critical)
+    if (checkoutSession.promoCodeId) {
+      try {
+        const promoCodeService = new PromoCodeService(this.prisma);
+        // stripePaymentId is the checkout session ID (set on line above as sessionId)
+        const payment = await this.prisma.payment.findUnique({
+          where: { stripePaymentId: sessionId },
+        });
+        await promoCodeService.recordRedemption(
+          checkoutSession.promoCodeId,
+          studentId,
+          payment?.id || null,
+          checkoutSession.discountAmountInCents || 0,
+        );
+      } catch (promoError) {
+        this.log.error({ err: promoError }, 'Failed to record promo code redemption (non-critical)');
+      }
+    }
 
     // Auto-enroll (non-critical)
     try {

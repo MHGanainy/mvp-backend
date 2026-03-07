@@ -90,6 +90,7 @@ model Student {
   casePractice                StudentCasePractice[]
   interviewCasePractice       StudentInterviewPractice[]
   interviewCourseEnrollments  InterviewCourseEnrollment[]
+  promoCodeRedemptions        PromoCodeRedemption[]
 
   @@map("students")
 }
@@ -893,6 +894,11 @@ enum ResourceType {
   BUNDLE
 }
 
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
 // ========================================
 // STRIPE CREDIT TOP-UP MODELS
 // ========================================
@@ -998,11 +1004,54 @@ model SubscriptionCheckoutSession {
   completedAt     DateTime?             @map("completed_at")
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
-  student         Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  pricingPlan     PricingPlan           @relation(fields: [pricingPlanId], references: [id])
+  promoCodeId           String?               @map("promo_code_id")
+  discountAmountInCents Int?                  @map("discount_amount_in_cents")
+  finalAmountInCents    Int?                  @map("final_amount_in_cents")
+  student               Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  pricingPlan           PricingPlan           @relation(fields: [pricingPlanId], references: [id])
+  promoCode             PromoCode?            @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
 
   @@index([studentId])
   @@index([sessionId])
   @@index([status, expiresAt])
   @@map("subscription_checkout_sessions")
+}
+
+// ========================================
+// PROMO CODE MODELS
+// ========================================
+
+model PromoCode {
+  id            String        @id @default(uuid())
+  code          String        @unique
+  description   String?
+  discountType  DiscountType  @map("discount_type")
+  discountValue Int           @map("discount_value")
+  maxUses       Int?          @map("max_uses")
+  currentUses   Int           @default(0) @map("current_uses")
+  expiresAt     DateTime?     @map("expires_at")
+  isActive      Boolean       @default(true) @map("is_active")
+  resourceType  ResourceType? @map("resource_type")
+  resourceId    String?       @map("resource_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  redemptions                  PromoCodeRedemption[]
+  subscriptionCheckoutSessions SubscriptionCheckoutSession[]
+
+  @@map("promo_codes")
+}
+
+model PromoCodeRedemption {
+  id          String    @id @default(uuid())
+  promoCodeId String    @map("promo_code_id")
+  studentId   String    @map("student_id")
+  paymentId   String?   @map("payment_id")
+  amountSaved Int       @default(0) @map("amount_saved")
+  usedAt      DateTime  @default(now()) @map("used_at")
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([promoCodeId, studentId])
+  @@map("promo_code_redemptions")
 }
