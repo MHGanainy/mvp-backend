@@ -325,7 +325,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 120, // 1 hour
+      expiresIn: 3600, // 1 hour
       role: data.userType,
       isAdmin: user.isAdmin || false,
       user: {
@@ -369,7 +369,7 @@ export class AuthService {
 
       return {
         accessToken: newAccessToken,
-        expiresIn: 120,
+        expiresIn: 3600,
       };
     } catch (error) {
       throw new Error("Invalid refresh token");
@@ -387,7 +387,7 @@ export class AuthService {
 
   private async generateAccessToken(payload: JWTPayload): Promise<string> {
     return this.fastify.jwt.sign(payload, {
-      expiresIn: "2m",
+      expiresIn: "1h",
     });
   }
 
@@ -583,7 +583,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 120,
+      expiresIn: 3600,
       role: data.userType,
       isAdmin: result.user.isAdmin,
       user: {
@@ -852,7 +852,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 120,
+      expiresIn: 3600,
       role: data.userType,
       isAdmin: user.isAdmin,
       user: {

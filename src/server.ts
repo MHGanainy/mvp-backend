@@ -49,21 +49,22 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 const LOG_LEVEL = process.env.LOG_LEVEL || "info";
 
 const fastify = Fastify({
-  logger: NODE_ENV !== "production"
-    ? {
-        level: LOG_LEVEL,
-        transport: {
-          target: "pino-pretty",
-          options: {
-            colorize: true,
-            translateTime: "SYS:standard",
-            ignore: "pid,hostname",
+  logger:
+    NODE_ENV !== "production"
+      ? {
+          level: LOG_LEVEL,
+          transport: {
+            target: "pino-pretty",
+            options: {
+              colorize: true,
+              translateTime: "SYS:standard",
+              ignore: "pid,hostname",
+            },
           },
+        }
+      : {
+          level: LOG_LEVEL,
         },
-      }
-    : {
-        level: LOG_LEVEL,
-      },
 });
 
 const prisma = new PrismaClient();
@@ -78,7 +79,7 @@ const JWT_SECRET =
 fastify.register(fastifyJwt, {
   secret: JWT_SECRET,
   sign: {
-    expiresIn: "2m",
+    expiresIn: "1h",
   },
 });
 
@@ -95,15 +96,15 @@ registerRequestLogging(fastify);
 // Add raw body support for Stripe webhook signature verification
 // MUST be added before any routes are registered
 fastify.addContentTypeParser(
-  'application/json',
-  { parseAs: 'buffer' },
+  "application/json",
+  { parseAs: "buffer" },
   async (req: any, body: Buffer) => {
     // Store raw body for webhook signature verification
-    if (req.url?.includes('/webhooks/stripe')) {
-      req.rawBody = body.toString('utf-8');
+    if (req.url?.includes("/webhooks/stripe")) {
+      req.rawBody = body.toString("utf-8");
     }
-    return JSON.parse(body.toString('utf-8'));
-  }
+    return JSON.parse(body.toString("utf-8"));
+  },
 );
 
 // GLOBAL AUTHENTICATION HOOK - Runs on EVERY request
@@ -219,61 +220,73 @@ const start = async () => {
     await fastify.register(interviewCaseTabRoutes, { prefix: "/api" });
     await fastify.register(simulationRoutes, { prefix: "/api" });
     await fastify.register(simulationAttemptRoutes, { prefix: "/api" });
-    await fastify.register(interviewSimulationAttemptRoutes, { prefix: "/api" });
+    await fastify.register(interviewSimulationAttemptRoutes, {
+      prefix: "/api",
+    });
     await fastify.register(paymentRoutes, { prefix: "/api" });
     await fastify.register(pricingPlanRoutes, { prefix: "/api" });
     await fastify.register(promoCodeRoutes, { prefix: "/api" });
     await fastify.register(markingCriterionRoutes, { prefix: "/api" });
     await fastify.register(billingRoutes, { prefix: "/api" });
-    await fastify.register(creditPackageRoutes, { prefix: "/api/credit-packages" });
+    await fastify.register(creditPackageRoutes, {
+      prefix: "/api/credit-packages",
+    });
     await fastify.register(studentCasePracticeRoutes, { prefix: "/api" });
     await fastify.register(studentInterviewPracticeRoutes, { prefix: "/api" });
     await fastify.register(interviewCourseSectionRoutes, { prefix: "/api" });
     await fastify.register(interviewCourseSubsectionRoutes, { prefix: "/api" });
     await fastify.register(interviewCourseEnrollmentRoutes, { prefix: "/api" });
-    await fastify.register(interviewSubsectionProgressRoutes, { prefix: "/api" });
+    await fastify.register(interviewSubsectionProgressRoutes, {
+      prefix: "/api",
+    });
     await fastify.register(affiliateRoutes, { prefix: "/api" });
 
     const port = Number(process.env.PORT) || 3000;
     const host = process.env.HOST || "0.0.0.0";
 
     await fastify.listen({ port, host });
-    fastify.log.info({ host, port }, 'Server running');
-    fastify.log.info('JWT authentication enabled with global auth hook');
-    fastify.log.info('Admin users automatically identified on all routes');
-    fastify.log.info('CORS enabled for ALL origins');
+    fastify.log.info({ host, port }, "Server running");
+    fastify.log.info("JWT authentication enabled with global auth hook");
+    fastify.log.info("Admin users automatically identified on all routes");
+    fastify.log.info("CORS enabled for ALL origins");
 
     // Start cleanup service for pending registrations
-    const cleanupService = new CleanupService(prisma, fastify.log.child({ service: 'CleanupService' }));
+    const cleanupService = new CleanupService(
+      prisma,
+      fastify.log.child({ service: "CleanupService" }),
+    );
 
-    fastify.log.info('Running initial cleanup');
+    fastify.log.info("Running initial cleanup");
     await cleanupService.cleanupExpiredOTPs();
 
-    setInterval(async () => {
-      fastify.log.info('Running scheduled cleanup');
-      try {
-        await cleanupService.cleanupExpiredOTPs();
-        await cleanupService.cleanupExpiredPendingRegistrations();
-      } catch (error) {
-        fastify.log.error({ err: error }, 'Cleanup failed');
-      }
-    }, 6 * 60 * 60 * 1000);
+    setInterval(
+      async () => {
+        fastify.log.info("Running scheduled cleanup");
+        try {
+          await cleanupService.cleanupExpiredOTPs();
+          await cleanupService.cleanupExpiredPendingRegistrations();
+        } catch (error) {
+          fastify.log.error({ err: error }, "Cleanup failed");
+        }
+      },
+      6 * 60 * 60 * 1000,
+    );
 
-    fastify.log.info('Cleanup service started (runs every 6 hours)');
+    fastify.log.info("Cleanup service started (runs every 6 hours)");
   } catch (err) {
-    fastify.log.error({ err }, 'Server startup failed');
+    fastify.log.error({ err }, "Server startup failed");
     process.exit(1);
   }
 };
 
 start();
 
-process.on('SIGTERM', async () => {
-  fastify.log.info('SIGTERM received, shutting down gracefully');
+process.on("SIGTERM", async () => {
+  fastify.log.info("SIGTERM received, shutting down gracefully");
   process.exit(0);
 });
 
-process.on('SIGINT', async () => {
-  fastify.log.info('SIGINT received, shutting down gracefully');
+process.on("SIGINT", async () => {
+  fastify.log.info("SIGINT received, shutting down gracefully");
   process.exit(0);
 });
