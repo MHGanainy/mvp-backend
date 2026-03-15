@@ -387,11 +387,21 @@ export class SubscriptionService {
     })
 
     if (!subscription) {
+      // Check if user ever had a subscription for this resource (including expired ones)
+      const anyPastSubscription = await this.prisma.subscription.findFirst({
+        where: {
+          studentId,
+          resourceType: resourceType as ResourceType,
+          resourceId,
+        },
+        orderBy: { endDate: 'desc' }
+      })
+
       return {
         hasActiveSubscription: false,
         daysRemaining: 0,
         hoursRemaining: null,
-        isExpired: true,
+        isExpired: !!anyPastSubscription, // Only true if they had a subscription before
         isAdmin: false,
         subscription: null
       }
