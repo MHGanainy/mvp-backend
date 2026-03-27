@@ -330,8 +330,15 @@ export class InterviewCaseService {
       where: whereConditions
     })
 
+    // Build include with only fields needed for list view
     const include: any = {
-      ...this.getStandardInclude()
+      interviewCaseSpecialties: {
+        include: {
+          specialty: {
+            select: { id: true, name: true }
+          }
+        }
+      }
     }
 
     if (options.studentId) {
@@ -341,11 +348,7 @@ export class InterviewCaseService {
         },
         select: {
           isPracticed: true,
-          practiceCount: true,
-          firstPracticedAt: true,
-          lastPracticedAt: true,
-          isBookmarked: true,
-          bookmarkedAt: true
+          isBookmarked: true
         }
       }
     }
@@ -368,11 +371,7 @@ export class InterviewCaseService {
         ...rest,
         studentStatus: status ? {
           isPracticed: status.isPracticed,
-          practiceCount: status.practiceCount,
-          firstPracticedAt: status.firstPracticedAt,
-          lastPracticedAt: status.lastPracticedAt,
-          isBookmarked: status.isBookmarked,
-          bookmarkedAt: status.bookmarkedAt
+          isBookmarked: status.isBookmarked
         } : null
       }
     })
