@@ -352,9 +352,15 @@ export class CourseCaseService {
       where: whereConditions
     })
 
-    // Build include with optional student practice data
+    // Build include with only fields needed for list view
     const include: any = {
-      ...this.getStandardInclude()
+      caseSpecialties: {
+        include: {
+          specialty: {
+            select: { id: true, name: true }
+          }
+        }
+      }
     }
 
     // Include student practice data if studentId is provided
@@ -365,11 +371,7 @@ export class CourseCaseService {
         },
         select: {
           isPracticed: true,
-          practiceCount: true,
-          firstPracticedAt: true,
-          lastPracticedAt: true,
-          isBookmarked: true,
-          bookmarkedAt: true
+          isBookmarked: true
         }
       }
     }
@@ -394,11 +396,7 @@ export class CourseCaseService {
         ...rest,
         studentStatus: status ? {
           isPracticed: status.isPracticed,
-          practiceCount: status.practiceCount,
-          firstPracticedAt: status.firstPracticedAt,
-          lastPracticedAt: status.lastPracticedAt,
-          isBookmarked: status.isBookmarked,
-          bookmarkedAt: status.bookmarkedAt
+          isBookmarked: status.isBookmarked
         } : null
       }
     })
