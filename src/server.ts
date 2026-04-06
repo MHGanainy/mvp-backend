@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import fastifyJwt from "@fastify/jwt";
 import fastifyCors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import "./shared/types";
 import { optionalAuth } from "./middleware/auth.middleware";
 import { registerRequestLogging } from "./middleware/request-logger.middleware";
@@ -88,6 +90,17 @@ fastify.register(fastifyCors, {
   origin: true, // This allows ALL origins
   credentials: true, // Allow cookies/credentials
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Allowed methods
+});
+
+// Register security headers
+fastify.register(helmet, {
+  contentSecurityPolicy: false,
+});
+
+// Register rate limiting
+fastify.register(rateLimit, {
+  max: 100,
+  timeWindow: "1 minute",
 });
 
 // Register request logging middleware (must be after JWT plugin)
