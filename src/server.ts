@@ -45,6 +45,9 @@ import interviewSubsectionProgressRoutes from "./entities/interview-subsection-p
 import affiliateRoutes from "./entities/affiliate/affiliate.routes";
 import pricingPlanRoutes from "./entities/pricing-plan/pricing-plan.routes";
 import promoCodeRoutes from "./entities/promo-code/promo-code.routes";
+import blogArticleRoutes from "./entities/blog-article/blog-article.routes";
+import blogCategoryRoutes from "./entities/blog-category/blog-category.routes";
+import tagRoutes from "./entities/tag/tag.routes";
 import { CleanupService } from "./services/cleanup.service";
 
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -253,6 +256,11 @@ const start = async () => {
       prefix: "/api",
     });
     await fastify.register(affiliateRoutes, { prefix: "/api" });
+
+    // Blog routes
+    await fastify.register(blogArticleRoutes, { prefix: "/api" });
+    await fastify.register(blogCategoryRoutes, { prefix: "/api" });
+    await fastify.register(tagRoutes, { prefix: "/api" });
 
     const port = Number(process.env.PORT) || 3000;
     const host = process.env.HOST || "0.0.0.0";
