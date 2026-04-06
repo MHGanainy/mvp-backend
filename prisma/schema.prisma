@@ -26,9 +26,10 @@ model User {
   passwordResetToken   String?   @unique @map("password_reset_token")
   passwordResetExpires DateTime? @map("password_reset_expires")
 
-  instructor Instructor?
-  student    Student?
-  referral   Referral?
+  instructor   Instructor?
+  student      Student?
+  referral     Referral?
+  blogArticles BlogArticle[]
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -1054,4 +1055,152 @@ model PromoCodeRedemption {
 
   @@unique([promoCodeId, studentId])
   @@map("promo_code_redemptions")
+}
+
+// ─── Blog System ────────────────────────────────────────────
+
+enum BlogArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model BlogCategory {
+  id               String   @id @default(uuid())
+  slug             String   @unique @db.VarChar(100)
+  name             String   @db.VarChar(100)
+  description      String?
+  metaDescription  String?  @map("meta_description") @db.VarChar(160)
+  featuredImageUrl String?  @map("featured_image_url") @db.VarChar(500)
+  displayOrder     Int      @default(0) @map("display_order")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  articleCategories ArticleCategory[]
+
+  @@index([isActive])
+  @@index([displayOrder])
+  @@map("blog_categories")
+}
+
+model BlogArticle {
+  id                    String            @id @default(uuid())
+  slug                  String            @unique @db.VarChar(200)
+
+  // SEO
+  headline              String            @db.VarChar(110)
+  subheadline           String?           @db.VarChar(150)
+  metaDescription       String            @map("meta_description") @db.VarChar(160)
+  metaKeywords          String[]          @default([]) @map("meta_keywords")
+
+  // Content
+  content               String
+  excerpt               String
+  tldr                  String?
+
+  // Author (FK to existing User table — auto-set from request.user.userId on create)
+  authorId              Int               @map("author_id")
+  author                User              @relation(fields: [authorId], references: [id])
+
+  // Dates
+  publishedDate         DateTime?         @map("published_date")
+  updatedDate           DateTime?         @map("updated_date")
+  createdAt             DateTime          @default(now()) @map("created_at")
+
+  // Status
+  status                BlogArticleStatus @default(DRAFT)
+
+  // Computed on save
+  wordCount             Int               @map("word_count")
+  readingTimeMinutes    Int               @map("reading_time_minutes")
+
+  // Featured image
+  featuredImageUrl      String            @map("featured_image_url") @db.VarChar(500)
+  featuredImageAlt      String            @map("featured_image_alt")
+  featuredImageCaption  String?           @map("featured_image_caption")
+  blurDataUrl           String?           @map("blur_data_url")
+
+  // Engagement
+  viewCount             Int               @default(0) @map("view_count")
+  shareCount            Int               @default(0) @map("share_count")
+
+  // Relations
+  articleCategories     ArticleCategory[]
+  articleTags           ArticleTag[]
+  faqs                  ArticleFaq[]
+  relatedFrom           ArticleRelatedContent[] @relation("RelatedFrom")
+  relatedTo             ArticleRelatedContent[] @relation("RelatedTo")
+
+  @@index([status])
+  @@index([authorId])
+  @@index([publishedDate(sort: Desc)])
+  @@map("blog_articles")
+}
+
+model ArticleCategory {
+  articleId  String       @map("article_id")
+  categoryId String      @map("category_id")
+  isPrimary  Boolean     @default(false) @map("is_primary")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  article    BlogArticle  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  category   BlogCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, categoryId])
+  @@index([categoryId])
+  @@map("article_categories")
+}
+
+model Tag {
+  id          String   @id @default(uuid())
+  slug        String   @unique @db.VarChar(100)
+  name        String   @db.VarChar(100)
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  articleTags ArticleTag[]
+
+  @@map("tags")
+}
+
+model ArticleTag {
+  articleId String      @map("article_id")
+  tagId     String      @map("tag_id")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  article   BlogArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag       Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+  @@index([tagId])
+  @@map("article_tags")
+}
+
+model ArticleFaq {
+  id        String      @id @default(uuid())
+  articleId String      @map("article_id")
+  question  String
+  answer    String
+  position  Int
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  article   BlogArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, position])
+  @@index([articleId])
+  @@map("article_faqs")
+}
+
+model ArticleRelatedContent {
+  articleId        String      @map("article_id")
+  relatedArticleId String      @map("related_article_id")
+  relevanceScore   Int         @default(50) @map("relevance_score")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  article          BlogArticle @relation("RelatedFrom", fields: [articleId], references: [id], onDelete: Cascade)
+  relatedArticle   BlogArticle @relation("RelatedTo", fields: [relatedArticleId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, relatedArticleId])
+  @@map("article_related_content")
 }
