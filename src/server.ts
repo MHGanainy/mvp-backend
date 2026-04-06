@@ -4,6 +4,7 @@ import fastifyJwt from "@fastify/jwt";
 import fastifyCors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import multipart from "@fastify/multipart";
 import "./shared/types";
 import { optionalAuth } from "./middleware/auth.middleware";
 import { registerRequestLogging } from "./middleware/request-logger.middleware";
@@ -48,6 +49,7 @@ import promoCodeRoutes from "./entities/promo-code/promo-code.routes";
 import blogArticleRoutes from "./entities/blog-article/blog-article.routes";
 import blogCategoryRoutes from "./entities/blog-category/blog-category.routes";
 import tagRoutes from "./entities/tag/tag.routes";
+import blogUploadRoutes from "./entities/blog-upload/blog-upload.routes";
 import { CleanupService } from "./services/cleanup.service";
 
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -104,6 +106,14 @@ fastify.register(helmet, {
 fastify.register(rateLimit, {
   max: 100,
   timeWindow: "1 minute",
+});
+
+// Register multipart file upload support
+fastify.register(multipart, {
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+    files: 1,
+  },
 });
 
 // Register request logging middleware (must be after JWT plugin)
@@ -261,6 +271,7 @@ const start = async () => {
     await fastify.register(blogArticleRoutes, { prefix: "/api" });
     await fastify.register(blogCategoryRoutes, { prefix: "/api" });
     await fastify.register(tagRoutes, { prefix: "/api" });
+    await fastify.register(blogUploadRoutes, { prefix: "/api" });
 
     const port = Number(process.env.PORT) || 3000;
     const host = process.env.HOST || "0.0.0.0";
