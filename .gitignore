@@ -117,4 +117,5 @@ docs/
 .vercel/
 .claude/*
 thoughts/*
+tools/
 *.sql

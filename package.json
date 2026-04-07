@@ -10,7 +10,8 @@
     "postinstall": "prisma generate",
     "db:migrate": "npx prisma migrate deploy",
     "db:dev": "npx prisma dev",
-    "db:generate": "npx prisma generate"
+    "db:generate": "npx prisma generate",
+    "api-tester": "npx serve tools -p 5500"
   },
   "repository": {
     "type": "git",
