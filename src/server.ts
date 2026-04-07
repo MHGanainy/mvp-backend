@@ -129,7 +129,9 @@ fastify.addContentTypeParser(
     if (req.url?.includes("/webhooks/stripe")) {
       req.rawBody = body.toString("utf-8");
     }
-    return JSON.parse(body.toString("utf-8"));
+    const str = body.toString("utf-8");
+    if (!str) return null;
+    return JSON.parse(str);
   },
 );
 
