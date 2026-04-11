@@ -18,6 +18,7 @@ import { emailService } from "../../services/email.service";
 import { otpService } from "../../services/otp.service";
 import { oauthService } from "../../services/oauth.service";
 import { CREDITS } from "../../shared/constants";
+import { normalizeEmailForDedup, isDisposableEmail } from "../../shared/email-utils";
 
 export class AuthService {
   private fastify: FastifyInstance;
@@ -31,8 +32,11 @@ export class AuthService {
 
   // Student Registration
   async registerStudent(data: RegisterStudentInput) {
-    // Normalize email to lowercase
-    const normalizedEmail = data.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmailForDedup(data.email);
+
+    if (isDisposableEmail(normalizedEmail)) {
+      throw new Error("Disposable email addresses are not allowed. Please use a permanent email address.");
+    }
 
     // Check if email already exists in users table
     const existingUser = await this.prisma.user.findUnique({
@@ -113,8 +117,11 @@ export class AuthService {
 
   // Instructor Registration
   async registerInstructor(data: RegisterInstructorInput) {
-    // Normalize email to lowercase
-    const normalizedEmail = data.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmailForDedup(data.email);
+
+    if (isDisposableEmail(normalizedEmail)) {
+      throw new Error("Disposable email addresses are not allowed. Please use a permanent email address.");
+    }
 
     // Check if email already exists in users table
     const existingUser = await this.prisma.user.findUnique({
@@ -196,8 +203,7 @@ export class AuthService {
   }
 
   async login(data: LoginInput) {
-    // Normalize email to lowercase for consistent comparison
-    const normalizedEmail = data.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmailForDedup(data.email);
 
     // Check if user is in pending registration (not yet verified)
     const pending = await this.prisma.pendingRegistration.findUnique({
@@ -399,7 +405,7 @@ export class AuthService {
 
   // OTP Verification - NOW creates the user
   async verifyOTP(data: VerifyOTPInput) {
-    const normalizedEmail = data.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmailForDedup(data.email);
 
     // Find pending registration
     const pending = await this.prisma.pendingRegistration.findUnique({
@@ -598,7 +604,7 @@ export class AuthService {
 
   // Resend OTP
   async resendOTP(data: ResendOTPInput) {
-    const normalizedEmail = data.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmailForDedup(data.email);
 
     // Check pending registrations first
     const pending = await this.prisma.pendingRegistration.findUnique({
@@ -650,7 +656,7 @@ export class AuthService {
       throw new Error("Google email not verified");
     }
 
-    const normalizedEmail = googleProfile.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmailForDedup(googleProfile.email);
 
     // Check if user exists
     let user = await this.prisma.user.findUnique({
@@ -663,6 +669,9 @@ export class AuthService {
 
     // If user doesn't exist, create new user
     if (!user) {
+      if (isDisposableEmail(normalizedEmail)) {
+        throw new Error("Disposable email addresses are not allowed. Please use a permanent email address.");
+      }
       const result = await this.prisma.$transaction(
         async (tx: Prisma.TransactionClient) => {
           const newUser = await tx.user.create({
@@ -867,7 +876,7 @@ export class AuthService {
 
   // Forgot Password
   async forgotPassword(data: ForgotPasswordInput) {
-    const normalizedEmail = data.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmailForDedup(data.email);
 
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
