@@ -26,8 +26,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
       reply.status(201).send(result);
     } catch (error) {
       if (error instanceof Error) {
-        if (error.message === "Email already registered") {
-          reply.status(400).send({ error: "Email already registered" });
+        if (
+          error.message === "Email already registered" ||
+          error.message === "Disposable email addresses are not allowed. Please use a permanent email address."
+        ) {
+          reply.status(400).send({ error: error.message });
         } else {
           reply.status(400).send({ error: "Invalid registration data" });
         }
@@ -45,8 +48,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
       reply.status(201).send(result);
     } catch (error) {
       if (error instanceof Error) {
-        if (error.message === "Email already registered") {
-          reply.status(400).send({ error: "Email already registered" });
+        if (
+          error.message === "Email already registered" ||
+          error.message === "Disposable email addresses are not allowed. Please use a permanent email address."
+        ) {
+          reply.status(400).send({ error: error.message });
         } else {
           reply.status(400).send({ error: "Invalid registration data" });
         }
@@ -161,6 +167,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
           error.message === "Google email not verified"
         ) {
           reply.status(401).send({ error: error.message });
+        } else if (
+          error.message === "Disposable email addresses are not allowed. Please use a permanent email address."
+        ) {
+          reply.status(400).send({ error: error.message });
         } else {
           reply.status(400).send({ error: "Google authentication failed" });
         }
