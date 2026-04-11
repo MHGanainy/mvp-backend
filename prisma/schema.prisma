@@ -1204,3 +1204,14 @@ model ArticleRelatedContent {
   @@id([articleId, relatedArticleId])
   @@map("article_related_content")
 }
+
+// Domains blocked from registration — supplements the static disposable-email-domains list.
+// Add rows here at runtime to block new providers without a deploy.
+model BlockedEmailDomain {
+  id        Int      @id @default(autoincrement())
+  domain    String   @unique
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("blocked_email_domains")
+}

@@ -1,6 +1,7 @@
 // src/entities/auth/auth.service.ts
 import { PrismaClient, Prisma } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
+import { promises as dns } from "dns";
 import { FastifyInstance } from "fastify";
 import {
   LoginInput,
@@ -20,6 +21,12 @@ import { oauthService } from "../../services/oauth.service";
 import { CREDITS } from "../../shared/constants";
 import { normalizeEmailForDedup, isDisposableEmail } from "../../shared/email-utils";
 
+// Privacy relay services used by legitimate users — never block these.
+const ALLOWED_RELAY_DOMAINS = new Set([
+  "privaterelay.appleid.com", // Apple Hide My Email
+  "mozmail.com",              // Firefox Relay
+]);
+
 export class AuthService {
   private fastify: FastifyInstance;
 
@@ -34,7 +41,7 @@ export class AuthService {
   async registerStudent(data: RegisterStudentInput) {
     const normalizedEmail = normalizeEmailForDedup(data.email);
 
-    if (isDisposableEmail(normalizedEmail)) {
+    if (await this.isBlockedEmail(normalizedEmail)) {
       throw new Error("Disposable email addresses are not allowed. Please use a permanent email address.");
     }
 
@@ -119,7 +126,7 @@ export class AuthService {
   async registerInstructor(data: RegisterInstructorInput) {
     const normalizedEmail = normalizeEmailForDedup(data.email);
 
-    if (isDisposableEmail(normalizedEmail)) {
+    if (await this.isBlockedEmail(normalizedEmail)) {
       throw new Error("Disposable email addresses are not allowed. Please use a permanent email address.");
     }
 
@@ -669,7 +676,7 @@ export class AuthService {
 
     // If user doesn't exist, create new user
     if (!user) {
-      if (isDisposableEmail(normalizedEmail)) {
+      if (await this.isBlockedEmail(normalizedEmail)) {
         throw new Error("Disposable email addresses are not allowed. Please use a permanent email address.");
       }
       const result = await this.prisma.$transaction(
@@ -1034,6 +1041,98 @@ export class AuthService {
     return {
       message: "Password changed successfully",
     };
+  }
+
+  // Layered disposable-email check. Each layer is a free/fast gate that
+  // filters out the obvious cases before spending an API credit.
+  //
+  //  1. Allowlist  — never block legitimate privacy relay domains
+  //  2. Static npm list  — 120k+ known providers, 0 ms, no I/O
+  //  3. DNS MX check     — no MX records = can't receive email, free, ~20 ms
+  //  4. DB custom blocklist — admin-managed overrides, ~5 ms
+  //  5. UserCheck API    — real-time detection for unknown providers, ~100 ms
+  //                         fail-open on any error (timeout, quota, network)
+  private async isBlockedEmail(email: string): Promise<boolean> {
+    const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
+
+    // Layer 1 — always allow known privacy relay services
+    if (ALLOWED_RELAY_DOMAINS.has(domain)) return false;
+
+    // Layer 2 — static blocklist (sync, no I/O)
+    if (isDisposableEmail(email)) return true;
+
+    // Layer 3 — DNS MX check (free, unlimited)
+    const hasMx = await this.checkMxRecords(domain);
+    if (!hasMx) return true;
+
+    // Layer 4 — custom DB blocklist (before API to save credits)
+    const customBlocked = await this.prisma.blockedEmailDomain.findUnique({
+      where: { domain },
+    });
+    if (customBlocked) return true;
+
+    // Layer 5 — check-mail.org API (fail-open on any error)
+    const isDisposable = await this.checkDisposableApi(domain);
+
+    // Auto-cache confirmed disposable domains so future attempts are caught
+    // at Layer 4 without spending an API credit.
+    if (isDisposable) {
+      try {
+        await this.prisma.blockedEmailDomain.upsert({
+          where: { domain },
+          create: { domain, reason: "Auto-blocked via check-mail.org" },
+          update: {},
+        });
+      } catch {
+        // Cache write failure is non-critical — the registration is still blocked.
+        this.fastify.log.warn(
+          { domain },
+          "Failed to cache disposable domain in blocked_email_domains",
+        );
+      }
+    }
+
+    return isDisposable;
+  }
+
+  // Returns false (fail-open) if the DNS lookup errors — we only block when
+  // we positively confirm there are no MX records.
+  private async checkMxRecords(domain: string): Promise<boolean> {
+    try {
+      const records = await dns.resolveMx(domain);
+      return records.length > 0;
+    } catch {
+      return true; // fail-open: DNS error → assume valid
+    }
+  }
+
+  // Returns false (fail-open) on timeout, missing key, or any network error
+  // so that API issues never block legitimate registrations.
+  // Uses check-mail.org — detects burner domains via heuristics and MX
+  // clustering, catching providers that static lists miss (e.g. temp-mail.org
+  // operated domains). Requires CHECK_MAIL_API_KEY env var.
+  private async checkDisposableApi(domain: string): Promise<boolean> {
+    const apiKey = process.env.CHECK_MAIL_API_KEY;
+    if (!apiKey) return false; // not configured → fail-open
+
+    try {
+      const response = await fetch("https://api.check-mail.org/v2/", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: `domain=${encodeURIComponent(domain)}`,
+        signal: AbortSignal.timeout(2000),
+      });
+
+      if (!response.ok) return false; // quota exhausted or server error → fail-open
+
+      const data = (await response.json()) as { block?: boolean };
+      return data.block === true;
+    } catch {
+      return false; // timeout or network error → fail-open
+    }
   }
 
   // Password hashing utilities
