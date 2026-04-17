@@ -13,7 +13,7 @@ export class BlogArticleService {
     const { page, limit, sort, order, category, tag, search, status } = query
     const skip = (page - 1) * limit
 
-    const andConditions: any[] = [{ status }]
+    const andConditions: any[] = status ? [{ status }] : []
 
     if (category) {
       andConditions.push({
@@ -355,6 +355,7 @@ export class BlogArticleService {
       slug: true,
       headline: true,
       excerpt: true,
+      status: true,
       featuredImageUrl: true,
       featuredImageAlt: true,
       blurDataUrl: true,
@@ -382,6 +383,7 @@ export class BlogArticleService {
       slug: article.slug,
       headline: article.headline,
       excerpt: article.excerpt,
+      status: article.status,
       featuredImage: {
         url: article.featuredImageUrl,
         alt: article.featuredImageAlt,
