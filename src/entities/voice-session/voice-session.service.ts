@@ -210,8 +210,6 @@ export class VoiceSessionService {
         where: { id: attempt.id },
         data: {
           transcript: transcript as unknown as Prisma.JsonObject,
-          isCompleted: true,
-          endedAt: now,
         },
       });
     } else {
@@ -225,8 +223,6 @@ export class VoiceSessionService {
         where: { id: attempt.id },
         data: {
           transcript: transcript as unknown as Prisma.JsonObject,
-          isCompleted: true,
-          endedAt: now,
         },
       });
     }
