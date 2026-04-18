@@ -50,6 +50,7 @@ import blogArticleRoutes from "./entities/blog-article/blog-article.routes";
 import blogCategoryRoutes from "./entities/blog-category/blog-category.routes";
 import tagRoutes from "./entities/tag/tag.routes";
 import blogUploadRoutes from "./entities/blog-upload/blog-upload.routes";
+import voiceSessionRoutes from "./entities/voice-session/voice-session.routes";
 import { CleanupService } from "./services/cleanup.service";
 
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -268,6 +269,7 @@ const start = async () => {
       prefix: "/api",
     });
     await fastify.register(affiliateRoutes, { prefix: "/api" });
+    await fastify.register(voiceSessionRoutes, { prefix: "/api" });
 
     // Blog routes
     await fastify.register(blogArticleRoutes, { prefix: "/api" });
