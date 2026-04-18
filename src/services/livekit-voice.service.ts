@@ -15,8 +15,14 @@ interface VoiceAgentContext {
   userId?: string;
 }
 
-export function useVoiceAgentV2(_ctx?: VoiceAgentContext): boolean {
-  // Global toggle for now. Extend to check per-account flags as needed.
+const VOICE_AGENT_V2_ALLOWLIST: Set<string> = new Set([
+  'aabdelzaher96@gmail.com',
+]);
+
+export function useVoiceAgentV2(ctx?: VoiceAgentContext): boolean {
+  if (ctx?.userId && VOICE_AGENT_V2_ALLOWLIST.has(ctx.userId)) {
+    return true;
+  }
   return process.env.USE_LIVEKIT_AGENTS === 'true';
 }
 
