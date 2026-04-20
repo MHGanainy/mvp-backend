@@ -11,7 +11,7 @@ export const blogArticleIdParamsSchema = z.object({
 })
 
 export const blogArticlesQuerySchema = z.object({
-  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).default('PUBLISHED'),
+  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
   category: z.string().optional(),
   tag: z.string().optional(),
   search: z.string().optional(),

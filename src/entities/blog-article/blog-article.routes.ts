@@ -40,6 +40,10 @@ export default async function blogArticleRoutes(fastify: FastifyInstance) {
     try {
       const { slug } = blogArticleSlugParamsSchema.parse(request.params)
       const article = await service.findBySlug(slug)
+      // Non-admins must not see draft or archived articles
+      if (!request.isAdmin && article.status !== 'PUBLISHED') {
+        return reply.status(404).send({ error: 'Article not found' })
+      }
       reply.header('Cache-Control', CACHE_PUBLIC).send(article)
     } catch (error) {
       if (error instanceof Error && error.message === 'Article not found') {
