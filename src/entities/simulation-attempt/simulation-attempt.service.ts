@@ -466,11 +466,31 @@ export class SimulationAttemptService {
       this.log.info({ attemptId: id }, '[SimulationAttempt] LiveKit session ended');
     }
 
-    // Fetch the attempt again to get the transcript that was just saved by session end
-    const attemptWithTranscript =
-      await this.prisma.simulationAttempt.findUnique({
+    // Poll for the agent's async transcript POST to land (up to 5s).
+    // Under the LiveKit Agents flow, endSession() returns when the room is
+    // deleted, but the agent's transcript save happens asynchronously after.
+    const maxRetries = 5;
+    const retryDelayMs = 1000;
+    let attemptWithTranscript = await this.prisma.simulationAttempt.findUnique({
+      where: { id },
+    });
+
+    for (let retryAttempt = 1; retryAttempt < maxRetries; retryAttempt++) {
+      if (attemptWithTranscript?.transcript) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      attemptWithTranscript = await this.prisma.simulationAttempt.findUnique({
         where: { id },
       });
+    }
+
+    if (!attemptWithTranscript?.transcript) {
+      this.log.warn(
+        { attemptId: id, maxRetries, retryDelayMs },
+        '[SimulationAttempt] Transcript did not arrive within poll window on cancel',
+      );
+    }
 
     // Process transcript to clean format for consistency (same as completeWithTranscript)
     let cleanTranscript: Prisma.InputJsonValue | null = null;
@@ -1968,27 +1988,27 @@ export class SimulationAttemptService {
       // OLD CODE - Fetch transcript from voice assistant API
       console.log(`[SimulationAttempt] Fetching transcript from voice assistant`);
       const transcriptData = await voiceAgentService.getTranscript(correlationToken);
-      
+
       const transcript: TranscriptClean = this.transformTranscript(transcriptData);
-      
+
       const endTime = new Date();
       const durationSeconds = Math.floor((endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
-  
+
       console.log(`[SimulationAttempt] Transcript fetched successfully with ${transcript.totalMessages} messages`);
-      
+
       // 2. Extract case tabs (doctor's notes, patient script, medical notes)
       interface CaseTabs {
         doctorsNote: string[];
         patientScript: string[];
         medicalNotes: string[];
       }
-  
+
       const caseTabs: CaseTabs = {
         doctorsNote: [],
         patientScript: [],
         medicalNotes: []
       };
-  
+
       existingAttempt.simulation.courseCase.caseTabs.forEach(tab => {
         switch(tab.tabType) {
           case 'DOCTORS_NOTE':
@@ -2002,7 +2022,7 @@ export class SimulationAttemptService {
             break;
         }
       });
-  
+
       // 3. Group marking criteria by domain
       interface MarkingDomainWithCriteria {
         domainId: string;
@@ -2014,12 +2034,12 @@ export class SimulationAttemptService {
           displayOrder: number;
         }[];
       }
-  
+
       const domainsMap = new Map<string, MarkingDomainWithCriteria>();
-      
+
       existingAttempt.simulation.courseCase.markingCriteria.forEach(criterion => {
         const domainId = criterion.markingDomain.id;
-        
+
         if (!domainsMap.has(domainId)) {
           domainsMap.set(domainId, {
             domainId: criterion.markingDomain.id,
@@ -2027,7 +2047,7 @@ export class SimulationAttemptService {
             criteria: []
           });
         }
-        
+
         domainsMap.get(domainId)!.criteria.push({
           id: criterion.id,
           text: criterion.text,
@@ -2035,9 +2055,9 @@ export class SimulationAttemptService {
           displayOrder: criterion.displayOrder
         });
       });
-  
+
       const markingDomainsWithCriteria = Array.from(domainsMap.values());
-  
+
       // 4. Prepare case info
       const caseInfo = {
         patientName: existingAttempt.simulation.courseCase.patientName,
@@ -2046,21 +2066,21 @@ export class SimulationAttemptService {
         patientAge: existingAttempt.simulation.courseCase.patientAge,
         patientGender: existingAttempt.simulation.courseCase.patientGender
       };
-  
+
       let aiFeedback: Prisma.InputJsonValue | null = null;
       let score: number | null = null;
       let aiPrompt: Prisma.InputJsonValue | null = null;
-    
+
       try {
         console.log(`[SimulationAttempt] Generating AI feedback...`);
         console.log(`[SimulationAttempt] Using ${markingDomainsWithCriteria.length} marking domains`);
-        
+
         // Generate AI feedback with the new structure
-        const { 
-          feedback, 
-          score: calculatedScore, 
+        const {
+          feedback,
+          score: calculatedScore,
           prompts,
-          markingStructure 
+          markingStructure
         } = await this.aiFeedbackService.generateFeedback(
           transcript,
           caseInfo,
@@ -2068,7 +2088,7 @@ export class SimulationAttemptService {
           durationSeconds,
           markingDomainsWithCriteria
         );
-    
+
         // Include full marking structure in the feedback
         aiFeedback = {
           ...feedback,
@@ -2084,12 +2104,12 @@ export class SimulationAttemptService {
           markingStructure: markingStructure,
           isAdminAttempt: existingAttempt.student.user.isAdmin // Add admin flag
         } as unknown as Prisma.InputJsonValue;
-        
+
         score = calculatedScore;
         aiPrompt = prompts as unknown as Prisma.InputJsonValue;
-        
+
         console.log(`[SimulationAttempt] AI feedback generated successfully with score: ${score}`);
-        
+
       } catch (aiError) {
         console.error('[SimulationAttempt] AI feedback generation failed:', aiError);
         aiFeedback = {
@@ -2101,7 +2121,7 @@ export class SimulationAttemptService {
           fallbackFeedback: this.generateFallbackFeedback()
         } as unknown as Prisma.InputJsonValue;
       }
-  
+
       // 6. Update the simulation attempt
       const updatedAttempt = await this.prisma.simulationAttempt.update({
         where: { id: attemptId },
@@ -2127,17 +2147,17 @@ export class SimulationAttemptService {
           }
         }
       });
-  
+
       console.log(`[SimulationAttempt] Attempt ${attemptId} completed successfully`);
       return updatedAttempt;
-  
+
     } catch (error) {
       console.error('[SimulationAttempt] Error in completeWithTranscript:', error);
-      
+
       // Still try to complete the attempt even if transcript fetch fails
       const endTime = new Date();
       const durationSeconds = Math.floor((endTime.getTime() - new Date(existingAttempt.startedAt).getTime()) / 1000);
-      
+
       const fallbackAttempt = await this.prisma.simulationAttempt.update({
         where: { id: attemptId },
         data: {
@@ -2170,7 +2190,7 @@ export class SimulationAttemptService {
           }
         }
       });
-      
+
       console.log(`[SimulationAttempt] Attempt ${attemptId} completed with errors`);
       return fallbackAttempt;
     }

@@ -258,11 +258,31 @@ export class InterviewSimulationAttemptService {
       this.log.info('[InterviewSimulationAttempt] LiveKit session ended');
     }
 
-    // Fetch the attempt again to get the transcript that was just saved by session end
-    const attemptWithTranscript =
-      await this.prisma.interviewSimulationAttempt.findUnique({
+    // Poll for the agent's async transcript POST to land (up to 5s).
+    // Under the LiveKit Agents flow, endSession() returns when the room is
+    // deleted, but the agent's transcript save happens asynchronously after.
+    const maxRetries = 5;
+    const retryDelayMs = 1000;
+    let attemptWithTranscript = await this.prisma.interviewSimulationAttempt.findUnique({
+      where: { id },
+    });
+
+    for (let retryAttempt = 1; retryAttempt < maxRetries; retryAttempt++) {
+      if (attemptWithTranscript?.transcript) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      attemptWithTranscript = await this.prisma.interviewSimulationAttempt.findUnique({
         where: { id },
       });
+    }
+
+    if (!attemptWithTranscript?.transcript) {
+      this.log.warn(
+        { attemptId: id, maxRetries, retryDelayMs },
+        '[InterviewSimulationAttempt] Transcript did not arrive within poll window on cancel',
+      );
+    }
 
     // Process transcript to clean format for consistency (same as completeWithTranscript)
     let cleanTranscript: Prisma.InputJsonValue | null = null;
