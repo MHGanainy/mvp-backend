@@ -180,6 +180,54 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
+  // POST /exams/:examId/duplicate - Duplicate an exam with all its content
+  fastify.post('/exams/:examId/duplicate', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const { examId } = examIdParamsSchema.parse(request.params)
+      const body = z.object({
+        title: z.string().min(1).max(200),
+        description: z.string().max(1000).optional(),
+        slug: z.string().regex(/^[a-z0-9-]+$/).max(200).optional(),
+        instructorId: z.string().uuid().optional(),
+      }).parse(request.body)
+
+      const currentInstructorId = getCurrentInstructorId(request)
+      const targetInstructorId = (isAdmin(request) && body.instructorId)
+        ? body.instructorId
+        : currentInstructorId
+
+      if (!targetInstructorId) {
+        reply.status(403).send({ error: 'Could not determine instructor' })
+        return
+      }
+
+      const result = await examService.duplicateExam(examId, {
+        title: body.title,
+        description: body.description,
+        slug: body.slug,
+        instructorId: targetInstructorId,
+      })
+
+      reply.status(201).send({ message: 'Exam duplicated successfully', exam: result })
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Instructor not found') {
+          reply.status(404).send({ error: 'Instructor not found' })
+        } else if (error.message === 'Source exam not found') {
+          reply.status(404).send({ error: 'Source exam not found' })
+        } else if (error.message === 'Exam with this slug already exists') {
+          reply.status(400).send({ error: 'Exam with this slug already exists' })
+        } else {
+          reply.status(400).send({ error: 'Invalid data: ' + error.message })
+        }
+      } else {
+        replyInternalError(request, reply, error, 'Failed to duplicate exam')
+      }
+    }
+  })
+
   // POST /exams/create-complete - Create exam with all relations
   fastify.post('/exams/create-complete', {
     preHandler: authenticate
