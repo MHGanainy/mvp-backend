@@ -1273,6 +1273,198 @@ export class ExamService {
 
   
 
+  // ===== DUPLICATE EXAM =====
+
+  async duplicateExam(
+    sourceExamId: string,
+    data: { title: string; instructorId: string; description?: string; slug?: string }
+  ) {
+    const instructor = await this.prisma.instructor.findUnique({ where: { id: data.instructorId } })
+    if (!instructor) throw new Error('Instructor not found')
+
+    // Fetch exam metadata + junctions only (no nested content yet)
+    const source = await this.prisma.exam.findUnique({
+      where: { id: sourceExamId },
+      include: {
+        examSpecialties: true,
+        examCurriculums: true,
+        examMarkingDomains: true,
+        courses: {
+          select: { id: true }
+        }
+      }
+    })
+    if (!source) throw new Error('Source exam not found')
+
+    const slug = data.slug || this.generateSlug(data.title)
+    const existing = await this.prisma.exam.findUnique({ where: { slug } })
+    if (existing) throw new Error('Exam with this slug already exists')
+
+    return this.prisma.$transaction(async (tx) => {
+      const newExam = await tx.exam.create({
+        data: {
+          instructorId: data.instructorId,
+          title: data.title,
+          slug,
+          description: data.description ?? source.description,
+          isActive: false,
+        }
+      })
+
+      if (source.examSpecialties.length > 0) {
+        await tx.examSpecialty.createMany({
+          data: source.examSpecialties.map(e => ({ examId: newExam.id, specialtyId: e.specialtyId }))
+        })
+      }
+      if (source.examCurriculums.length > 0) {
+        await tx.examCurriculum.createMany({
+          data: source.examCurriculums.map(e => ({ examId: newExam.id, curriculumId: e.curriculumId }))
+        })
+      }
+      if (source.examMarkingDomains.length > 0) {
+        await tx.examMarkingDomain.createMany({
+          data: source.examMarkingDomains.map(e => ({ examId: newExam.id, markingDomainId: e.markingDomainId }))
+        })
+      }
+
+      for (const { id: sourceCourseId } of source.courses) {
+        // Fetch one course at a time to avoid loading everything into memory at once
+        const course = await tx.course.findUniqueOrThrow({
+          where: { id: sourceCourseId },
+          include: {
+            courseCases: {
+              include: {
+                caseTabs: true,
+                simulation: true,
+                markingCriteria: true,
+                caseSpecialties: true,
+                caseCurriculums: true,
+              }
+            },
+            courseSections: {
+              include: { subsections: true }
+            }
+          }
+        })
+
+        const newCourse = await tx.course.create({
+          data: {
+            examId: newExam.id,
+            instructorId: data.instructorId,
+            title: course.title,
+            slug: course.slug,
+            description: course.description,
+            style: course.style,
+            isPublished: false,
+            infoPoints: course.infoPoints,
+          }
+        })
+
+        for (const section of course.courseSections) {
+          const newSection = await tx.courseSection.create({
+            data: {
+              courseId: newCourse.id,
+              title: section.title,
+              description: section.description,
+              displayOrder: section.displayOrder,
+              isFree: section.isFree,
+            }
+          })
+          if (section.subsections.length > 0) {
+            await tx.courseSubsection.createMany({
+              data: section.subsections.map(s => ({
+                sectionId: newSection.id,
+                title: s.title,
+                description: s.description,
+                contentType: s.contentType,
+                content: s.content,
+                displayOrder: s.displayOrder,
+                estimatedDuration: s.estimatedDuration,
+                isFree: s.isFree,
+              }))
+            })
+          }
+        }
+
+        for (const ccase of course.courseCases) {
+          const newCase = await tx.courseCase.create({
+            data: {
+              courseId: newCourse.id,
+              title: ccase.title,
+              slug: ccase.slug,
+              diagnosis: ccase.diagnosis,
+              patientName: ccase.patientName,
+              patientAge: ccase.patientAge,
+              patientGender: ccase.patientGender,
+              description: ccase.description,
+              isFree: ccase.isFree,
+              displayOrder: ccase.displayOrder,
+            }
+          })
+
+          if (ccase.caseTabs.length > 0) {
+            await tx.caseTab.createMany({
+              data: ccase.caseTabs.map(t => ({
+                courseCaseId: newCase.id,
+                tabType: t.tabType,
+                content: t.content,
+              }))
+            })
+          }
+
+          if (ccase.simulation) {
+            await tx.simulation.create({
+              data: {
+                courseCaseId: newCase.id,
+                casePrompt: ccase.simulation.casePrompt,
+                openingLine: ccase.simulation.openingLine,
+                timeLimitMinutes: ccase.simulation.timeLimitMinutes,
+                voiceModel: ccase.simulation.voiceModel,
+                warningTimeMinutes: ccase.simulation.warningTimeMinutes,
+                creditCost: ccase.simulation.creditCost,
+                llmProviderKey: ccase.simulation.llmProviderKey,
+                sttProviderKey: ccase.simulation.sttProviderKey,
+                ttsProviderKey: ccase.simulation.ttsProviderKey,
+              }
+            })
+          }
+
+          if (ccase.markingCriteria.length > 0) {
+            await tx.markingCriterion.createMany({
+              data: ccase.markingCriteria.map(m => ({
+                courseCaseId: newCase.id,
+                markingDomainId: m.markingDomainId,
+                text: m.text,
+                points: m.points,
+                displayOrder: m.displayOrder,
+              }))
+            })
+          }
+
+          if (ccase.caseSpecialties.length > 0) {
+            await tx.caseSpecialty.createMany({
+              data: ccase.caseSpecialties.map(s => ({
+                courseCaseId: newCase.id,
+                specialtyId: s.specialtyId,
+              }))
+            })
+          }
+
+          if (ccase.caseCurriculums.length > 0) {
+            await tx.caseCurriculum.createMany({
+              data: ccase.caseCurriculums.map(c => ({
+                courseCaseId: newCase.id,
+                curriculumId: c.curriculumId,
+              }))
+            })
+          }
+        }
+      }
+
+      return newExam
+    }, { timeout: 120000 })
+  }
+
   // Helper method
   private generateSlug(title: string): string {
     return title
@@ -1282,5 +1474,5 @@ export class ExamService {
   }
 
 
-  
+
 }
