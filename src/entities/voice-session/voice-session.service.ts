@@ -69,7 +69,6 @@ export class VoiceSessionService {
         isAdmin: simAttempt.student.user.isAdmin,
         creditBalance: simAttempt.student.creditBalance,
         minutesBilled: simAttempt.minutesBilled ?? 0,
-        timeLimitMinutes: simAttempt.simulation.timeLimitMinutes,
         startedAt: simAttempt.startedAt,
         table: 'simulationAttempt',
       });
@@ -91,7 +90,6 @@ export class VoiceSessionService {
         isAdmin: interviewAttempt.student.user.isAdmin,
         creditBalance: interviewAttempt.student.creditBalance,
         minutesBilled: interviewAttempt.minutesBilled ?? 0,
-        timeLimitMinutes: interviewAttempt.interviewSimulation.timeLimitMinutes,
         startedAt: interviewAttempt.startedAt,
         table: 'interviewSimulationAttempt',
       });
@@ -107,17 +105,10 @@ export class VoiceSessionService {
     isAdmin: boolean;
     creditBalance: number;
     minutesBilled: number;
-    timeLimitMinutes: number;
     startedAt: Date;
     table: 'simulationAttempt' | 'interviewSimulationAttempt';
   }): Promise<HeartbeatResponse> {
     const nextMinute = ctx.minutesBilled + 1;
-
-    // Duration limit check
-    if (nextMinute > ctx.timeLimitMinutes) {
-      this.log.info({ attemptId: ctx.attemptId, nextMinute, limit: ctx.timeLimitMinutes }, 'Duration limit reached');
-      return { status: 'stop', reason: 'duration_limit' };
-    }
 
     // Admin bypass — update minutes but do not charge credits
     if (ctx.isAdmin) {
