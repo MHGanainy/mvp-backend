@@ -1,6 +1,7 @@
 // exam.service.ts
 import { PrismaClient } from '@prisma/client'
 import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput, UpdateCompleteExamInput, ExamMarkingDomainsDetailedResponse } from './exam.schema'
+import { autoGrantOnCreate } from '../../shared/permissions'
 
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
@@ -75,7 +76,6 @@ export class ExamService {
   // ===== BASIC EXAM CRUD OPERATIONS =====
 
   async create(data: CreateExamInput) {
-    // First, verify the instructor exists
     const instructor = await this.prisma.instructor.findUnique({
       where: { id: data.instructorId }
     })
@@ -84,7 +84,6 @@ export class ExamService {
       throw new Error('Instructor not found')
     }
 
-    // Check if slug already exists
     const existingExam = await this.prisma.exam.findUnique({
       where: { slug: data.slug }
     })
@@ -93,15 +92,26 @@ export class ExamService {
       throw new Error('Exam with this slug already exists')
     }
 
-    const exam = await this.prisma.exam.create({
-      data: {
+    const exam = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.exam.create({
+        data: {
+          instructorId: data.instructorId,
+          title: data.title,
+          slug: data.slug,
+          description: data.description,
+          isActive: data.isActive ?? true
+        },
+        include: this.getFullInclude()
+      })
+
+      await autoGrantOnCreate(tx, {
         instructorId: data.instructorId,
-        title: data.title,
-        slug: data.slug,
-        description: data.description,
-        isActive: data.isActive ?? true
-      },
-      include: this.getFullInclude()
+        role: 'case_editor',
+        resourceType: 'exam',
+        resourceId: created.id
+      })
+
+      return created
     })
 
     return this.transformExamWithRelations(exam)
@@ -807,6 +817,13 @@ export class ExamService {
         }
       })
 
+      await autoGrantOnCreate(tx, {
+        instructorId: data.exam.instructorId,
+        role: 'case_editor',
+        resourceType: 'exam',
+        resourceId: exam.id
+      })
+
       // Step 3: Create new entities
       const createdEntities = {
         specialties: [] as any[],
@@ -1309,6 +1326,13 @@ export class ExamService {
           description: data.description ?? source.description,
           isActive: false,
         }
+      })
+
+      await autoGrantOnCreate(tx, {
+        instructorId: data.instructorId,
+        role: 'case_editor',
+        resourceType: 'exam',
+        resourceId: newExam.id
       })
 
       if (source.examSpecialties.length > 0) {
