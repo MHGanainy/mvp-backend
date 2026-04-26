@@ -524,7 +524,7 @@ export class CourseCaseService {
 
   async toggleFree(id: string) {
     const courseCase = await this.findById(id)
-    
+
     return await this.prisma.courseCase.update({
       where: { id },
       data: { isFree: !courseCase.isFree },

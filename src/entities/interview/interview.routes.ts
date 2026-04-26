@@ -20,6 +20,7 @@ import {
   interviewRemoveMarkingDomainParamsSchema
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { requirePermission } from '../../middleware/require-permission.middleware'
 import { replyInternalError } from '../../shared/route-error'
 
 const interviewIdParamsSchema = z.object({
@@ -219,22 +220,14 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // PUT /interviews/:id - Update interview
   fastify.put('/interviews/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = interviewParamsSchema.parse(req.params)
+      return { kind: 'interview', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewParamsSchema.parse(request.params)
       const data = updateInterviewSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own interviews' })
-          return
-        }
-      }
-
       const interview = await interviewService.update(id, data)
       reply.send(interview)
     } catch (error) {
@@ -254,22 +247,14 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // PUT /interviews/update-complete - Update interview with all relations
   fastify.put('/interviews/update-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const body = updateCompleteInterviewSchema.parse(req.body)
+      return { kind: 'interview', id: body.interviewId }
+    })
   }, async (request, reply) => {
     try {
       const data = updateCompleteInterviewSchema.parse(request.body)
       const { interviewId, ...updateData } = data
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.updateCompleteInterview(interviewId, updateData)
       reply.send({
         message: 'Interview updated and configured successfully',
@@ -294,21 +279,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // PATCH /interviews/:id/toggle - Toggle interview active status
   fastify.patch('/interviews/:id/toggle', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.publish', (req) => {
+      const { id } = interviewParamsSchema.parse(req.params)
+      return { kind: 'interview', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only toggle your own interviews' })
-          return
-        }
-      }
-
       const interview = await interviewService.toggleActive(id)
       reply.send({
         message: `Interview ${interview.isActive ? 'activated' : 'deactivated'} successfully`,
@@ -323,7 +300,7 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // DELETE /interviews/:id - Delete interview
+  // DELETE /interviews/:id - Delete interview (admin only)
   fastify.delete('/interviews/:id', {
     preHandler: authenticate
   }, async (request, reply) => {
@@ -331,13 +308,8 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
       const { id } = interviewParamsSchema.parse(request.params)
 
       if (!isAdmin(request)) {
-        const interview = await interviewService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only delete your own interviews' })
-          return
-        }
+        reply.status(403).send({ error: 'Forbidden' })
+        return
       }
 
       await interviewService.delete(id)
@@ -428,21 +400,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // POST /interviews/assign-specialties
   fastify.post('/interviews/assign-specialties', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = assignInterviewSpecialtiesSchema.parse(req.body)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId, specialtyIds } = assignInterviewSpecialtiesSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.assignSpecialties(interviewId, specialtyIds)
       reply.send({
         message: 'Specialties assigned to interview successfully',
@@ -467,21 +431,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // POST /interviews/assign-curriculums
   fastify.post('/interviews/assign-curriculums', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = assignInterviewCurriculumsSchema.parse(req.body)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId, curriculumIds } = assignInterviewCurriculumsSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.assignCurriculums(interviewId, curriculumIds)
       reply.send({
         message: 'Curriculum items assigned to interview successfully',
@@ -506,21 +462,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // POST /interviews/assign-marking-domains
   fastify.post('/interviews/assign-marking-domains', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = assignInterviewMarkingDomainsSchema.parse(req.body)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId, markingDomainIds } = assignInterviewMarkingDomainsSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.assignMarkingDomains(interviewId, markingDomainIds)
       reply.send({
         message: 'Marking domains assigned to interview successfully',
@@ -545,21 +493,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // POST /interviews/bulk-configure
   fastify.post('/interviews/bulk-configure', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = bulkConfigureInterviewSchema.parse(req.body)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId, ...configuration } = bulkConfigureInterviewSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.bulkConfigureInterview(interviewId, configuration)
       reply.send(result)
     } catch (error) {
@@ -579,21 +519,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // DELETE /interviews/:interviewId/specialties/:specialtyId
   fastify.delete('/interviews/:interviewId/specialties/:specialtyId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = interviewRemoveSpecialtyParamsSchema.parse(req.params)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId, specialtyId } = interviewRemoveSpecialtyParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.removeSpecialty(interviewId, specialtyId)
       reply.send(result)
     } catch (error) {
@@ -613,21 +545,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // DELETE /interviews/:interviewId/curriculums/:curriculumId
   fastify.delete('/interviews/:interviewId/curriculums/:curriculumId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = interviewRemoveCurriculumParamsSchema.parse(req.params)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId, curriculumId } = interviewRemoveCurriculumParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.removeCurriculum(interviewId, curriculumId)
       reply.send(result)
     } catch (error) {
@@ -647,21 +571,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // DELETE /interviews/:interviewId/marking-domains/:markingDomainId
   fastify.delete('/interviews/:interviewId/marking-domains/:markingDomainId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = interviewRemoveMarkingDomainParamsSchema.parse(req.params)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId, markingDomainId } = interviewRemoveMarkingDomainParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.removeMarkingDomain(interviewId, markingDomainId)
       reply.send(result)
     } catch (error) {
@@ -696,21 +612,13 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
 
   // POST /interviews/:interviewId/clear-configuration
   fastify.post('/interviews/:interviewId/clear-configuration', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { interviewId } = interviewIdParamsSchema.parse(req.params)
+      return { kind: 'interview', id: interviewId }
+    })
   }, async (request, reply) => {
     try {
       const { interviewId } = interviewIdParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interview = await interviewService.findById(interviewId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interview.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own interviews' })
-          return
-        }
-      }
-
       const result = await interviewService.clearInterviewConfiguration(interviewId)
       reply.send(result)
     } catch (error) {

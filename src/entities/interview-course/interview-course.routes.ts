@@ -13,6 +13,7 @@ import {
   InterviewCourseStyleEnum
 } from './interview-course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { requirePermission } from '../../middleware/require-permission.middleware'
 import { replyInternalError } from '../../shared/route-error'
 
 const styleParamsSchema = z.object({
@@ -204,19 +205,13 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
 
   // POST /interview-courses - Create new interview course
   fastify.post('/interview-courses', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = createInterviewCourseSchema.parse(req.body)
+      return { kind: 'interview', id: body.interviewId }
+    })
   }, async (request, reply) => {
     try {
       const data = createInterviewCourseSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
-          reply.status(403).send({ error: 'You can only create interview courses for yourself' })
-          return
-        }
-      }
-
       const interviewCourse = await interviewCourseService.create(data)
       reply.status(201).send(interviewCourse)
     } catch (error) {
@@ -238,22 +233,14 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
 
   // PUT /interview-courses/:id - Update interview course
   fastify.put('/interview-courses/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = interviewCourseParamsSchema.parse(req.params)
+      return { kind: 'interview_course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCourseParamsSchema.parse(request.params)
       const data = updateInterviewCourseSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own interview courses' })
-          return
-        }
-      }
-
       const interviewCourse = await interviewCourseService.update(id, data)
       reply.send(interviewCourse)
     } catch (error) {
@@ -267,21 +254,13 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
 
   // PATCH /interview-courses/:id/toggle - Toggle published status
   fastify.patch('/interview-courses/:id/toggle', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.publish', (req) => {
+      const { id } = interviewCourseParamsSchema.parse(req.params)
+      return { kind: 'interview_course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCourseParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only toggle your own interview courses' })
-          return
-        }
-      }
-
       const interviewCourse = await interviewCourseService.togglePublished(id)
       reply.send({
         message: `Interview course ${interviewCourse.isPublished ? 'published' : 'unpublished'} successfully`,
@@ -298,22 +277,14 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
 
   // PATCH /interview-courses/:id/info-points - Update info points
   fastify.patch('/interview-courses/:id/info-points', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = interviewCourseParamsSchema.parse(req.params)
+      return { kind: 'interview_course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCourseParamsSchema.parse(request.params)
       const { infoPoints } = updateInterviewCourseInfoPointsSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update info points for your own interview courses' })
-          return
-        }
-      }
-
       const interviewCourse = await interviewCourseService.update(id, { infoPoints })
       reply.send({
         message: 'Interview course info points updated successfully',
@@ -330,19 +301,16 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
 
   // POST /interview-courses/create-structured-complete - Create STRUCTURED interview course with sections and subsections
   fastify.post('/interview-courses/create-structured-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = req.body as { interviewId?: string }
+      if (!body || typeof body.interviewId !== 'string') {
+        throw new Error('interviewId is required')
+      }
+      return { kind: 'interview', id: body.interviewId }
+    })
   }, async (request, reply) => {
     try {
       const data = request.body as any
-
-      if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
-          reply.status(403).send({ error: 'You can only create interview courses for yourself' })
-          return
-        }
-      }
-
       const result = await interviewCourseService.createStructuredComplete(data)
       reply.status(201).send(result)
     } catch (error) {
@@ -360,23 +328,14 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
 
   // PUT /interview-courses/:id/update-structured-complete - Update STRUCTURED interview course with sections and subsections
   fastify.put('/interview-courses/:id/update-structured-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = interviewCourseParamsSchema.parse(req.params)
+      return { kind: 'interview_course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCourseParamsSchema.parse(request.params)
       const data = updateStructuredInterviewCourseCompleteSchema.parse(request.body)
-
-      // Verify ownership
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own interview courses' })
-          return
-        }
-      }
-
       const result = await interviewCourseService.updateStructuredComplete(id, data)
       reply.send(result)
     } catch (error) {
@@ -394,7 +353,7 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
     }
   })
 
-  // DELETE /interview-courses/:id - Delete interview course
+  // DELETE /interview-courses/:id - Delete interview course (admin only)
   fastify.delete('/interview-courses/:id', {
     preHandler: authenticate
   }, async (request, reply) => {
@@ -402,13 +361,8 @@ fastify.get('/interview-courses/instructor/:instructorId', async (request, reply
       const { id } = interviewCourseParamsSchema.parse(request.params)
 
       if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only delete your own interview courses' })
-          return
-        }
+        reply.status(403).send({ error: 'Forbidden' })
+        return
       }
 
       await interviewCourseService.delete(id)

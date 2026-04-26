@@ -1,6 +1,7 @@
 // interview.service.ts
 import { PrismaClient } from '@prisma/client'
 import { CreateInterviewInput, UpdateInterviewInput, CreateCompleteInterviewInput, UpdateCompleteInterviewInput, InterviewMarkingDomainsDetailedResponse } from './interview.schema'
+import { autoGrantOnCreate } from '../../shared/permissions'
 
 export class InterviewService {
   constructor(private prisma: PrismaClient) {}
@@ -93,15 +94,26 @@ export class InterviewService {
       throw new Error('Interview with this slug already exists')
     }
 
-    const interview = await this.prisma.interview.create({
-      data: {
+    const interview = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.interview.create({
+        data: {
+          instructorId: data.instructorId,
+          title: data.title,
+          slug: data.slug,
+          description: data.description,
+          isActive: data.isActive ?? true
+        },
+        include: this.getFullInclude()
+      })
+
+      await autoGrantOnCreate(tx, {
         instructorId: data.instructorId,
-        title: data.title,
-        slug: data.slug,
-        description: data.description,
-        isActive: data.isActive ?? true
-      },
-      include: this.getFullInclude()
+        role: 'case_editor',
+        resourceType: 'interview',
+        resourceId: created.id
+      })
+
+      return created
     })
 
     return this.transformInterviewWithRelations(interview)
@@ -807,6 +819,13 @@ export class InterviewService {
           description: data.interview.description,
           isActive: data.interview.isActive ?? true
         }
+      })
+
+      await autoGrantOnCreate(tx, {
+        instructorId: data.interview.instructorId,
+        role: 'case_editor',
+        resourceType: 'interview',
+        resourceId: interview.id
       })
 
       // Step 3: Create new entities
