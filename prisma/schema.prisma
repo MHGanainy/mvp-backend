@@ -23,10 +23,12 @@ model User {
   passwordResetToken   String?   @unique @map("password_reset_token")
   passwordResetExpires DateTime? @map("password_reset_expires")
 
-  instructor   Instructor?
-  student      Student?
-  referral     Referral?
-  blogArticles BlogArticle[]
+  instructor       Instructor?
+  student          Student?
+  referral         Referral?
+  blogArticles     BlogArticle[]
+  permissionGrants PermissionGrant[] @relation("PermissionGrantUser")
+  grantsCreated    PermissionGrant[] @relation("PermissionGrantGrantedBy")
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -145,6 +147,7 @@ model CourseCase {
   patientGender   PatientGender         @map("patient_gender")
   description     String
   isFree          Boolean               @default(false) @map("is_free")
+  isPublished     Boolean               @default(false) @map("is_published")
   displayOrder    Int                   @map("display_order")
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
@@ -358,6 +361,7 @@ model InterviewCase {
   patientGender            PatientGender               @map("patient_gender")
   description              String
   isFree                   Boolean                     @default(false) @map("is_free")
+  isPublished              Boolean                     @default(false) @map("is_published")
   displayOrder             Int                         @map("display_order")
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")
@@ -1104,6 +1108,7 @@ model BlockedEmailDomain {
   @@map("blocked_email_domains")
 }
 
+<<<<<<< HEAD
 enum CourseStyle {
   RANDOM
   STRUCTURED
@@ -1179,4 +1184,34 @@ enum BlogArticleStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+}
+
+enum PermissionRole {
+  case_collaborator
+  case_editor
+}
+
+enum PermissionResourceType {
+  exam
+  course
+  interview
+  interview_course
+}
+
+model PermissionGrant {
+  id           String                 @id @default(uuid())
+  userId       Int                    @map("user_id")
+  role         PermissionRole
+  resourceType PermissionResourceType @map("resource_type")
+  resourceId   String                 @map("resource_id")
+  grantedById  Int                    @map("granted_by_id")
+  createdAt    DateTime               @default(now()) @map("created_at")
+
+  user      User @relation("PermissionGrantUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User @relation("PermissionGrantGrantedBy", fields: [grantedById], references: [id])
+
+  @@unique([userId, role, resourceType, resourceId])
+  @@index([resourceType, resourceId])
+  @@index([userId])
+  @@map("permission_grants")
 }

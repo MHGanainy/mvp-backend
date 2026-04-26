@@ -492,10 +492,19 @@ export class CourseCaseService {
 
   async toggleFree(id: string) {
     const courseCase = await this.findById(id)
-    
+
     return await this.prisma.courseCase.update({
       where: { id },
       data: { isFree: !courseCase.isFree },
+      include: this.getStandardInclude()
+    })
+  }
+
+  async setPublished(id: string, isPublished: boolean) {
+    await this.findById(id)
+    return await this.prisma.courseCase.update({
+      where: { id },
+      data: { isPublished },
       include: this.getStandardInclude()
     })
   }
