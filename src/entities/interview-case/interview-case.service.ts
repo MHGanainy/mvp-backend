@@ -475,6 +475,15 @@ export class InterviewCaseService {
     })
   }
 
+  async setPublished(id: string, isPublished: boolean) {
+    await this.findById(id)
+    return await this.prisma.interviewCase.update({
+      where: { id },
+      data: { isPublished },
+      include: this.getStandardInclude()
+    })
+  }
+
   async reorder(id: string, newOrder: number) {
     const interviewCase = await this.findById(id)
 

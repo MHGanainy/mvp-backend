@@ -13,6 +13,7 @@ import {
   CourseStyleEnum
 } from './course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { requirePermission } from '../../middleware/require-permission.middleware'
 import { replyInternalError } from '../../shared/route-error'
 
 const styleParamsSchema = z.object({
@@ -192,19 +193,13 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // POST /courses - Create new course
   fastify.post('/courses', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = createCourseSchema.parse(req.body)
+      return { kind: 'exam', id: body.examId }
+    })
   }, async (request, reply) => {
     try {
       const data = createCourseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
-          reply.status(403).send({ error: 'You can only create courses for yourself' })
-          return
-        }
-      }
-      
       const course = await courseService.create(data)
       reply.status(201).send(course)
     } catch (error) {
@@ -226,22 +221,14 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PUT /courses/:id - Update course
   fastify.put('/courses/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const data = updateCourseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own courses' })
-          return
-        }
-      }
-      
       const course = await courseService.update(id, data)
       reply.send(course)
     } catch (error) {
@@ -255,21 +242,13 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PATCH /courses/:id/toggle - Toggle published status
   fastify.patch('/courses/:id/toggle', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.publish', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only toggle your own courses' })
-          return
-        }
-      }
-      
       const course = await courseService.togglePublished(id)
       reply.send({
         message: `Course ${course.isPublished ? 'published' : 'unpublished'} successfully`,
@@ -286,22 +265,14 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PATCH /courses/:id/info-points - Update info points
   fastify.patch('/courses/:id/info-points', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const { infoPoints } = updateCourseInfoPointsSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update info points for your own courses' })
-          return
-        }
-      }
-      
       const course = await courseService.update(id, { infoPoints })
       reply.send({
         message: 'Course info points updated successfully',
@@ -318,19 +289,16 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // POST /courses/create-structured-complete - Create STRUCTURED course with sections and subsections
   fastify.post('/courses/create-structured-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = req.body as { examId?: string }
+      if (!body || typeof body.examId !== 'string') {
+        throw new Error('examId is required')
+      }
+      return { kind: 'exam', id: body.examId }
+    })
   }, async (request, reply) => {
     try {
       const data = request.body as any
-
-      if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
-          reply.status(403).send({ error: 'You can only create courses for yourself' })
-          return
-        }
-      }
-
       const result = await courseService.createStructuredComplete(data)
       reply.status(201).send(result)
     } catch (error) {
@@ -348,23 +316,14 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PUT /courses/:id/update-structured-complete - Update STRUCTURED course with sections and subsections
   fastify.put('/courses/:id/update-structured-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const data = updateStructuredCourseCompleteSchema.parse(request.body)
-
-      // Verify ownership (same as normal course update)
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own courses' })
-          return
-        }
-      }
-
       const result = await courseService.updateStructuredComplete(id, data)
       reply.send(result)
     } catch (error) {
@@ -384,7 +343,7 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // DELETE /courses/:id - Delete course
+  // DELETE /courses/:id - Delete course (admin only)
   fastify.delete('/courses/:id', {
     preHandler: authenticate
   }, async (request, reply) => {
@@ -392,13 +351,8 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
       const { id } = courseParamsSchema.parse(request.params)
 
       if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only delete your own courses' })
-          return
-        }
+        reply.status(403).send({ error: 'Forbidden' })
+        return
       }
 
       await courseService.delete(id)

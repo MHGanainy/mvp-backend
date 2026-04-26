@@ -2,7 +2,6 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { InterviewCaseService } from './interview-case.service'
-import { InterviewCourseService } from '../interview-course/interview-course.service'
 import {
   createInterviewCaseSchema,
   updateInterviewCaseSchema,
@@ -27,7 +26,9 @@ import {
   interviewCaseCurriculumRemoveParamsSchema as curriculumRemoveParamsSchema,
   filterInterviewCaseQuerySchema as filterQuerySchema
 } from '../../shared/junction-tables.schema'
-import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+import { requirePermission } from '../../middleware/require-permission.middleware'
+import { canViewerSeeInterviewCase, getVisibleInterviewCasesWhere, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const genderParamsSchema = z.object({
@@ -37,54 +38,25 @@ const genderParamsSchema = z.object({
 
 export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   const interviewCaseService = new InterviewCaseService(fastify.prisma)
-  const interviewCourseService = new InterviewCourseService(fastify.prisma)
 
-  // GET /interview-cases - Get interview cases based on user role
+  // GET /interview-cases - Get interview cases based on user role / grants
   fastify.get('/interview-cases', async (request, reply) => {
     try {
-      let isUserAdmin = false
-      let currentInstructorId = null
+      const viewer = resolveViewerFromRequest(request)
+      const visibilityWhere = await getVisibleInterviewCasesWhere(fastify.prisma, viewer)
 
-      try {
-        await request.jwtVerify()
-        isUserAdmin = isAdmin(request)
-        currentInstructorId = getCurrentInstructorId(request)
-      } catch {
-        // Not authenticated
-      }
+      const where: any = viewer.userId === null
+        ? { AND: [visibilityWhere, { isFree: true }] }
+        : visibilityWhere
 
-      let interviewCases
-      if (isUserAdmin) {
-        // Admin sees ALL cases
-        interviewCases = await interviewCaseService.findAll()
-      } else if (currentInstructorId) {
-        // Instructor sees cases from their interview courses
-        const instructorInterviewCourses = await interviewCourseService.findByInstructor(currentInstructorId)
-        const interviewCourseIds = instructorInterviewCourses.map(c => c.id)
-        interviewCases = await fastify.prisma.interviewCase.findMany({
-          where: { interviewCourseId: { in: interviewCourseIds } },
-          include: interviewCaseService.getStandardInclude(),
-          orderBy: [
-            { interviewCourseId: 'asc' },
-            { displayOrder: 'asc' }
-          ]
-        })
-      } else {
-        // Public sees only free cases from published interview courses
-        const publishedInterviewCourses = await interviewCourseService.findPublished()
-        const interviewCourseIds = publishedInterviewCourses.map(c => c.id)
-        interviewCases = await fastify.prisma.interviewCase.findMany({
-          where: {
-            interviewCourseId: { in: interviewCourseIds },
-            isFree: true
-          },
-          include: interviewCaseService.getStandardInclude(),
-          orderBy: [
-            { interviewCourseId: 'asc' },
-            { displayOrder: 'asc' }
-          ]
-        })
-      }
+      const interviewCases = await fastify.prisma.interviewCase.findMany({
+        where,
+        include: interviewCaseService.getStandardInclude(),
+        orderBy: [
+          { interviewCourseId: 'asc' },
+          { displayOrder: 'asc' }
+        ]
+      })
 
       reply.send(interviewCases)
     } catch (error) {
@@ -101,6 +73,12 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
         caseSlug: string
       }
       const interviewCase = await interviewCaseService.findBySlug(interviewSlug, courseSlug, caseSlug)
+      const viewer = resolveViewerFromRequest(request)
+      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, interviewCase.id)
+      if (!visible) {
+        reply.status(404).send({ error: 'Interview case not found' })
+        return
+      }
       reply.send(interviewCase)
     } catch (error) {
       if (error instanceof Error) {
@@ -131,6 +109,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
       // Use findBySlug to get the case first
       const caseLookup = await interviewCaseService.findBySlug(interviewSlug, courseSlug, caseSlug)
       const id = caseLookup.id
+
+      const viewer = resolveViewerFromRequest(request)
+      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, id)
+      if (!visible) {
+        reply.status(404).send({ error: 'Interview case not found' })
+        return
+      }
 
       // Now get the complete data using the ID
       const interviewCase = await fastify.prisma.interviewCase.findUnique({
@@ -254,7 +239,20 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/interview-cases/interview-course/:interviewCourseId', async (request, reply) => {
     try {
       const { interviewCourseId } = interviewCaseInterviewCourseParamsSchema.parse(request.params)
-      const interviewCases = await interviewCaseService.findByInterviewCourse(interviewCourseId)
+      const viewer = resolveViewerFromRequest(request)
+      const visibilityWhere = await getVisibleInterviewCasesWhere(fastify.prisma, viewer)
+
+      const interviewCourse = await fastify.prisma.interviewCourse.findUnique({ where: { id: interviewCourseId } })
+      if (!interviewCourse) {
+        reply.status(404).send({ error: 'Interview course not found' })
+        return
+      }
+
+      const interviewCases = await fastify.prisma.interviewCase.findMany({
+        where: { AND: [{ interviewCourseId }, visibilityWhere] },
+        include: interviewCaseService.getStandardInclude(),
+        orderBy: { displayOrder: 'asc' }
+      })
       reply.send(interviewCases)
     } catch (error) {
       if (error instanceof Error && error.message === 'Interview course not found') {
@@ -353,6 +351,12 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/interview-cases/:id', async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
+      const viewer = resolveViewerFromRequest(request)
+      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, id)
+      if (!visible) {
+        reply.status(404).send({ error: 'Interview case not found' })
+        return
+      }
       const interviewCase = await interviewCaseService.findById(id)
       reply.send(interviewCase)
     } catch (error) {
@@ -366,21 +370,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // POST /interview-cases - Create new interview case
   fastify.post('/interview-cases', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = createInterviewCaseSchema.parse(req.body)
+      return { kind: 'interview_course', id: body.interviewCourseId }
+    })
   }, async (request, reply) => {
     try {
       const data = createInterviewCaseSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(data.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only create cases for your own interview courses' })
-          return
-        }
-      }
-
       const interviewCase = await interviewCaseService.create(data)
       reply.status(201).send(interviewCase)
     } catch (error) {
@@ -402,23 +398,14 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // PUT /interview-cases/:id - Update interview case
   fastify.put('/interview-cases/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = interviewCaseParamsSchema.parse(req.params)
+      return { kind: 'interview_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
       const data = updateInterviewCaseSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(id)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit cases for your own interview courses' })
-          return
-        }
-      }
-
       const interviewCase = await interviewCaseService.update(id, data)
       reply.send(interviewCase)
     } catch (error) {
@@ -438,22 +425,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // PATCH /interview-cases/:id/toggle-free
   fastify.patch('/interview-cases/:id/toggle-free', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = interviewCaseParamsSchema.parse(req.params)
+      return { kind: 'interview_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(id)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own interview courses' })
-          return
-        }
-      }
-
       const interviewCase = await interviewCaseService.toggleFree(id)
       reply.send({
         message: `Case ${interviewCase.isFree ? 'marked as free' : 'marked as paid'} successfully`,
@@ -470,23 +448,14 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // PATCH /interview-cases/:id/reorder
   fastify.patch('/interview-cases/:id/reorder', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = interviewCaseParamsSchema.parse(req.params)
+      return { kind: 'interview_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
       const { newOrder } = reorderInterviewCaseSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(id)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only reorder cases for your own interview courses' })
-          return
-        }
-      }
-
       const interviewCase = await interviewCaseService.reorder(id, newOrder)
       reply.send({
         message: `Case reordered to position ${newOrder} successfully`,
@@ -509,22 +478,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // DELETE /interview-cases/:id
   fastify.delete('/interview-cases/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.delete', (req) => {
+      const { id } = interviewCaseParamsSchema.parse(req.params)
+      return { kind: 'interview_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(id)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only delete cases from your own interview courses' })
-          return
-        }
-      }
-
       await interviewCaseService.delete(id)
       reply.status(204).send()
     } catch (error) {
@@ -532,6 +492,32 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Interview case not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // PATCH /interview-cases/:id/publish - Set draft/published state
+  fastify.patch('/interview-cases/:id/publish', {
+    preHandler: requirePermission('case.publish', (req) => {
+      const { id } = interviewCaseParamsSchema.parse(req.params)
+      return { kind: 'interview_case', id }
+    })
+  }, async (request, reply) => {
+    try {
+      const { id } = interviewCaseParamsSchema.parse(request.params)
+      const { isPublished } = z.object({ isPublished: z.boolean() }).parse(request.body)
+      const interviewCase = await interviewCaseService.setPublished(id, isPublished)
+      reply.send({
+        message: `Case ${interviewCase.isPublished ? 'published' : 'unpublished'} successfully`,
+        interviewCase
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Interview case not found') {
+        reply.status(404).send({ error: 'Interview case not found' })
+      } else if (error instanceof z.ZodError) {
+        reply.status(400).send({ error: 'Invalid request', details: error.errors })
+      } else {
+        replyInternalError(request, reply, error, 'Failed to update publish state')
       }
     }
   })
@@ -587,22 +573,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // POST /interview-cases/assign-specialties
   fastify.post('/interview-cases/assign-specialties', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = assignSpecialtiesSchema.parse(req.body)
+      return { kind: 'interview_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, specialtyIds } = assignSpecialtiesSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(courseCaseId)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own interview courses' })
-          return
-        }
-      }
-
       const result = await interviewCaseService.assignSpecialties(courseCaseId, specialtyIds)
       reply.send({
         message: 'Specialties assigned successfully',
@@ -627,22 +604,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // POST /interview-cases/assign-curriculums
   fastify.post('/interview-cases/assign-curriculums', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = assignCurriculumsSchema.parse(req.body)
+      return { kind: 'interview_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, curriculumIds } = assignCurriculumsSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(courseCaseId)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own interview courses' })
-          return
-        }
-      }
-
       const result = await interviewCaseService.assignCurriculums(courseCaseId, curriculumIds)
       reply.send({
         message: 'Curriculum items assigned successfully',
@@ -672,15 +640,22 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
     try {
       const { assignments } = bulkAssignFiltersSchema.parse(request.body)
 
-      // Check permissions for each case
+      // Per-item permission check (preHandler can't cover variable-length payloads)
       if (!isAdmin(request)) {
+        const userId = request.user?.userId
+        if (!userId) {
+          reply.status(401).send({ error: 'Unauthorized' })
+          return
+        }
         for (const assignment of assignments) {
-          const interviewCase = await interviewCaseService.findById(assignment.courseCaseId)
-          const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-          const currentInstructorId = getCurrentInstructorId(request)
-
-          if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-            reply.status(403).send({ error: 'You can only modify cases for your own interview courses' })
+          const allowed = await userHasPermission(fastify.prisma, {
+            userId,
+            isAdmin: false,
+            permission: 'case.edit',
+            target: { kind: 'interview_case', id: assignment.courseCaseId },
+          })
+          if (!allowed) {
+            reply.status(403).send({ error: 'Forbidden' })
             return
           }
         }
@@ -703,22 +678,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // DELETE /interview-cases/:interviewCaseId/specialties/:specialtyId
   fastify.delete('/interview-cases/:interviewCaseId/specialties/:specialtyId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = specialtyRemoveParamsSchema.parse(req.params)
+      return { kind: 'interview_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, specialtyId } = specialtyRemoveParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(courseCaseId)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own interview courses' })
-          return
-        }
-      }
-
       const result = await interviewCaseService.removeSpecialty(courseCaseId, specialtyId)
       reply.send(result)
     } catch (error) {
@@ -738,22 +704,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // DELETE /interview-cases/:interviewCaseId/curriculums/:curriculumId
   fastify.delete('/interview-cases/:interviewCaseId/curriculums/:curriculumId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = curriculumRemoveParamsSchema.parse(req.params)
+      return { kind: 'interview_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, curriculumId } = curriculumRemoveParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(courseCaseId)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own interview courses' })
-          return
-        }
-      }
-
       const result = await interviewCaseService.removeCurriculum(courseCaseId, curriculumId)
       reply.send(result)
     } catch (error) {
@@ -831,21 +788,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // POST /interview-cases/create-complete
   fastify.post('/interview-cases/create-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = createCompleteInterviewCaseSchema.parse(req.body)
+      return { kind: 'interview_course', id: body.interviewCase.interviewCourseId }
+    })
   }, async (request, reply) => {
     try {
       const data = createCompleteInterviewCaseSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCourse = await interviewCourseService.findById(data.interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only create cases for your own interview courses' })
-          return
-        }
-      }
-
       const result = await interviewCaseService.createCompleteInterviewCase(data)
       reply.status(201).send({
         message: 'Interview case created and configured successfully',
@@ -874,22 +823,13 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
 
   // PUT /interview-cases/update-complete
   fastify.put('/interview-cases/update-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const body = updateCompleteInterviewCaseSchema.parse(req.body)
+      return { kind: 'interview_case', id: body.interviewCaseId }
+    })
   }, async (request, reply) => {
     try {
       const data = updateCompleteInterviewCaseSchema.parse(request.body)
-
-      if (!isAdmin(request)) {
-        const interviewCase = await interviewCaseService.findById(data.interviewCaseId)
-        const interviewCourse = await interviewCourseService.findById(interviewCase.interviewCourseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || interviewCourse.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update cases for your own interview courses' })
-          return
-        }
-      }
-
       const result = await interviewCaseService.updateCompleteInterviewCase(data)
       reply.send({
         message: 'Interview case updated successfully',
@@ -918,6 +858,12 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/interview-cases/:id/complete', async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
+      const viewer = resolveViewerFromRequest(request)
+      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, id)
+      if (!visible) {
+        reply.status(404).send({ error: 'Interview case not found' })
+        return
+      }
 
       const interviewCase = await fastify.prisma.interviewCase.findUnique({
         where: { id },
