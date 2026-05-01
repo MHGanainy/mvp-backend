@@ -19,7 +19,7 @@ import {
   examRemoveCurriculumParamsSchema,
   examRemoveMarkingDomainParamsSchema
 } from '../../shared/junction-tables.schema'
-import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { authenticate, getCurrentInstructorId, getCurrentStudentId, isAdmin } from '../../middleware/auth.middleware'
 import { replyInternalError } from '../../shared/route-error'
 
 const examIdParamsSchema = z.object({
@@ -117,6 +117,54 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   }
 })
+
+  // GET /exams/:examId/pricing-summary - Get exam bundle + course plans by ID (public, optional auth)
+  fastify.get('/exams/:examId/pricing-summary', async (request, reply) => {
+    try {
+      const { examId } = examIdParamsSchema.parse(request.params)
+
+      let studentId: string | undefined
+      try {
+        await request.jwtVerify()
+        studentId = getCurrentStudentId(request) ?? undefined
+      } catch {
+        // not authenticated
+      }
+
+      const summary = await examService.getPricingSummaryById(examId, studentId)
+      reply.send(summary)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Exam not found') {
+        reply.status(404).send({ error: 'Exam not found' })
+      } else {
+        replyInternalError(request, reply, error, 'Failed to fetch pricing summary')
+      }
+    }
+  })
+
+  // GET /exams/slug/:slug/pricing-summary - Get exam bundle + course plans (public, optional auth)
+  fastify.get('/exams/slug/:slug/pricing-summary', async (request, reply) => {
+    try {
+      const { slug } = request.params as { slug: string }
+
+      let studentId: string | undefined
+      try {
+        await request.jwtVerify()
+        studentId = getCurrentStudentId(request) ?? undefined
+      } catch {
+        // not authenticated — pricing summary is still returned without access state
+      }
+
+      const summary = await examService.getPricingSummary(slug, studentId)
+      reply.send(summary)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Exam not found') {
+        reply.status(404).send({ error: 'Exam not found' })
+      } else {
+        replyInternalError(request, reply, error, 'Failed to fetch pricing summary')
+      }
+    }
+  })
 
   // GET /exams/slug/:slug - Get exam by slug
   fastify.get('/exams/slug/:slug', async (request, reply) => {

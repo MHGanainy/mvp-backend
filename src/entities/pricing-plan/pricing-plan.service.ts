@@ -7,7 +7,7 @@ export class PricingPlanService {
   constructor(private prisma: PrismaClient) {}
 
   async findByResource(resourceType: ResourceType, resourceId: string) {
-    // Verify the resource exists and is published
+    // Verify the resource exists and is available
     if (resourceType === 'COURSE') {
       const course = await this.prisma.course.findUnique({
         where: { id: resourceId },
@@ -22,6 +22,13 @@ export class PricingPlanService {
       });
       if (!ic) throw new Error('Interview course not found');
       if (!ic.isPublished) throw new Error('This interview course is not currently available');
+    } else if (resourceType === 'BUNDLE') {
+      const exam = await this.prisma.exam.findUnique({
+        where: { id: resourceId },
+        select: { isActive: true },
+      });
+      if (!exam) throw new Error('Exam not found');
+      if (!exam.isActive) throw new Error('This exam is not currently available');
     }
 
     return await this.prisma.pricingPlan.findMany({
@@ -158,6 +165,14 @@ export class PricingPlanService {
       return ic?.instructorId ?? null;
     }
 
+    if (resourceType === 'BUNDLE') {
+      const exam = await this.prisma.exam.findUnique({
+        where: { id: resourceId },
+        select: { instructorId: true },
+      });
+      return exam?.instructorId ?? null;
+    }
+
     return null;
   }
 
@@ -177,6 +192,15 @@ export class PricingPlanService {
         select: { id: true },
       });
       if (!ic) throw new Error('Interview course not found');
+      return;
+    }
+
+    if (resourceType === 'BUNDLE') {
+      const exam = await this.prisma.exam.findUnique({
+        where: { id: resourceId },
+        select: { id: true },
+      });
+      if (!exam) throw new Error('Exam not found');
       return;
     }
 

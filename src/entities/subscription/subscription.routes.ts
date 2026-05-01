@@ -282,14 +282,16 @@ export default async function subscriptionRoutes(fastify: FastifyInstance) {
         reply.status(201).send(result);
       } catch (error: any) {
         if (error.message === 'Student not found' || error.message === 'Pricing plan not found' ||
-            error.message === 'Course not found' || error.message === 'Interview course not found') {
+            error.message === 'Course not found' || error.message === 'Interview course not found' ||
+            error.message === 'Exam not found') {
           reply.status(404).send({ error: error.message });
         } else if (error.message === 'This pricing plan is no longer available' ||
                    error.message === 'This plan is not a free trial plan' ||
                    error.message === 'Free trial plan must have a duration' ||
                    error.message === 'Free trials are only available for first-time access' ||
                    error.message === 'This course is not currently available' ||
-                   error.message === 'This interview course is not currently available') {
+                   error.message === 'This interview course is not currently available' ||
+                   error.message === 'This exam is not currently available') {
           reply.status(400).send({ error: error.message });
         } else {
           replyInternalError(request, reply, error, 'Failed to activate free trial');

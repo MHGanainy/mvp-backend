@@ -238,7 +238,7 @@ export class SubscriptionService {
     return subscription.startDate <= now && subscription.endDate >= now
   }
 
-  // Get all courses a student has an active subscription to
+  // Get all courses a student has an active subscription to (direct or via bundle)
   async getAccessibleCourses(studentId: string): Promise<string[]> {
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
@@ -253,12 +253,30 @@ export class SubscriptionService {
       return courses.map(c => c.id)
     }
 
-    const subscriptions = await this.prisma.subscription.findMany({
-      where: { studentId, isActive: true, endDate: { gte: new Date() }, resourceType: 'COURSE' },
-      select: { resourceId: true }
+    const now = new Date()
+
+    const [courseSubscriptions, bundleSubscriptions] = await Promise.all([
+      this.prisma.subscription.findMany({
+        where: { studentId, isActive: true, endDate: { gte: now }, resourceType: 'COURSE' },
+        select: { resourceId: true }
+      }),
+      this.prisma.subscription.findMany({
+        where: { studentId, isActive: true, endDate: { gte: now }, resourceType: 'BUNDLE' },
+        select: { resourceId: true }
+      })
+    ])
+
+    const directCourseIds = courseSubscriptions.map(s => s.resourceId)
+
+    if (bundleSubscriptions.length === 0) return directCourseIds
+
+    const examIds = bundleSubscriptions.map(s => s.resourceId)
+    const bundleCourses = await this.prisma.course.findMany({
+      where: { examId: { in: examIds }, isPublished: true },
+      select: { id: true }
     })
 
-    return subscriptions.map(s => s.resourceId)
+    return [...new Set([...directCourseIds, ...bundleCourses.map(c => c.id)])]
   }
 
   // Get all resources (courses + interview courses) a student has active subscriptions to
@@ -281,14 +299,28 @@ export class SubscriptionService {
       }
     }
 
+    const now = new Date()
     const subscriptions = await this.prisma.subscription.findMany({
-      where: { studentId, isActive: true, endDate: { gte: new Date() } },
+      where: { studentId, isActive: true, endDate: { gte: now } },
       select: { resourceType: true, resourceId: true }
     })
 
+    const directCourseIds = subscriptions.filter(s => s.resourceType === 'COURSE').map(s => s.resourceId)
+    const interviewCourseIds = subscriptions.filter(s => s.resourceType === 'INTERVIEW_COURSE').map(s => s.resourceId)
+    const bundleExamIds = subscriptions.filter(s => s.resourceType === 'BUNDLE').map(s => s.resourceId)
+
+    if (bundleExamIds.length === 0) {
+      return { courses: directCourseIds, interviewCourses: interviewCourseIds }
+    }
+
+    const bundleCourses = await this.prisma.course.findMany({
+      where: { examId: { in: bundleExamIds }, isPublished: true },
+      select: { id: true }
+    })
+
     return {
-      courses: subscriptions.filter(s => s.resourceType === 'COURSE').map(s => s.resourceId),
-      interviewCourses: subscriptions.filter(s => s.resourceType === 'INTERVIEW_COURSE').map(s => s.resourceId)
+      courses: [...new Set([...directCourseIds, ...bundleCourses.map(c => c.id)])],
+      interviewCourses: interviewCourseIds
     }
   }
 
@@ -375,6 +407,57 @@ export class SubscriptionService {
       }
     }
 
+    // PRIMARY: check exam-level bundle subscription first
+    if (resourceType === 'COURSE') {
+      const course = await this.prisma.course.findUnique({
+        where: { id: resourceId },
+        select: { examId: true }
+      })
+
+      if (course?.examId) {
+        const bundleSubscription = await this.prisma.subscription.findFirst({
+          where: {
+            studentId,
+            resourceType: 'BUNDLE' as ResourceType,
+            resourceId: course.examId,
+            endDate: { gte: new Date() }
+          },
+          include: { pricingPlan: true },
+          orderBy: { endDate: 'desc' }
+        })
+
+        if (bundleSubscription && this.isSubscriptionActive(bundleSubscription)) {
+          const now = new Date()
+          const daysRemaining = Math.ceil(
+            (bundleSubscription.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+          )
+          return {
+            hasActiveSubscription: true,
+            daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
+            hoursRemaining: null,
+            isExpired: false,
+            isAdmin: false,
+            subscription: {
+              id: bundleSubscription.id,
+              resourceType: bundleSubscription.resourceType,
+              resourceId: bundleSubscription.resourceId,
+              startDate: bundleSubscription.startDate.toISOString(),
+              endDate: bundleSubscription.endDate.toISOString(),
+              durationMonths: bundleSubscription.durationMonths,
+              isFreeTrial: bundleSubscription.isFreeTrial,
+              subscriptionSource: bundleSubscription.subscriptionSource,
+              pricingPlan: bundleSubscription.pricingPlan ? {
+                id: bundleSubscription.pricingPlan.id,
+                name: bundleSubscription.pricingPlan.name,
+                priceInCents: bundleSubscription.pricingPlan.priceInCents
+              } : null
+            }
+          }
+        }
+      }
+    }
+
+    // FALLBACK: check granular course/resource-level subscription
     const subscription = await this.prisma.subscription.findFirst({
       where: {
         studentId,
@@ -401,7 +484,7 @@ export class SubscriptionService {
         hasActiveSubscription: false,
         daysRemaining: 0,
         hoursRemaining: null,
-        isExpired: !!anyPastSubscription, // Only true if they had a subscription before
+        isExpired: !!anyPastSubscription,
         isAdmin: false,
         subscription: null
       }
@@ -481,26 +564,33 @@ export class SubscriptionService {
       orderBy: { endDate: 'desc' }
     })
 
-    // Batch-fetch resource titles (2 queries, no N+1)
+    // Batch-fetch resource titles (3 queries in parallel, no N+1)
     const courseIds = subscriptions
       .filter(s => s.resourceType === 'COURSE')
       .map(s => s.resourceId)
     const interviewCourseIds = subscriptions
       .filter(s => s.resourceType === 'INTERVIEW_COURSE')
       .map(s => s.resourceId)
+    const examIds = subscriptions
+      .filter(s => s.resourceType === 'BUNDLE')
+      .map(s => s.resourceId)
 
-    const [courses, interviewCourses] = await Promise.all([
+    const [courses, interviewCourses, exams] = await Promise.all([
       courseIds.length > 0
         ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
         : [],
       interviewCourseIds.length > 0
         ? this.prisma.interviewCourse.findMany({ where: { id: { in: interviewCourseIds } }, select: { id: true, title: true } })
+        : [],
+      examIds.length > 0
+        ? this.prisma.exam.findMany({ where: { id: { in: examIds } }, select: { id: true, title: true } })
         : []
     ])
 
     const titleMap = new Map<string, string>()
     courses.forEach(c => titleMap.set(c.id, c.title))
     interviewCourses.forEach(ic => titleMap.set(ic.id, ic.title))
+    exams.forEach(e => titleMap.set(e.id, e.title))
 
     const now = new Date()
     return subscriptions.map(sub => ({

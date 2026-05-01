@@ -164,16 +164,34 @@ export class CourseEnrollmentService {
       return null
     }
 
-    // Check if student has active subscription to this course
-    const activeSubscription = await this.prisma.subscription.findFirst({
-      where: {
-        studentId,
-        resourceType: 'COURSE',
-        resourceId: courseId,
-        isActive: true,
-        endDate: { gte: new Date() }
-      }
-    })
+    // Check subscription — BUNDLE (exam-level) first, then direct COURSE subscription
+    const now = new Date()
+    let activeSubscription = null
+
+    const examId = enrollment.course.examId ?? null
+    if (examId) {
+      activeSubscription = await this.prisma.subscription.findFirst({
+        where: {
+          studentId,
+          resourceType: 'BUNDLE',
+          resourceId: examId,
+          isActive: true,
+          endDate: { gte: now }
+        }
+      })
+    }
+
+    if (!activeSubscription) {
+      activeSubscription = await this.prisma.subscription.findFirst({
+        where: {
+          studentId,
+          resourceType: 'COURSE',
+          resourceId: courseId,
+          isActive: true,
+          endDate: { gte: now }
+        }
+      })
+    }
 
     // Calculate detailed progress
     const totalSubsections = enrollment.course.courseSections.reduce(
