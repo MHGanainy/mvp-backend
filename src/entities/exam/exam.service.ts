@@ -1465,6 +1465,92 @@ export class ExamService {
     }, { timeout: 120000 })
   }
 
+  async getPricingSummaryById(examId: string, studentId?: string) {
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId },
+      select: { slug: true }
+    })
+    if (!exam) throw new Error('Exam not found')
+    return this.getPricingSummary(exam.slug, studentId)
+  }
+
+  async getPricingSummary(slug: string, studentId?: string) {
+    const exam = await this.prisma.exam.findUnique({
+      where: { slug },
+      select: { id: true, title: true, slug: true, description: true, isActive: true }
+    })
+    if (!exam || !exam.isActive) throw new Error('Exam not found')
+
+    // Fetch bundle plans + all published courses under exam in parallel
+    const [bundlePlans, allCourses] = await Promise.all([
+      this.prisma.pricingPlan.findMany({
+        where: { resourceType: 'BUNDLE', resourceId: exam.id, isActive: true },
+        orderBy: { displayOrder: 'asc' }
+      }),
+      this.prisma.course.findMany({
+        where: { examId: exam.id, isPublished: true },
+        select: { id: true, title: true, slug: true }
+      })
+    ])
+
+    // Fetch course-level plans for all courses, then filter to only those with plans
+    const courseIds = allCourses.map(c => c.id)
+    const coursePlans = courseIds.length > 0
+      ? await this.prisma.pricingPlan.findMany({
+          where: { resourceType: 'COURSE', resourceId: { in: courseIds }, isActive: true },
+          orderBy: { displayOrder: 'asc' }
+        })
+      : []
+
+    const plansByCourse = new Map<string, typeof coursePlans>()
+    coursePlans.forEach(plan => {
+      if (!plansByCourse.has(plan.resourceId)) plansByCourse.set(plan.resourceId, [])
+      plansByCourse.get(plan.resourceId)!.push(plan)
+    })
+
+    const courses = allCourses
+      .filter(c => plansByCourse.has(c.id))
+      .map(c => ({ ...c, plans: plansByCourse.get(c.id)! }))
+
+    // Student access check (optional — only when authenticated)
+    let studentAccess: { hasAccess: boolean; via: 'BUNDLE' | 'COURSE' | 'ADMIN' | null } | null = null
+    if (studentId) {
+      const student = await this.prisma.student.findUnique({
+        where: { id: studentId },
+        include: { user: true }
+      })
+
+      if (student) {
+        if (student.user.isAdmin) {
+          studentAccess = { hasAccess: true, via: 'ADMIN' }
+        } else {
+          const now = new Date()
+          const bundleSub = await this.prisma.subscription.findFirst({
+            where: { studentId, resourceType: 'BUNDLE', resourceId: exam.id, endDate: { gte: now } }
+          })
+
+          if (bundleSub) {
+            studentAccess = { hasAccess: true, via: 'BUNDLE' }
+          } else {
+            const courseSub = courseIds.length > 0
+              ? await this.prisma.subscription.findFirst({
+                  where: { studentId, resourceType: 'COURSE', resourceId: { in: courseIds }, endDate: { gte: now } }
+                })
+              : null
+            studentAccess = { hasAccess: !!courseSub, via: courseSub ? 'COURSE' : null }
+          }
+        }
+      }
+    }
+
+    return {
+      exam: { id: exam.id, title: exam.title, slug: exam.slug, description: exam.description },
+      bundlePlans,
+      courses,
+      studentAccess
+    }
+  }
+
   // Helper method
   private generateSlug(title: string): string {
     return title

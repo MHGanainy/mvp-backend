@@ -188,6 +188,16 @@ export class TrialActivationService {
       return ic.title;
     }
 
+    if (resourceType === 'BUNDLE') {
+      const exam = await this.prisma.exam.findUnique({
+        where: { id: resourceId },
+        select: { title: true, isActive: true },
+      });
+      if (!exam) throw new Error('Exam not found');
+      if (!exam.isActive) throw new Error('This exam is not currently available');
+      return exam.title;
+    }
+
     throw new Error(`Unsupported resource type: ${resourceType}`);
   }
 
@@ -223,6 +233,28 @@ export class TrialActivationService {
         if (!existing) {
           await this.prisma.interviewCourseEnrollment.create({
             data: { studentId, interviewCourseId: resourceId },
+          });
+        }
+      }
+    } else if (resourceType === 'BUNDLE') {
+      const structuredCourses = await this.prisma.course.findMany({
+        where: { examId: resourceId, style: 'STRUCTURED', isPublished: true },
+        select: { id: true },
+      });
+
+      if (structuredCourses.length > 0) {
+        const courseIds = structuredCourses.map(c => c.id);
+        const existingEnrollments = await this.prisma.courseEnrollment.findMany({
+          where: { studentId, courseId: { in: courseIds } },
+          select: { courseId: true },
+        });
+        const enrolledIds = new Set(existingEnrollments.map(e => e.courseId));
+        const toEnroll = courseIds.filter(id => !enrolledIds.has(id));
+
+        if (toEnroll.length > 0) {
+          await this.prisma.courseEnrollment.createMany({
+            data: toEnroll.map(courseId => ({ studentId, courseId })),
+            skipDuplicates: true,
           });
         }
       }

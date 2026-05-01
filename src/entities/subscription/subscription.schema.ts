@@ -23,7 +23,7 @@ export const subscriptionQuerySchema = z.object({
 
 // Resource-type-aware params
 export const subscriptionResourceParamsSchema = z.object({
-  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE']),
+  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE', 'BUNDLE']),
   resourceId: z.string().uuid('Invalid resource ID')
 })
 
@@ -36,7 +36,7 @@ export const subscriptionCheckResponseSchema = z.object({
   isAdmin: z.boolean().optional(),
   subscription: z.object({
     id: z.string(),
-    resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE']),
+    resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE', 'BUNDLE']),
     resourceId: z.string(),
     startDate: z.string(),
     endDate: z.string(),
@@ -61,7 +61,7 @@ export const subscriptionAccessResponseSchema = z.object({
 // Unified subscription list item
 export const subscriptionListItemSchema = z.object({
   id: z.string(),
-  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE']),
+  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE', 'BUNDLE']),
   resourceId: z.string(),
   resourceTitle: z.string(),
   startDate: z.string(),

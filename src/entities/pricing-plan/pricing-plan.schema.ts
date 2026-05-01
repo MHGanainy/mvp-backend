@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createPricingPlanSchema = z.object({
-  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE']),
+  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE', 'BUNDLE']),
   resourceId: z.string().uuid('Invalid resource ID'),
   name: z.string()
     .min(1, 'Name is required')
@@ -116,7 +116,7 @@ export const planIdParamsSchema = z.object({
 });
 
 export const resourceParamsSchema = z.object({
-  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE']),
+  resourceType: z.enum(['COURSE', 'INTERVIEW_COURSE', 'BUNDLE']),
   resourceId: z.string().uuid('Invalid resource ID'),
 });
 

@@ -416,6 +416,31 @@ export class StripeWebhookService {
           this.log.info({ studentId, interviewCourseId: resourceId }, 'Auto-enrolled in interview course');
         }
       }
+    } else if (resourceType === 'BUNDLE') {
+      const structuredCourses = await this.prisma.course.findMany({
+        where: { examId: resourceId, isPublished: true, style: 'STRUCTURED' },
+        select: { id: true },
+      });
+
+      if (structuredCourses.length === 0) return;
+
+      const existingEnrollments = await this.prisma.courseEnrollment.findMany({
+        where: {
+          studentId,
+          courseId: { in: structuredCourses.map(c => c.id) },
+        },
+        select: { courseId: true },
+      });
+
+      const alreadyEnrolled = new Set(existingEnrollments.map(e => e.courseId));
+      const toEnroll = structuredCourses.filter(c => !alreadyEnrolled.has(c.id));
+
+      if (toEnroll.length > 0) {
+        await this.prisma.courseEnrollment.createMany({
+          data: toEnroll.map(c => ({ studentId, courseId: c.id })),
+        });
+        this.log.info({ studentId, examId: resourceId, count: toEnroll.length }, 'Auto-enrolled in exam bundle courses');
+      }
     }
   }
 
