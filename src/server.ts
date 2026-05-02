@@ -44,6 +44,7 @@ import interviewCourseSubsectionRoutes from "./entities/interview-course-subsect
 import interviewCourseEnrollmentRoutes from "./entities/interview-course-enrollment/interview-course-enrollment.routes";
 import interviewSubsectionProgressRoutes from "./entities/interview-subsection-progress/interview-subsection-progress.routes";
 import affiliateRoutes from "./entities/affiliate/affiliate.routes";
+import permissionGrantRoutes from "./entities/permission-grant/permission-grant.routes";
 import pricingPlanRoutes from "./entities/pricing-plan/pricing-plan.routes";
 import promoCodeRoutes from "./entities/promo-code/promo-code.routes";
 import blogArticleRoutes from "./entities/blog-article/blog-article.routes";
@@ -269,6 +270,7 @@ const start = async () => {
       prefix: "/api",
     });
     await fastify.register(affiliateRoutes, { prefix: "/api" });
+    await fastify.register(permissionGrantRoutes, { prefix: "/api" });
     await fastify.register(voiceSessionRoutes, { prefix: "/api" });
 
     // Blog routes
