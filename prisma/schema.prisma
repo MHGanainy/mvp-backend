@@ -16,13 +16,10 @@ model User {
   passwordHash         String?   @map("password_hash")
   updatedAt            DateTime  @updatedAt @map("updated_at")
   isAdmin              Boolean   @default(false) @map("is_admin")
-  // OAuth fields
   oauthProvider        String?   @map("oauth_provider")
   oauthProviderId      String?   @map("oauth_provider_id")
-  // Email verification OTP
   emailVerificationOtp String?   @map("email_verification_otp")
   otpExpiresAt         DateTime? @map("otp_expires_at")
-  // Password reset
   passwordResetToken   String?   @unique @map("password_reset_token")
   passwordResetExpires DateTime? @map("password_reset_expires")
 
@@ -42,8 +39,8 @@ model PendingRegistration {
   firstName    String   @map("first_name")
   lastName     String   @map("last_name")
   name         String?
-  userType     String   @map("user_type") // 'student' or 'instructor'
-  bio          String? // For instructors
+  userType     String   @map("user_type")
+  bio          String?
   otp          String
   otpExpiresAt DateTime @map("otp_expires_at")
   referralCode String?  @map("referral_code")
@@ -62,9 +59,9 @@ model Instructor {
   updatedAt        DateTime          @updatedAt @map("updated_at")
   courses          Course[]
   exams            Exam[]
-  interviews       Interview[]
-  interviewCourses InterviewCourse[]
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interviewCourses InterviewCourse[]
+  interviews       Interview[]
 
   @@map("instructors")
 }
@@ -118,7 +115,7 @@ model Course {
   id              String         @id @default(uuid())
   examId          String         @map("exam_id")
   instructorId    String         @map("instructor_id")
-  slug            String?        // Nullable initially, will be populated by migration script
+  slug            String?
   title           String
   description     String?
   style           CourseStyle    @default(RANDOM)
@@ -140,7 +137,7 @@ model Course {
 model CourseCase {
   id              String                @id @default(uuid())
   courseId        String                @map("course_id")
-  slug            String?               // Nullable initially, will be populated by migration script
+  slug            String?
   title           String
   diagnosis       String
   patientName     String                @map("patient_name")
@@ -241,9 +238,9 @@ model CourseSection {
   title        String
   description  String?
   displayOrder Int                @map("display_order")
-  isFree       Boolean            @default(false) @map("is_free")
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt @map("updated_at")
+  isFree       Boolean            @default(false) @map("is_free")
   course       Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
   subsections  CourseSubsection[]
 
@@ -259,9 +256,9 @@ model CourseSubsection {
   content           String
   displayOrder      Int                  @map("display_order")
   estimatedDuration Int?                 @map("estimated_duration")
-  isFree            Boolean              @default(false) @map("is_free")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
+  isFree            Boolean              @default(false) @map("is_free")
   section           CourseSection        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   progress          SubsectionProgress[]
 
@@ -279,8 +276,8 @@ model CourseEnrollment {
   lastAccessedAt     DateTime?            @map("last_accessed_at")
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
-  student            Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
   course             Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student            Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
   subsectionProgress SubsectionProgress[]
 
   @@unique([studentId, courseId])
@@ -330,22 +327,22 @@ model Interview {
 }
 
 model InterviewCourse {
-  id              String          @id @default(uuid())
-  interviewId     String          @map("interview_id")
-  instructorId    String          @map("instructor_id")
-  title           String
-  slug            String?
-  description     String?
-  style           CourseStyle     @default(RANDOM)
-  isPublished     Boolean         @default(false) @map("is_published")
-  createdAt       DateTime        @default(now()) @map("created_at")
-  updatedAt       DateTime        @updatedAt @map("updated_at")
-  infoPoints      String[]        @default([]) @map("info_points")
-  interviewCases            InterviewCase[]
-  interviewCourseSections   InterviewCourseSection[]
+  id                         String                      @id @default(uuid())
+  interviewId                String                      @map("interview_id")
+  instructorId               String                      @map("instructor_id")
+  title                      String
+  description                String?
+  style                      CourseStyle                 @default(RANDOM)
+  isPublished                Boolean                     @default(false) @map("is_published")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  infoPoints                 String[]                    @default([]) @map("info_points")
+  slug                       String?
+  interviewCases             InterviewCase[]
   interviewCourseEnrollments InterviewCourseEnrollment[]
-  interview                 Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  instructor                Instructor      @relation(fields: [instructorId], references: [id])
+  interviewCourseSections    InterviewCourseSection[]
+  instructor                 Instructor                  @relation(fields: [instructorId], references: [id])
+  interview                  Interview                   @relation(fields: [interviewId], references: [id], onDelete: Cascade)
 
   @@unique([interviewId, slug])
   @@map("interview_courses")
@@ -355,7 +352,6 @@ model InterviewCase {
   id                       String                      @id @default(uuid())
   interviewCourseId        String                      @map("interview_course_id")
   title                    String
-  slug                     String?
   diagnosis                String
   patientName              String                      @map("patient_name")
   patientAge               Int                         @map("patient_age")
@@ -365,6 +361,7 @@ model InterviewCase {
   displayOrder             Int                         @map("display_order")
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")
+  slug                     String?
   interviewCaseCurriculums InterviewCaseCurriculum[]
   interviewCaseSpecialties InterviewCaseSpecialty[]
   interviewCaseTabs        InterviewCaseTab[]
@@ -459,37 +456,37 @@ model Payment {
   courseId                String?       @map("course_id")
   subscriptionDuration    Int?          @map("subscription_duration")
   creditsAmount           Int?          @map("credits_amount")
-  pricingPlanId           String?       @map("pricing_plan_id")
   createdAt               DateTime      @default(now()) @map("created_at")
-  student                 Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  pricingPlanId           String?       @map("pricing_plan_id")
   pricingPlan             PricingPlan?  @relation(fields: [pricingPlanId], references: [id])
+  student                 Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   subscription            Subscription?
 
   @@map("payments")
 }
 
 model Subscription {
-  id                 String        @id @default(uuid())
-  studentId          String        @map("student_id")
-  courseId            String?       @map("course_id")
-  paymentId          String        @unique @map("payment_id")
-  durationMonths     Int?          @map("duration_months")
-  durationHours      Int?          @map("duration_hours")
-  startDate          DateTime      @map("start_date")
-  endDate            DateTime      @map("end_date")
-  isActive           Boolean       @map("is_active")
-  resourceType       ResourceType  @map("resource_type")
-  resourceId         String        @map("resource_id")
-  pricingPlanId      String?       @map("pricing_plan_id")
-  subscriptionSource String?       @map("subscription_source")
-  isFreeTrial        Boolean       @default(false) @map("is_free_trial")
-  createdAt          DateTime      @default(now()) @map("created_at")
-  course             Course?       @relation(fields: [courseId], references: [id])
-  payment            Payment       @relation(fields: [paymentId], references: [id])
-  pricingPlan        PricingPlan?  @relation(fields: [pricingPlanId], references: [id])
-  student            Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  id                 String       @id @default(uuid())
+  studentId          String       @map("student_id")
+  courseId           String?      @map("course_id")
+  paymentId          String       @unique @map("payment_id")
+  durationMonths     Int?         @map("duration_months")
+  startDate          DateTime     @map("start_date")
+  endDate            DateTime     @map("end_date")
+  isActive           Boolean      @map("is_active")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  resourceType       ResourceType @map("resource_type")
+  resourceId         String       @map("resource_id")
+  pricingPlanId      String?      @map("pricing_plan_id")
+  subscriptionSource String?      @map("subscription_source")
+  isFreeTrial        Boolean      @default(false) @map("is_free_trial")
+  durationHours      Int?         @map("duration_hours")
+  course             Course?      @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  payment            Payment      @relation(fields: [paymentId], references: [id])
+  pricingPlan        PricingPlan? @relation(fields: [pricingPlanId], references: [id])
+  student            Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
-  @@unique([studentId, resourceType, resourceId])
+  @@unique([studentId, resourceType, resourceId], map: "subscriptions_student_resource_unique")
   @@map("subscriptions")
 }
 
@@ -517,8 +514,8 @@ model Specialty {
   createdAt                DateTime                 @default(now()) @map("created_at")
   caseSpecialties          CaseSpecialty[]
   examSpecialties          ExamSpecialty[]
-  interviewSpecialties     InterviewSpecialty[]
   interviewCaseSpecialties InterviewCaseSpecialty[]
+  interviewSpecialties     InterviewSpecialty[]
 
   @@map("specialties")
 }
@@ -529,8 +526,8 @@ model Curriculum {
   createdAt                DateTime                  @default(now()) @map("created_at")
   caseCurriculums          CaseCurriculum[]
   examCurriculums          ExamCurriculum[]
-  interviewCurriculums     InterviewCurriculum[]
   interviewCaseCurriculums InterviewCaseCurriculum[]
+  interviewCurriculums     InterviewCurriculum[]
 
   @@map("curriculums")
 }
@@ -540,9 +537,9 @@ model MarkingDomain {
   name                     String                      @unique
   createdAt                DateTime                    @default(now()) @map("created_at")
   examMarkingDomains       ExamMarkingDomain[]
-  markingCriteria          MarkingCriterion[]
-  interviewMarkingDomains  InterviewMarkingDomain[]
   interviewMarkingCriteria InterviewMarkingCriterion[]
+  interviewMarkingDomains  InterviewMarkingDomain[]
+  markingCriteria          MarkingCriterion[]
 
   @@map("marking_domains")
 }
@@ -654,8 +651,8 @@ model InterviewCaseCurriculum {
   interviewCaseId String        @map("interview_case_id")
   curriculumId    String        @map("curriculum_id")
   createdAt       DateTime      @default(now()) @map("created_at")
-  interviewCase   InterviewCase @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
   curriculum      Curriculum    @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+  interviewCase   InterviewCase @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
 
   @@id([interviewCaseId, curriculumId])
   @@map("interview_case_curriculums")
@@ -669,23 +666,18 @@ model StudentCasePractice {
   id               String     @id @default(uuid())
   studentId        String     @map("student_id")
   courseCaseId     String     @map("course_case_id")
-  // Practice Status Fields
   isPracticed      Boolean    @default(false) @map("is_practiced")
   practiceCount    Int        @default(0) @map("practice_count")
   firstPracticedAt DateTime?  @map("first_practiced_at")
   lastPracticedAt  DateTime?  @map("last_practiced_at")
-  // Bookmark Fields
   isBookmarked     Boolean    @default(false) @map("is_bookmarked")
   bookmarkedAt     DateTime?  @map("bookmarked_at")
-  // Future: Personal Notes & Review
   markedForReview  Boolean    @default(false) @map("marked_for_review")
   personalNotes    String?    @map("personal_notes")
-  // Timestamps
   createdAt        DateTime   @default(now()) @map("created_at")
   updatedAt        DateTime   @updatedAt @map("updated_at")
-  // Relations
-  student          Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
   courseCase       CourseCase @relation(fields: [courseCaseId], references: [id], onDelete: Cascade)
+  student          Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, courseCaseId])
   @@index([studentId, isPracticed])
@@ -698,19 +690,19 @@ model StudentCasePractice {
 // ============================================
 
 model StudentInterviewPractice {
-  id               String         @id @default(uuid())
-  studentId        String         @map("student_id")
-  interviewCaseId  String         @map("interview_case_id")
-  isPracticed      Boolean        @default(false) @map("is_practiced")
-  practiceCount    Int            @default(0) @map("practice_count")
-  firstPracticedAt DateTime?      @map("first_practiced_at")
-  lastPracticedAt  DateTime?      @map("last_practiced_at")
-  isBookmarked     Boolean        @default(false) @map("is_bookmarked")
-  bookmarkedAt     DateTime?      @map("bookmarked_at")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
-  student          Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  interviewCase    InterviewCase  @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+  id               String        @id @default(uuid())
+  studentId        String        @map("student_id")
+  interviewCaseId  String        @map("interview_case_id")
+  isPracticed      Boolean       @default(false) @map("is_practiced")
+  practiceCount    Int           @default(0) @map("practice_count")
+  firstPracticedAt DateTime?     @map("first_practiced_at")
+  lastPracticedAt  DateTime?     @map("last_practiced_at")
+  isBookmarked     Boolean       @default(false) @map("is_bookmarked")
+  bookmarkedAt     DateTime?     @map("bookmarked_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  interviewCase    InterviewCase @relation(fields: [interviewCaseId], references: [id], onDelete: Cascade)
+  student          Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, interviewCaseId])
   @@index([studentId, isPracticed])
@@ -723,15 +715,15 @@ model StudentInterviewPractice {
 // ============================================
 
 model InterviewCourseSection {
-  id                String                       @id @default(uuid())
-  interviewCourseId String                       @map("interview_course_id")
+  id                String                      @id @default(uuid())
+  interviewCourseId String                      @map("interview_course_id")
   title             String
   description       String?
-  displayOrder      Int                          @map("display_order")
-  isFree            Boolean                      @default(false) @map("is_free")
-  createdAt         DateTime                     @default(now()) @map("created_at")
-  updatedAt         DateTime                     @updatedAt @map("updated_at")
-  interviewCourse   InterviewCourse              @relation(fields: [interviewCourseId], references: [id], onDelete: Cascade)
+  displayOrder      Int                         @map("display_order")
+  isFree            Boolean                     @default(false) @map("is_free")
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  interviewCourse   InterviewCourse             @relation(fields: [interviewCourseId], references: [id], onDelete: Cascade)
   subsections       InterviewCourseSubsection[]
 
   @@map("interview_course_sections")
@@ -766,8 +758,8 @@ model InterviewCourseEnrollment {
   lastAccessedAt     DateTime?                     @map("last_accessed_at")
   createdAt          DateTime                      @default(now()) @map("created_at")
   updatedAt          DateTime                      @updatedAt @map("updated_at")
-  student            Student                       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   interviewCourse    InterviewCourse               @relation(fields: [interviewCourseId], references: [id], onDelete: Cascade)
+  student            Student                       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   subsectionProgress InterviewSubsectionProgress[]
 
   @@unique([studentId, interviewCourseId])
@@ -800,104 +792,30 @@ model InterviewSubsectionProgress {
 // ============================================
 
 model Affiliate {
-  id        String   @id @default(uuid())
+  id        String     @id @default(uuid())
   name      String
   email     String?
-  code      String   @unique
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
+  code      String     @unique
+  isActive  Boolean    @default(true) @map("is_active")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
   referrals Referral[]
 
   @@map("affiliates")
 }
 
 model Referral {
-  id          String   @id @default(uuid())
-  affiliateId String   @map("affiliate_id")
-  userId      Int      @map("user_id")
+  id          String    @id @default(uuid())
+  affiliateId String    @map("affiliate_id")
+  userId      Int       @unique @map("user_id")
   code        String
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  affiliate Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId])
   @@index([affiliateId])
   @@index([code])
   @@map("referrals")
-}
-
-enum CourseStyle {
-  RANDOM
-  STRUCTURED
-}
-
-enum ContentType {
-  VIDEO
-  PDF
-  TEXT
-  QUIZ
-}
-
-enum PatientGender {
-  MALE
-  FEMALE
-  OTHER
-}
-
-enum VoiceModel {
-  VOICE_1
-  VOICE_2
-}
-
-enum CaseTabType {
-  DOCTORS_NOTE
-  PATIENT_SCRIPT
-  MEDICAL_NOTES
-}
-
-enum PaymentType {
-  SUBSCRIPTION
-  CREDITS
-}
-
-enum PaymentStatus {
-  PENDING
-  COMPLETED
-  FAILED
-}
-
-enum CreditTransactionType {
-  CREDIT
-  DEBIT
-}
-
-enum CreditTransactionSource {
-  SUBSCRIPTION
-  PURCHASE
-  SIMULATION
-  MANUAL
-  INTERVIEW
-}
-
-enum CheckoutSessionStatus {
-  PENDING
-  COMPLETED
-  EXPIRED
-  FAILED
-}
-
-enum ResourceType {
-  COURSE
-  INTERVIEW_COURSE
-  BUNDLE
-}
-
-enum DiscountType {
-  PERCENTAGE
-  FIXED_AMOUNT
 }
 
 // ========================================
@@ -932,8 +850,8 @@ model StripeCheckoutSession {
   completedAt     DateTime?             @map("completed_at")
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
-  student         Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
   creditPackage   CreditPackage         @relation(fields: [creditPackageId], references: [id])
+  student         Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([studentId])
   @@index([sessionId])
@@ -1010,7 +928,8 @@ model SubscriptionCheckoutSession {
   finalAmountInCents    Int?                  @map("final_amount_in_cents")
   student               Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
   pricingPlan           PricingPlan           @relation(fields: [pricingPlanId], references: [id])
-  promoCode             PromoCode?            @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  promoCode             PromoCode?            @relation(fields: [promoCodeId], references: [id])
+
 
   @@index([studentId])
   @@index([sessionId])
@@ -1036,7 +955,6 @@ model PromoCode {
   resourceId    String?       @map("resource_id")
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
-
   redemptions                  PromoCodeRedemption[]
   subscriptionCheckoutSessions SubscriptionCheckoutSession[]
 
@@ -1059,24 +977,17 @@ model PromoCodeRedemption {
 
 // ─── Blog System ────────────────────────────────────────────
 
-enum BlogArticleStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-}
-
 model BlogCategory {
-  id               String   @id @default(uuid())
-  slug             String   @unique @db.VarChar(100)
-  name             String   @db.VarChar(100)
-  description      String?
-  metaDescription  String?  @map("meta_description") @db.VarChar(160)
-  featuredImageUrl String?  @map("featured_image_url") @db.VarChar(500)
-  displayOrder     Int      @default(0) @map("display_order")
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
+  id                String            @id @default(uuid())
+  slug              String            @unique @db.VarChar(100)
+  name              String            @db.VarChar(100)
+  description       String?
+  metaDescription   String?           @map("meta_description") @db.VarChar(160)
+  featuredImageUrl  String?           @map("featured_image_url") @db.VarChar(500)
+  displayOrder      Int               @default(0) @map("display_order")
+  isActive          Boolean           @default(true) @map("is_active")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
   articleCategories ArticleCategory[]
 
   @@index([isActive])
@@ -1085,52 +996,34 @@ model BlogCategory {
 }
 
 model BlogArticle {
-  id                    String            @id @default(uuid())
-  slug                  String            @unique @db.VarChar(200)
-
-  // SEO
-  headline              String            @db.VarChar(110)
-  subheadline           String?           @db.VarChar(150)
-  metaDescription       String            @map("meta_description") @db.VarChar(160)
-  metaKeywords          String[]          @default([]) @map("meta_keywords")
-
-  // Content
-  content               String
-  excerpt               String
-  tldr                  String?
-
-  // Author (FK to existing User table — auto-set from request.user.userId on create)
-  authorId              Int               @map("author_id")
-  author                User              @relation(fields: [authorId], references: [id])
-
-  // Dates
-  publishedDate         DateTime?         @map("published_date")
-  updatedDate           DateTime?         @map("updated_date")
-  createdAt             DateTime          @default(now()) @map("created_at")
-
-  // Status
-  status                BlogArticleStatus @default(DRAFT)
-
-  // Computed on save
-  wordCount             Int               @map("word_count")
-  readingTimeMinutes    Int               @map("reading_time_minutes")
-
-  // Featured image
-  featuredImageUrl      String            @map("featured_image_url") @db.VarChar(500)
-  featuredImageAlt      String            @map("featured_image_alt")
-  featuredImageCaption  String?           @map("featured_image_caption")
-  blurDataUrl           String?           @map("blur_data_url")
-
-  // Engagement
-  viewCount             Int               @default(0) @map("view_count")
-  shareCount            Int               @default(0) @map("share_count")
-
-  // Relations
-  articleCategories     ArticleCategory[]
-  articleTags           ArticleTag[]
-  faqs                  ArticleFaq[]
-  relatedFrom           ArticleRelatedContent[] @relation("RelatedFrom")
-  relatedTo             ArticleRelatedContent[] @relation("RelatedTo")
+  id                   String                  @id @default(uuid())
+  slug                 String                  @unique @db.VarChar(200)
+  headline             String                  @db.VarChar(110)
+  subheadline          String?                 @db.VarChar(150)
+  metaDescription      String                  @map("meta_description") @db.VarChar(160)
+  metaKeywords         String[]                @default([]) @map("meta_keywords")
+  content              String
+  excerpt              String
+  tldr                 String?
+  authorId             Int                     @map("author_id")
+  publishedDate        DateTime?               @map("published_date")
+  updatedDate          DateTime?               @map("updated_date")
+  createdAt            DateTime                @default(now()) @map("created_at")
+  status               BlogArticleStatus       @default(DRAFT)
+  wordCount            Int                     @map("word_count")
+  readingTimeMinutes   Int                     @map("reading_time_minutes")
+  featuredImageUrl     String                  @map("featured_image_url") @db.VarChar(500)
+  featuredImageAlt     String                  @map("featured_image_alt")
+  featuredImageCaption String?                 @map("featured_image_caption")
+  blurDataUrl          String?                 @map("blur_data_url")
+  viewCount            Int                     @default(0) @map("view_count")
+  shareCount           Int                     @default(0) @map("share_count")
+  articleCategories    ArticleCategory[]
+  faqs                 ArticleFaq[]
+  relatedFrom          ArticleRelatedContent[] @relation("RelatedFrom")
+  relatedTo            ArticleRelatedContent[] @relation("RelatedTo")
+  articleTags          ArticleTag[]
+  author               User                    @relation(fields: [authorId], references: [id])
 
   @@index([status])
   @@index([authorId])
@@ -1140,10 +1033,9 @@ model BlogArticle {
 
 model ArticleCategory {
   articleId  String       @map("article_id")
-  categoryId String      @map("category_id")
-  isPrimary  Boolean     @default(false) @map("is_primary")
-  createdAt  DateTime    @default(now()) @map("created_at")
-
+  categoryId String       @map("category_id")
+  isPrimary  Boolean      @default(false) @map("is_primary")
+  createdAt  DateTime     @default(now()) @map("created_at")
   article    BlogArticle  @relation(fields: [articleId], references: [id], onDelete: Cascade)
   category   BlogCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
@@ -1153,12 +1045,11 @@ model ArticleCategory {
 }
 
 model Tag {
-  id          String   @id @default(uuid())
-  slug        String   @unique @db.VarChar(100)
-  name        String   @db.VarChar(100)
+  id          String       @id @default(uuid())
+  slug        String       @unique @db.VarChar(100)
+  name        String       @db.VarChar(100)
   description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-
+  createdAt   DateTime     @default(now()) @map("created_at")
   articleTags ArticleTag[]
 
   @@map("tags")
@@ -1168,7 +1059,6 @@ model ArticleTag {
   articleId String      @map("article_id")
   tagId     String      @map("tag_id")
   createdAt DateTime    @default(now()) @map("created_at")
-
   article   BlogArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
   tag       Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
@@ -1184,7 +1074,6 @@ model ArticleFaq {
   answer    String
   position  Int
   createdAt DateTime    @default(now()) @map("created_at")
-
   article   BlogArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@unique([articleId, position])
@@ -1197,7 +1086,6 @@ model ArticleRelatedContent {
   relatedArticleId String      @map("related_article_id")
   relevanceScore   Int         @default(50) @map("relevance_score")
   createdAt        DateTime    @default(now()) @map("created_at")
-
   article          BlogArticle @relation("RelatedFrom", fields: [articleId], references: [id], onDelete: Cascade)
   relatedArticle   BlogArticle @relation("RelatedTo", fields: [relatedArticleId], references: [id], onDelete: Cascade)
 
@@ -1214,4 +1102,81 @@ model BlockedEmailDomain {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("blocked_email_domains")
+}
+
+enum CourseStyle {
+  RANDOM
+  STRUCTURED
+}
+
+enum ContentType {
+  VIDEO
+  PDF
+  TEXT
+  QUIZ
+}
+
+enum PatientGender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum VoiceModel {
+  VOICE_1
+  VOICE_2
+}
+
+enum CaseTabType {
+  DOCTORS_NOTE
+  PATIENT_SCRIPT
+  MEDICAL_NOTES
+}
+
+enum PaymentType {
+  SUBSCRIPTION
+  CREDITS
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum CreditTransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum CreditTransactionSource {
+  SUBSCRIPTION
+  PURCHASE
+  SIMULATION
+  MANUAL
+  INTERVIEW
+}
+
+enum CheckoutSessionStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+  FAILED
+}
+
+enum ResourceType {
+  COURSE
+  INTERVIEW_COURSE
+  BUNDLE
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum BlogArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
 }
