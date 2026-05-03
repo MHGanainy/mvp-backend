@@ -1,7 +1,7 @@
 // interview.service.ts
 import { PrismaClient } from '@prisma/client'
 import { CreateInterviewInput, UpdateInterviewInput, CreateCompleteInterviewInput, UpdateCompleteInterviewInput, InterviewMarkingDomainsDetailedResponse } from './interview.schema'
-import { autoGrantOnCreate } from '../../shared/permissions'
+import { autoGrantOnCreate, getResourcesWithPermissions } from '../../shared/permissions'
 
 export class InterviewService {
   constructor(private prisma: PrismaClient) {}
@@ -180,6 +180,26 @@ export class InterviewService {
 
     const interviews = await this.prisma.interview.findMany({
       where: { instructorId },
+      include: this.getFullInclude(),
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    return interviews.map(interview => this.transformInterviewWithRelations(interview))
+  }
+
+  async findVisibleToUser(userId: number) {
+    const interviewIds = await getResourcesWithPermissions(this.prisma, {
+      userId,
+      resourceType: 'interview'
+    })
+    if (interviewIds.length === 0) {
+      return []
+    }
+
+    const interviews = await this.prisma.interview.findMany({
+      where: { id: { in: interviewIds } },
       include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'

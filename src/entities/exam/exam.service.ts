@@ -1,7 +1,7 @@
 // exam.service.ts
 import { PrismaClient } from '@prisma/client'
 import { CreateExamInput, UpdateExamInput, CreateCompleteExamInput, UpdateCompleteExamInput, ExamMarkingDomainsDetailedResponse } from './exam.schema'
-import { autoGrantOnCreate } from '../../shared/permissions'
+import { autoGrantOnCreate, getResourcesWithPermissions } from '../../shared/permissions'
 
 export class ExamService {
   constructor(private prisma: PrismaClient) {}
@@ -178,6 +178,35 @@ export class ExamService {
 
     const exams = await this.prisma.exam.findMany({
       where: { instructorId },
+      include: this.getFullInclude(),
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    return exams.map(exam => this.transformExamWithRelations(exam))
+  }
+
+  async findVisibleToInstructor(instructorId: string) {
+    const instructor = await this.prisma.instructor.findUnique({
+      where: { id: instructorId },
+      select: { userId: true }
+    })
+
+    if (!instructor) {
+      throw new Error('Instructor not found')
+    }
+
+    const examIds = await getResourcesWithPermissions(this.prisma, {
+      userId: instructor.userId,
+      resourceType: 'exam'
+    })
+    if (examIds.length === 0) {
+      return []
+    }
+
+    const exams = await this.prisma.exam.findMany({
+      where: { id: { in: examIds } },
       include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'

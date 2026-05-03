@@ -14,6 +14,7 @@ import {
 } from './course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
+import { getResourcesWithPermissions, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const styleParamsSchema = z.object({
@@ -83,27 +84,54 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /courses/exam/:examId - Get courses by exam
+  // GET /courses/exam/:examId - Show courses visible to the instructor for this exam
   fastify.get('/courses/exam/:examId', async (request, reply) => {
     try {
       const { examId } = courseExamParamsSchema.parse(request.params)
 
-      let includeUnpublished = false
-      try {
-        await request.jwtVerify()
-        includeUnpublished = isAdmin(request) || !!getCurrentInstructorId(request)
-      } catch {
-        // Not authenticated - public access
+      const exam = await fastify.prisma.exam.findUnique({ where: { id: examId } })
+      if (!exam) {
+        reply.status(404).send({ error: 'Exam not found' })
+        return
       }
 
-      const courses = await courseService.findByExam(examId, includeUnpublished)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+
+      let where: any = { examId, isPublished: true }
+      if (isAdmin) {
+        where = { examId }
+      } else if (userId !== null) {
+        const grantedExamIds = await getResourcesWithPermissions(fastify.prisma, {
+          userId,
+          resourceType: 'exam'
+        })
+        if (grantedExamIds.includes(examId)) {
+          where = { examId }
+        } else {
+          const grantedCourseIds = await getResourcesWithPermissions(fastify.prisma, {
+            userId,
+            resourceType: 'course'
+          })
+          if (grantedCourseIds.length > 0) {
+            where = {
+              examId,
+              OR: [{ isPublished: true }, { id: { in: grantedCourseIds } }]
+            }
+          }
+        }
+      }
+
+      const courses = await fastify.prisma.course.findMany({
+        where,
+        include: {
+          exam: { select: { id: true, title: true, slug: true, isActive: true } },
+          instructor: { select: { id: true, firstName: true, lastName: true, bio: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      })
       reply.send(courses)
     } catch (error) {
-      if (error instanceof Error && error.message === 'Exam not found') {
-        reply.status(404).send({ error: 'Exam not found' })
-      } else {
-        reply.status(400).send({ error: 'Invalid request' })
-      }
+      reply.status(400).send({ error: 'Invalid request' })
     }
   })
 
@@ -146,20 +174,26 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
   }
 })
 
-  // GET /exams/:examSlug/courses/:courseSlug - Get course by slugs (clean URL)
+  // GET /exams/:examSlug/courses/:courseSlug - Get course by slugs (requires course permission)
   fastify.get('/exams/:examSlug/courses/:courseSlug', async (request, reply) => {
     try {
       const { examSlug, courseSlug } = request.params as { examSlug: string; courseSlug: string }
+      const course = await courseService.findBySlug(examSlug, courseSlug, true)
 
-      let includeUnpublished = false
-      try {
-        await request.jwtVerify()
-        includeUnpublished = isAdmin(request) || !!getCurrentInstructorId(request)
-      } catch {
-        // Not authenticated
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      if (!isAdmin) {
+        const allowed = userId !== null && await userHasPermission(fastify.prisma, {
+          userId,
+          isAdmin: false,
+          permission: 'case.edit',
+          target: { kind: 'course', id: course.id }
+        })
+        if (!allowed) {
+          reply.status(403).send({ error: 'Forbidden' })
+          return
+        }
       }
 
-      const course = await courseService.findBySlug(examSlug, courseSlug, includeUnpublished)
       reply.send(course)
     } catch (error) {
       if (error instanceof Error) {

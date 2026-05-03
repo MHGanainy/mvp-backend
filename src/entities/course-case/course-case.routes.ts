@@ -29,7 +29,7 @@ import {
 } from '../../shared/junction-tables.schema'
 import { authenticate, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
-import { canViewerSeeCourseCase, getVisibleCourseCasesWhere, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
+import { courseCaseVisibilityFilter, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const genderParamsSchema = z.object({
@@ -43,11 +43,11 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   // GET /course-cases - Get course cases based on user role / grants
   fastify.get('/course-cases', async (request, reply) => {
     try {
-      const viewer = resolveViewerFromRequest(request)
-      const visibilityWhere = await getVisibleCourseCasesWhere(fastify.prisma, viewer)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const visibilityWhere = await courseCaseVisibilityFilter(fastify.prisma, userId, isAdmin)
 
       // Public callers also get the existing "free only" restriction
-      const where: Prisma.CourseCaseWhereInput = viewer.userId === null
+      const where: Prisma.CourseCaseWhereInput = userId === null
         ? { AND: [visibilityWhere, { isFree: true }] }
         : visibilityWhere
 
@@ -73,8 +73,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/course-cases/course/:courseId', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
-      const viewer = resolveViewerFromRequest(request)
-      const visibilityWhere = await getVisibleCourseCasesWhere(fastify.prisma, viewer)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const visibilityWhere = await courseCaseVisibilityFilter(fastify.prisma, userId, isAdmin)
 
       const course = await fastify.prisma.course.findUnique({ where: { id: courseId } })
       if (!course) {
@@ -199,10 +199,10 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         courseSlug: string
         caseSlug: string
       }
-      const courseCase = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeCourseCase(fastify.prisma, viewer, courseCase.id)
-      if (!visible) {
+      const slugLookup = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(slugLookup.id, userId, isAdmin)
+      if (!courseCase) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
@@ -228,13 +228,12 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/course-cases/:id', async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeCourseCase(fastify.prisma, viewer, id)
-      if (!visible) {
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(id, userId, isAdmin)
+      if (!courseCase) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
-      const courseCase = await courseCaseService.findById(id)
       reply.send(courseCase)
     } catch (error) {
       if (error instanceof Error && error.message === 'Course case not found') {
@@ -733,56 +732,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/course-cases/:id/complete', async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeCourseCase(fastify.prisma, viewer, id)
-      if (!visible) {
-        reply.status(404).send({ error: 'Course case not found' })
-        return
-      }
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(id, userId, isAdmin)
 
-      const courseCase = await fastify.prisma.courseCase.findUnique({
-        where: { id },
-        include: {
-          course: {
-            include: {
-              exam: {
-                select: {
-                  id: true,
-                  title: true,
-                  slug: true
-                }
-              }
-            }
-          },
-          simulation: true,
-          caseTabs: true,
-          markingCriteria: {
-            include: {
-              markingDomain: true
-            },
-            orderBy: [
-              { markingDomain: { name: 'asc' } },
-              { displayOrder: 'asc' }
-            ]
-          },
-          caseSpecialties: {
-            include: {
-              specialty: true
-            }
-          },
-          caseCurriculums: {
-            include: {
-              curriculum: true
-            }
-          }
-        }
-      })
-      
       if (!courseCase) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
-      
+
       const tabsResponse: any = {}
       for (const tab of courseCase.caseTabs) {
         tabsResponse[tab.tabType] = {
@@ -856,51 +813,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       const caseLookup = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
       const id = caseLookup.id
 
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeCourseCase(fastify.prisma, viewer, id)
-      if (!visible) {
-        reply.status(404).send({ error: 'Course case not found' })
-        return
-      }
-
-      // Now get the complete data using the ID
-      const courseCase = await fastify.prisma.courseCase.findUnique({
-        where: { id },
-        include: {
-          course: {
-            include: {
-              exam: {
-                select: {
-                  id: true,
-                  title: true,
-                  slug: true
-                }
-              }
-            }
-          },
-          simulation: true,
-          caseTabs: true,
-          markingCriteria: {
-            include: {
-              markingDomain: true
-            },
-            orderBy: [
-              { markingDomain: { name: 'asc' } },
-              { displayOrder: 'asc' }
-            ]
-          },
-          caseSpecialties: {
-            include: {
-              specialty: true
-            }
-          },
-          caseCurriculums: {
-            include: {
-              curriculum: true
-            }
-          }
-        }
-      })
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(id, userId, isAdmin)
 
       if (!courseCase) {
         reply.status(404).send({ error: 'Course case not found' })

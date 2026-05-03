@@ -19,8 +19,9 @@ import {
   interviewRemoveCurriculumParamsSchema,
   interviewRemoveMarkingDomainParamsSchema
 } from '../../shared/junction-tables.schema'
-import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { authenticate, getCurrentInstructorId, getCurrentUserId, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
+import { userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const interviewIdParamsSchema = z.object({
@@ -30,36 +31,32 @@ const interviewIdParamsSchema = z.object({
 export default async function interviewRoutes(fastify: FastifyInstance) {
   const interviewService = new InterviewService(fastify.prisma)
 
-  // GET /interviews - Get interviews based on user role
+  // GET /interviews - Show interviews visible to the user (admin: all, granted users: granted + active, public: active)
   fastify.get('/interviews', async (request, reply) => {
     try {
       let isUserAdmin = false
-      let currentInstructorId = null
+      let userId: number | null = null
 
       try {
         await request.jwtVerify()
         isUserAdmin = isAdmin(request)
-        currentInstructorId = getCurrentInstructorId(request)
+        userId = getCurrentUserId(request)
       } catch {
         // Not authenticated - public access
       }
 
       let interviews
       if (isUserAdmin) {
-        // Admin sees ALL interviews
         interviews = await interviewService.findAll()
-      } else if (currentInstructorId) {
-        // Instructor sees their own interviews plus active interviews
-        const instructorInterviews = await interviewService.findByInstructor(currentInstructorId)
-        const activeInterviews = await interviewService.findActive()
-        // Merge and deduplicate
+      } else if (userId !== null) {
+        const granted = await interviewService.findVisibleToUser(userId)
+        const active = await interviewService.findActive()
         const interviewMap = new Map()
-        ;[...instructorInterviews, ...activeInterviews].forEach(interview => {
+        ;[...granted, ...active].forEach(interview => {
           interviewMap.set(interview.id, interview)
         })
         interviews = Array.from(interviewMap.values())
       } else {
-        // Public sees only active interviews
         interviews = await interviewService.findActive()
       }
 
@@ -119,11 +116,40 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
   }
 })
 
-  // GET /interviews/slug/:slug - Get interview by slug
+  // GET /interviews/slug/:slug - Get interview by slug (public for active interviews, permission required for inactive)
   fastify.get('/interviews/slug/:slug', async (request, reply) => {
     try {
       const { slug } = request.params as { slug: string }
       const interview = await interviewService.findBySlug(slug)
+
+      if (interview.isActive) {
+        reply.send(interview)
+        return
+      }
+
+      let isUserAdmin = false
+      let userId: number | undefined
+      try {
+        await request.jwtVerify()
+        isUserAdmin = isAdmin(request)
+        userId = request.user?.userId
+      } catch {
+        // not authenticated
+      }
+
+      if (!isUserAdmin) {
+        const allowed = userId !== undefined && await userHasPermission(fastify.prisma, {
+          userId,
+          isAdmin: false,
+          permission: 'case.edit',
+          target: { kind: 'interview', id: interview.id }
+        })
+        if (!allowed) {
+          reply.status(404).send({ error: 'Interview not found' })
+          return
+        }
+      }
+
       reply.send(interview)
     } catch (error) {
       if (error instanceof Error && error.message === 'Interview not found') {

@@ -21,6 +21,7 @@ import {
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, getCurrentStudentId, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
+import { userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const examIdParamsSchema = z.object({
@@ -79,45 +80,31 @@ export default async function examRoutes(fastify: FastifyInstance) {
     }
   })
 
-// GET /exams/instructor/:instructorId - Get exams by instructor
-fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
-  try {
-    const { instructorId } = examInstructorParamsSchema.parse(request.params)
-
-    // Check authentication and admin status
-    let isUserAdmin = false
-    let canViewAll = false
+  // GET /exams/instructor/:instructorId - Show exams visible to the instructor (via permission grants)
+  fastify.get('/exams/instructor/:instructorId', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
-      await request.jwtVerify()
-      isUserAdmin = isAdmin(request)
-      canViewAll = isUserAdmin || getCurrentInstructorId(request) === instructorId
-    } catch {
-      // Not authenticated - can only see active exams
-    }
+      const { instructorId } = examInstructorParamsSchema.parse(request.params)
 
-    // FIXED: Admin gets ALL exams, not filtered by instructor
-    let exams
-    if (isUserAdmin) {
-      // Admin sees ALL exams regardless of instructor
-      exams = await examService.findAll()
-    } else if (canViewAll) {
-      // Instructor sees all their own exams
-      exams = await examService.findByInstructor(instructorId)
-    } else {
-      // Public/other users see only active exams from this instructor
-      const instructorExams = await examService.findByInstructor(instructorId)
-      exams = instructorExams.filter(exam => exam.isActive)
-    }
+      if (!isAdmin(request) && getCurrentInstructorId(request) !== instructorId) {
+        reply.status(403).send({ error: 'Forbidden' })
+        return
+      }
 
-    reply.send(exams)
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Instructor not found') {
-      reply.status(404).send({ error: 'Instructor not found' })
-    } else {
-      reply.status(400).send({ error: 'Invalid request' })
+      const exams = isAdmin(request)
+        ? await examService.findAll()
+        : await examService.findVisibleToInstructor(instructorId)
+
+      reply.send(exams)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Instructor not found') {
+        reply.status(404).send({ error: 'Instructor not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
     }
-  }
-})
+  })
 
   // GET /exams/:examId/pricing-summary - Get exam bundle + course plans by ID (public, optional auth)
   fastify.get('/exams/:examId/pricing-summary', async (request, reply) => {
@@ -167,11 +154,40 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // GET /exams/slug/:slug - Get exam by slug
+  // GET /exams/slug/:slug - Get exam by slug (public for active exams, permission required for inactive)
   fastify.get('/exams/slug/:slug', async (request, reply) => {
     try {
       const { slug } = request.params as { slug: string }
       const exam = await examService.findBySlug(slug)
+
+      if (exam.isActive) {
+        reply.send(exam)
+        return
+      }
+
+      let isUserAdmin = false
+      let userId: number | undefined
+      try {
+        await request.jwtVerify()
+        isUserAdmin = isAdmin(request)
+        userId = request.user?.userId
+      } catch {
+        // not authenticated
+      }
+
+      if (!isUserAdmin) {
+        const allowed = userId !== undefined && await userHasPermission(fastify.prisma, {
+          userId,
+          isAdmin: false,
+          permission: 'case.edit',
+          target: { kind: 'exam', id: exam.id }
+        })
+        if (!allowed) {
+          reply.status(404).send({ error: 'Exam not found' })
+          return
+        }
+      }
+
       reply.send(exam)
     } catch (error) {
       if (error instanceof Error && error.message === 'Exam not found') {
@@ -277,21 +293,17 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // POST /exams/create-complete - Create exam with all relations
+  // POST /exams/create-complete - Create exam with all relations (admin only)
   fastify.post('/exams/create-complete', {
     preHandler: authenticate
   }, async (request, reply) => {
     try {
-      const data = createCompleteExamSchema.parse(request.body)
-
       if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.exam.instructorId) {
-          reply.status(403).send({ error: 'You can only create exams for yourself' })
-          return
-        }
+        reply.status(403).send({ error: 'Forbidden' })
+        return
       }
 
+      const data = createCompleteExamSchema.parse(request.body)
       const result = await examService.createCompleteExam(data)
       reply.status(201).send({
         message: 'Exam created and configured successfully',
@@ -691,8 +703,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // GET /exams/:examId/with-configuration
-  fastify.get('/exams/:examId/with-configuration', async (request, reply) => {
+  // GET /exams/:examId/with-configuration - Requires exam permission
+  fastify.get('/exams/:examId/with-configuration', {
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = examIdParamsSchema.parse(req.params)
+      return { kind: 'exam', id: examId }
+    })
+  }, async (request, reply) => {
     try {
       const { examId } = examIdParamsSchema.parse(request.params)
       const examWithConfig = await examService.getExamWithConfiguration(examId)

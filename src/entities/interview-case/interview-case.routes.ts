@@ -28,7 +28,7 @@ import {
 } from '../../shared/junction-tables.schema'
 import { authenticate, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
-import { canViewerSeeInterviewCase, getVisibleInterviewCasesWhere, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
+import { interviewCaseVisibilityFilter, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const genderParamsSchema = z.object({
@@ -42,10 +42,10 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   // GET /interview-cases - Get interview cases based on user role / grants
   fastify.get('/interview-cases', async (request, reply) => {
     try {
-      const viewer = resolveViewerFromRequest(request)
-      const visibilityWhere = await getVisibleInterviewCasesWhere(fastify.prisma, viewer)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const visibilityWhere = await interviewCaseVisibilityFilter(fastify.prisma, userId, isAdmin)
 
-      const where: any = viewer.userId === null
+      const where: any = userId === null
         ? { AND: [visibilityWhere, { isFree: true }] }
         : visibilityWhere
 
@@ -72,10 +72,10 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
         courseSlug: string
         caseSlug: string
       }
-      const interviewCase = await interviewCaseService.findBySlug(interviewSlug, courseSlug, caseSlug)
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, interviewCase.id)
-      if (!visible) {
+      const slugLookup = await interviewCaseService.findBySlug(interviewSlug, courseSlug, caseSlug)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const interviewCase = await interviewCaseService.findByIdVisibleTo(slugLookup.id, userId, isAdmin)
+      if (!interviewCase) {
         reply.status(404).send({ error: 'Interview case not found' })
         return
       }
@@ -110,51 +110,8 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
       const caseLookup = await interviewCaseService.findBySlug(interviewSlug, courseSlug, caseSlug)
       const id = caseLookup.id
 
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, id)
-      if (!visible) {
-        reply.status(404).send({ error: 'Interview case not found' })
-        return
-      }
-
-      // Now get the complete data using the ID
-      const interviewCase = await fastify.prisma.interviewCase.findUnique({
-        where: { id },
-        include: {
-          interviewCourse: {
-            include: {
-              interview: {
-                select: {
-                  id: true,
-                  title: true,
-                  slug: true
-                }
-              }
-            }
-          },
-          interviewSimulation: true,
-          interviewCaseTabs: true,
-          interviewMarkingCriteria: {
-            include: {
-              markingDomain: true
-            },
-            orderBy: [
-              { markingDomain: { name: 'asc' } },
-              { displayOrder: 'asc' }
-            ]
-          },
-          interviewCaseSpecialties: {
-            include: {
-              specialty: true
-            }
-          },
-          interviewCaseCurriculums: {
-            include: {
-              curriculum: true
-            }
-          }
-        }
-      })
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const interviewCase = await interviewCaseService.findByIdVisibleTo(id, userId, isAdmin)
 
       if (!interviewCase) {
         reply.status(404).send({ error: 'Interview case not found' })
@@ -239,8 +196,8 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/interview-cases/interview-course/:interviewCourseId', async (request, reply) => {
     try {
       const { interviewCourseId } = interviewCaseInterviewCourseParamsSchema.parse(request.params)
-      const viewer = resolveViewerFromRequest(request)
-      const visibilityWhere = await getVisibleInterviewCasesWhere(fastify.prisma, viewer)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const visibilityWhere = await interviewCaseVisibilityFilter(fastify.prisma, userId, isAdmin)
 
       const interviewCourse = await fastify.prisma.interviewCourse.findUnique({ where: { id: interviewCourseId } })
       if (!interviewCourse) {
@@ -351,13 +308,12 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/interview-cases/:id', async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, id)
-      if (!visible) {
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const interviewCase = await interviewCaseService.findByIdVisibleTo(id, userId, isAdmin)
+      if (!interviewCase) {
         reply.status(404).send({ error: 'Interview case not found' })
         return
       }
-      const interviewCase = await interviewCaseService.findById(id)
       reply.send(interviewCase)
     } catch (error) {
       if (error instanceof Error && error.message === 'Interview case not found') {
@@ -858,50 +814,8 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/interview-cases/:id/complete', async (request, reply) => {
     try {
       const { id } = interviewCaseParamsSchema.parse(request.params)
-      const viewer = resolveViewerFromRequest(request)
-      const visible = await canViewerSeeInterviewCase(fastify.prisma, viewer, id)
-      if (!visible) {
-        reply.status(404).send({ error: 'Interview case not found' })
-        return
-      }
-
-      const interviewCase = await fastify.prisma.interviewCase.findUnique({
-        where: { id },
-        include: {
-          interviewCourse: {
-            include: {
-              interview: {
-                select: {
-                  id: true,
-                  title: true,
-                  slug: true
-                }
-              }
-            }
-          },
-          interviewSimulation: true,
-          interviewCaseTabs: true,
-          interviewMarkingCriteria: {
-            include: {
-              markingDomain: true
-            },
-            orderBy: [
-              { markingDomain: { name: 'asc' } },
-              { displayOrder: 'asc' }
-            ]
-          },
-          interviewCaseSpecialties: {
-            include: {
-              specialty: true
-            }
-          },
-          interviewCaseCurriculums: {
-            include: {
-              curriculum: true
-            }
-          }
-        }
-      })
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const interviewCase = await interviewCaseService.findByIdVisibleTo(id, userId, isAdmin)
 
       if (!interviewCase) {
         reply.status(404).send({ error: 'Interview case not found' })

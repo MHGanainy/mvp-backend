@@ -14,6 +14,7 @@ import {
 } from './interview-course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
+import { resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const styleParamsSchema = z.object({
@@ -62,11 +63,26 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /interviews/:interviewSlug/courses/:courseSlug - Get interview course by slugs (clean URL)
+  // GET /interviews/:interviewSlug/courses/:courseSlug - Get interview course by slugs (requires course permission)
   fastify.get('/interviews/:interviewSlug/courses/:courseSlug', async (request, reply) => {
     try {
       const { interviewSlug, courseSlug } = request.params as { interviewSlug: string; courseSlug: string }
       const interviewCourse = await interviewCourseService.findBySlug(interviewSlug, courseSlug)
+
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      if (!isAdmin) {
+        const allowed = userId !== null && await userHasPermission(fastify.prisma, {
+          userId,
+          isAdmin: false,
+          permission: 'case.edit',
+          target: { kind: 'interview_course', id: interviewCourse.id }
+        })
+        if (!allowed) {
+          reply.status(403).send({ error: 'Forbidden' })
+          return
+        }
+      }
+
       reply.send(interviewCourse)
     } catch (error) {
       if (error instanceof Error) {
