@@ -62,33 +62,35 @@ model Instructor {
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   interviewCourses InterviewCourse[]
   interviews       Interview[]
+  mockExamConfigs  MockExamConfig[]
 
   @@map("instructors")
 }
 
 model Student {
-  id                          String                       @id @default(uuid())
-  userId                      Int                          @unique @map("user_id")
-  firstName                   String                       @map("first_name")
-  lastName                    String                       @map("last_name")
-  creditBalance               Int                          @default(0) @map("credit_balance")
-  stripeCustomerId            String?                      @unique @map("stripe_customer_id")
-  defaultPaymentMethod        String?                      @map("default_payment_method")
-  createdAt                   DateTime                     @default(now()) @map("created_at")
-  updatedAt                   DateTime                     @updatedAt @map("updated_at")
-  creditTransactions          CreditTransaction[]
-  payments                    Payment[]
-  simulationAttempts          SimulationAttempt[]
-  interviewSimulationAttempts InterviewSimulationAttempt[]
-  user                        User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subscriptions               Subscription[]
-  checkoutSessions            StripeCheckoutSession[]
+  id                           String                        @id @default(uuid())
+  userId                       Int                           @unique @map("user_id")
+  firstName                    String                        @map("first_name")
+  lastName                     String                        @map("last_name")
+  creditBalance                Int                           @default(0) @map("credit_balance")
+  stripeCustomerId             String?                       @unique @map("stripe_customer_id")
+  defaultPaymentMethod         String?                       @map("default_payment_method")
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
+  creditTransactions           CreditTransaction[]
+  payments                     Payment[]
+  simulationAttempts           SimulationAttempt[]
+  interviewSimulationAttempts  InterviewSimulationAttempt[]
+  user                         User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions                Subscription[]
+  checkoutSessions             StripeCheckoutSession[]
   subscriptionCheckoutSessions SubscriptionCheckoutSession[]
-  enrollments                 CourseEnrollment[]
-  casePractice                StudentCasePractice[]
-  interviewCasePractice       StudentInterviewPractice[]
-  interviewCourseEnrollments  InterviewCourseEnrollment[]
-  promoCodeRedemptions        PromoCodeRedemption[]
+  enrollments                  CourseEnrollment[]
+  casePractice                 StudentCasePractice[]
+  interviewCasePractice        StudentInterviewPractice[]
+  interviewCourseEnrollments   InterviewCourseEnrollment[]
+  promoCodeRedemptions         PromoCodeRedemption[]
+  mockExamAttempts             MockExamAttempt[]
 
   @@map("students")
 }
@@ -106,57 +108,63 @@ model Exam {
   examCurriculums    ExamCurriculum[]
   examMarkingDomains ExamMarkingDomain[]
   examSpecialties    ExamSpecialty[]
+  mockExamConfigs    MockExamConfig[]
+  mockExamAttempts   MockExamAttempt[]
   instructor         Instructor          @relation(fields: [instructorId], references: [id])
 
   @@map("exams")
 }
 
 model Course {
-  id              String         @id @default(uuid())
-  examId          String         @map("exam_id")
-  instructorId    String         @map("instructor_id")
-  slug            String?
-  title           String
-  description     String?
-  style           CourseStyle    @default(RANDOM)
-  isPublished     Boolean        @default(false) @map("is_published")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
-  infoPoints      String[]       @default([]) @map("info_points")
-  courseCases     CourseCase[]
-  exam            Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
-  instructor      Instructor     @relation(fields: [instructorId], references: [id])
-  subscriptions   Subscription[]
-  courseSections  CourseSection[]
-  enrollments     CourseEnrollment[]
+  id             String             @id @default(uuid())
+  examId         String             @map("exam_id")
+  instructorId   String             @map("instructor_id")
+  slug           String?
+  title          String
+  description    String?
+  style          CourseStyle        @default(RANDOM)
+  isPublished    Boolean            @default(false) @map("is_published")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  infoPoints     String[]           @default([]) @map("info_points")
+  courseCases    CourseCase[]
+  exam           Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  instructor     Instructor         @relation(fields: [instructorId], references: [id])
+  subscriptions  Subscription[]
+  courseSections CourseSection[]
+  enrollments    CourseEnrollment[]
 
   @@unique([examId, slug])
   @@map("courses")
 }
 
 model CourseCase {
-  id              String                @id @default(uuid())
-  courseId        String                @map("course_id")
-  slug            String?
-  title           String
-  diagnosis       String
-  patientName     String                @map("patient_name")
-  patientAge      Int                   @map("patient_age")
-  patientGender   PatientGender         @map("patient_gender")
-  description     String
-  isFree          Boolean               @default(false) @map("is_free")
-  displayOrder    Int                   @map("display_order")
-  createdAt       DateTime              @default(now()) @map("created_at")
-  updatedAt       DateTime              @updatedAt @map("updated_at")
-  caseCurriculums CaseCurriculum[]
-  caseSpecialties CaseSpecialty[]
-  caseTabs        CaseTab[]
-  course          Course                @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  markingCriteria MarkingCriterion[]
-  simulation      Simulation?
-  studentPractice StudentCasePractice[]
+  id               String                @id @default(uuid())
+  courseId         String                @map("course_id")
+  slug             String?
+  title            String
+  diagnosis        String
+  patientName      String                @map("patient_name")
+  patientAge       Int                   @map("patient_age")
+  patientGender    PatientGender         @map("patient_gender")
+  description      String
+  isFree           Boolean               @default(false) @map("is_free")
+  isActive         Boolean               @default(true) @map("is_active")
+  displayOrder     Int                   @map("display_order")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  caseCurriculums  CaseCurriculum[]
+  caseSpecialties  CaseSpecialty[]
+  caseTabs         CaseTab[]
+  course           Course                @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  markingCriteria  MarkingCriterion[]
+  simulation       Simulation?
+  studentPractice  StudentCasePractice[]
+  mockExamStations MockExamStation[]
+  mockExamSlots    MockExamSlot[]
 
   @@unique([courseId, slug])
+  @@index([courseId, isActive])
   @@map("course_cases")
 }
 
@@ -208,22 +216,23 @@ model Simulation {
 }
 
 model SimulationAttempt {
-  id               String     @id @default(uuid())
-  studentId        String     @map("student_id")
-  simulationId     String     @map("simulation_id")
-  startedAt        DateTime   @map("started_at")
-  endedAt          DateTime?  @map("ended_at")
-  durationSeconds  Int?       @map("duration_seconds")
-  isCompleted      Boolean    @default(false) @map("is_completed")
-  score            Decimal?   @db.Decimal(5, 2)
-  aiFeedback       Json?      @map("ai_feedback")
+  id               String        @id @default(uuid())
+  studentId        String        @map("student_id")
+  simulationId     String        @map("simulation_id")
+  startedAt        DateTime      @map("started_at")
+  endedAt          DateTime?     @map("ended_at")
+  durationSeconds  Int?          @map("duration_seconds")
+  isCompleted      Boolean       @default(false) @map("is_completed")
+  score            Decimal?      @db.Decimal(5, 2)
+  aiFeedback       Json?         @map("ai_feedback")
   transcript       Json?
-  createdAt        DateTime   @default(now()) @map("created_at")
-  correlationToken String?    @unique
-  aiPrompt         Json?      @map("ai_prompt")
-  minutesBilled    Int?       @default(0) @map("minutes_billed")
-  simulation       Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
-  student          Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt        DateTime      @default(now()) @map("created_at")
+  correlationToken String?       @unique
+  aiPrompt         Json?         @map("ai_prompt")
+  minutesBilled    Int?          @default(0) @map("minutes_billed")
+  simulation       Simulation    @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  student          Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  mockExamSlot     MockExamSlot?
 
   @@map("simulation_attempts")
 }
@@ -786,7 +795,6 @@ model InterviewSubsectionProgress {
   @@map("interview_subsection_progress")
 }
 
-
 // ============================================
 // AFFILIATE REFERRAL TRACKING
 // ============================================
@@ -877,25 +885,25 @@ model StripeWebhookEvent {
 // ========================================
 
 model PricingPlan {
-  id                          String                        @id @default(uuid())
-  resourceType                ResourceType                  @map("resource_type")
-  resourceId                  String                        @map("resource_id")
-  name                        String
-  description                 String?
-  durationMonths              Int?                          @map("duration_months")
-  durationHours               Int?                          @map("duration_hours")
-  priceInCents                Int                           @map("price_in_cents")
-  creditsIncluded             Int?                          @map("credits_included")
-  isFreeTrialPlan             Boolean                       @default(false) @map("is_free_trial_plan")
-  featurePoints               String[]                      @default([]) @map("feature_points")
-  displayOrder                Int                           @map("display_order")
-  isPopular                   Boolean                       @default(false) @map("is_popular")
-  isActive                    Boolean                       @default(true) @map("is_active")
-  createdAt                   DateTime                      @default(now()) @map("created_at")
-  updatedAt                   DateTime                      @updatedAt @map("updated_at")
+  id                           String                        @id @default(uuid())
+  resourceType                 ResourceType                  @map("resource_type")
+  resourceId                   String                        @map("resource_id")
+  name                         String
+  description                  String?
+  durationMonths               Int?                          @map("duration_months")
+  durationHours                Int?                          @map("duration_hours")
+  priceInCents                 Int                           @map("price_in_cents")
+  creditsIncluded              Int?                          @map("credits_included")
+  isFreeTrialPlan              Boolean                       @default(false) @map("is_free_trial_plan")
+  featurePoints                String[]                      @default([]) @map("feature_points")
+  displayOrder                 Int                           @map("display_order")
+  isPopular                    Boolean                       @default(false) @map("is_popular")
+  isActive                     Boolean                       @default(true) @map("is_active")
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
   subscriptionCheckoutSessions SubscriptionCheckoutSession[]
-  subscriptions               Subscription[]
-  payments                    Payment[]
+  subscriptions                Subscription[]
+  payments                     Payment[]
 
   @@index([resourceType, resourceId, isActive])
   @@index([resourceType, resourceId, isFreeTrialPlan])
@@ -907,29 +915,28 @@ model PricingPlan {
 // ========================================
 
 model SubscriptionCheckoutSession {
-  id              String                @id @default(uuid())
-  sessionId       String                @unique @map("session_id")
-  studentId       String                @map("student_id")
-  pricingPlanId   String                @map("pricing_plan_id")
-  resourceType    ResourceType          @map("resource_type")
-  resourceId      String                @map("resource_id")
-  status          CheckoutSessionStatus
-  amountInCents   Int                   @map("amount_in_cents")
-  durationMonths  Int?                  @map("duration_months")
-  durationHours   Int?                  @map("duration_hours")
-  creditsIncluded Int                   @default(0) @map("credits_included")
-  metadata        Json?
-  expiresAt       DateTime              @map("expires_at")
-  completedAt     DateTime?             @map("completed_at")
-  createdAt       DateTime              @default(now()) @map("created_at")
-  updatedAt       DateTime              @updatedAt @map("updated_at")
+  id                    String                @id @default(uuid())
+  sessionId             String                @unique @map("session_id")
+  studentId             String                @map("student_id")
+  pricingPlanId         String                @map("pricing_plan_id")
+  resourceType          ResourceType          @map("resource_type")
+  resourceId            String                @map("resource_id")
+  status                CheckoutSessionStatus
+  amountInCents         Int                   @map("amount_in_cents")
+  durationMonths        Int?                  @map("duration_months")
+  durationHours         Int?                  @map("duration_hours")
+  creditsIncluded       Int                   @default(0) @map("credits_included")
+  metadata              Json?
+  expiresAt             DateTime              @map("expires_at")
+  completedAt           DateTime?             @map("completed_at")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
   promoCodeId           String?               @map("promo_code_id")
   discountAmountInCents Int?                  @map("discount_amount_in_cents")
   finalAmountInCents    Int?                  @map("final_amount_in_cents")
   student               Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
   pricingPlan           PricingPlan           @relation(fields: [pricingPlanId], references: [id])
   promoCode             PromoCode?            @relation(fields: [promoCodeId], references: [id])
-
 
   @@index([studentId])
   @@index([sessionId])
@@ -942,19 +949,19 @@ model SubscriptionCheckoutSession {
 // ========================================
 
 model PromoCode {
-  id            String        @id @default(uuid())
-  code          String        @unique
-  description   String?
-  discountType  DiscountType  @map("discount_type")
-  discountValue Int           @map("discount_value")
-  maxUses       Int?          @map("max_uses")
-  currentUses   Int           @default(0) @map("current_uses")
-  expiresAt     DateTime?     @map("expires_at")
-  isActive      Boolean       @default(true) @map("is_active")
-  resourceType  ResourceType? @map("resource_type")
-  resourceId    String?       @map("resource_id")
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  id                           String                        @id @default(uuid())
+  code                         String                        @unique
+  description                  String?
+  discountType                 DiscountType                  @map("discount_type")
+  discountValue                Int                           @map("discount_value")
+  maxUses                      Int?                          @map("max_uses")
+  currentUses                  Int                           @default(0) @map("current_uses")
+  expiresAt                    DateTime?                     @map("expires_at")
+  isActive                     Boolean                       @default(true) @map("is_active")
+  resourceType                 ResourceType?                 @map("resource_type")
+  resourceId                   String?                       @map("resource_id")
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
   redemptions                  PromoCodeRedemption[]
   subscriptionCheckoutSessions SubscriptionCheckoutSession[]
 
@@ -1179,4 +1186,96 @@ enum BlogArticleStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+}
+
+// ============================================
+// MOCK EXAM MODELS (Phase 1)
+// ============================================
+
+model MockExamConfig {
+  id           String @id @default(uuid())
+  examId       String @map("exam_id")
+  instructorId String @map("instructor_id")
+
+  title       String
+  description String?
+  difficulty  String  @default("Intermediate")
+  isPublished Boolean @default(false) @map("is_published")
+  isActive    Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  exam       Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
+  instructor Instructor        @relation(fields: [instructorId], references: [id])
+  stations   MockExamStation[]
+  attempts   MockExamAttempt[]
+
+  @@index([examId, isPublished, isActive])
+  @@map("mock_exam_configs")
+}
+
+model MockExamStation {
+  id               String @id @default(uuid())
+  mockExamConfigId String @map("mock_exam_config_id")
+  courseCaseId     String @map("course_case_id")
+  displayOrder     Int    @map("display_order")
+
+  mockExamConfig MockExamConfig @relation(fields: [mockExamConfigId], references: [id], onDelete: Cascade)
+  courseCase     CourseCase     @relation(fields: [courseCaseId], references: [id], onDelete: Restrict)
+
+  @@unique([mockExamConfigId, courseCaseId])
+  @@unique([mockExamConfigId, displayOrder])
+  @@map("mock_exam_stations")
+}
+
+model MockExamAttempt {
+  id               String  @id @default(uuid())
+  studentId        String  @map("student_id")
+  examId           String  @map("exam_id")
+  mockExamConfigId String? @map("mock_exam_config_id")
+
+  title        String
+  creationType String @map("creation_type") // "CURATED" | "STUDENT_GENERATED"
+
+  isFinished Boolean   @default(false) @map("is_finished")
+  finishedAt DateTime? @map("finished_at")
+  startedAt  DateTime  @default(now()) @map("started_at")
+
+  totalSlots     Int @map("total_slots")
+  completedSlots Int @default(0) @map("completed_slots")
+
+  overallScore Decimal? @map("overall_score") @db.Decimal(5, 2)
+  analysisData Json?    @map("analysis_data")
+  aiSummary    Json?    @map("ai_summary")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  student        Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  exam           Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  mockExamConfig MockExamConfig? @relation(fields: [mockExamConfigId], references: [id], onDelete: NoAction)
+  slots          MockExamSlot[]
+
+  @@index([studentId, examId, createdAt(sort: Desc)])
+  @@map("mock_exam_attempts")
+}
+
+model MockExamSlot {
+  id                String @id @default(uuid())
+  mockExamAttemptId String @map("mock_exam_attempt_id")
+  courseCaseId      String @map("course_case_id")
+  displayOrder      Int    @map("display_order")
+
+  simulationAttemptId String?   @unique @map("simulation_attempt_id")
+  isCompleted         Boolean   @default(false) @map("is_completed")
+  completedAt         DateTime? @map("completed_at")
+
+  mockExamAttempt   MockExamAttempt    @relation(fields: [mockExamAttemptId], references: [id], onDelete: Cascade)
+  courseCase        CourseCase         @relation(fields: [courseCaseId], references: [id], onDelete: Restrict)
+  simulationAttempt SimulationAttempt? @relation(fields: [simulationAttemptId], references: [id], onDelete: NoAction)
+
+  @@unique([mockExamAttemptId, courseCaseId])
+  @@unique([mockExamAttemptId, displayOrder])
+  @@map("mock_exam_slots")
 }

@@ -55,10 +55,10 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       
       let courseCases
       if (isUserAdmin) {
-        // Admin sees ALL cases
-        courseCases = await courseCaseService.findAll()
+        // Admin sees ALL cases including archived (so they can manage them)
+        courseCases = await courseCaseService.findAll({ includeArchived: true })
       } else if (currentInstructorId) {
-        // Instructor sees cases from their courses
+        // Instructor sees cases from their courses, archived included so they can un-archive
         const instructorCourses = await courseService.findByInstructor(currentInstructorId)
         const courseIds = instructorCourses.map(c => c.id)
         courseCases = await fastify.prisma.courseCase.findMany({
@@ -70,13 +70,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
           ]
         })
       } else {
-        // Public sees only free cases from published courses
+        // Public sees only free, ACTIVE cases from published courses
         const publishedCourses = await courseService.findPublished()
         const courseIds = publishedCourses.map(c => c.id)
         courseCases = await fastify.prisma.courseCase.findMany({
-          where: { 
+          where: {
             courseId: { in: courseIds },
-            isFree: true 
+            isFree: true,
+            isActive: true
           },
           include: courseCaseService.getStandardInclude(),
           orderBy: [
@@ -93,10 +94,26 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   })
 
   // GET /course-cases/course/:courseId - Get cases by course
+  // Pass ?includeArchived=true to see soft-deleted cases. Only honored for instructors;
+  // any other caller (incl. unauthenticated) silently has it coerced to false so shared
+  // URLs don't 403 — they just don't see archived rows.
   fastify.get('/course-cases/course/:courseId', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
-      const courseCases = await courseCaseService.findByCourse(courseId)
+
+      // Optional auth — gracefully degrade if no/invalid token.
+      let isInstructor = false
+      try {
+        await request.jwtVerify()
+        isInstructor = request.role === 'instructor' || isAdmin(request)
+      } catch {
+        // Not authenticated; isInstructor stays false.
+      }
+
+      const requestedIncludeArchived = (request.query as { includeArchived?: string })?.includeArchived === 'true'
+      const includeArchived = isInstructor ? requestedIncludeArchived : false
+
+      const courseCases = await courseCaseService.findByCourse(courseId, { includeArchived })
       reply.send(courseCases)
     } catch (error) {
       if (error instanceof Error && error.message === 'Course not found') {
@@ -108,10 +125,19 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   })
 
   // GET /course-cases/course/:courseId/paginated - Get paginated cases with filtering and search
+  // ?includeArchived=true is only honored for instructors (silent coercion otherwise).
   fastify.get('/course-cases/course/:courseId/paginated', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
       const queryParams = paginatedCourseCasesQuerySchema.parse(request.query)
+
+      let isInstructor = false
+      try {
+        await request.jwtVerify()
+        isInstructor = request.role === 'instructor' || isAdmin(request)
+      } catch {
+        // Not authenticated.
+      }
 
       const result = await courseCaseService.findByCoursePaginated(courseId, {
         page: queryParams.page,
@@ -121,7 +147,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         search: queryParams.search,
         studentId: queryParams.studentId,
         notPracticed: queryParams.notPracticed,
-        bookmarked: queryParams.bookmarked
+        bookmarked: queryParams.bookmarked,
+        includeArchived: isInstructor ? queryParams.includeArchived : false
       })
 
       reply.send(result)
@@ -326,6 +353,39 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       const courseCase = await courseCaseService.toggleFree(id)
       reply.send({
         message: `Case ${courseCase.isFree ? 'marked as free' : 'marked as paid'} successfully`,
+        courseCase
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Course case not found') {
+        reply.status(404).send({ error: 'Course case not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // PATCH /course-cases/:id/toggle-active
+  // Soft-delete / un-archive entry point. Mirrors PATCH /exams/:id/toggle.
+  fastify.patch('/course-cases/:id/toggle-active', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const { id } = courseCaseParamsSchema.parse(request.params)
+
+      if (!isAdmin(request)) {
+        const courseCase = await courseCaseService.findById(id)
+        const course = await courseService.findById(courseCase.courseId)
+        const currentInstructorId = getCurrentInstructorId(request)
+
+        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
+          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+          return
+        }
+      }
+
+      const courseCase = await courseCaseService.toggleActive(id)
+      reply.send({
+        message: `Case ${courseCase.isActive ? 'restored (active)' : 'archived'} successfully`,
         courseCase
       })
     } catch (error) {

@@ -687,11 +687,11 @@ export class ExamService {
     })
 
     const casesCount = await this.prisma.courseCase.count({
-      where: { course: { examId } }
+      where: { course: { examId }, isActive: true }
     })
 
     const simulationsCount = await this.prisma.simulation.count({
-      where: { courseCase: { course: { examId } } }
+      where: { courseCase: { course: { examId }, isActive: true } }
     })
 
     // Get configuration counts by querying junction tables directly
