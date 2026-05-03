@@ -1108,7 +1108,6 @@ model BlockedEmailDomain {
   @@map("blocked_email_domains")
 }
 
-<<<<<<< HEAD
 enum CourseStyle {
   RANDOM
   STRUCTURED

@@ -2,6 +2,7 @@
 import { PrismaClient, PatientGender, Prisma } from '@prisma/client'
 import { CreateInterviewCaseInput, UpdateInterviewCaseInput, CreateCompleteInterviewCaseInput, UpdateCompleteInterviewCaseInput } from './interview-case.schema'
 import { generateSlug, generateUniqueSlug } from '../../shared/slug'
+import { interviewCaseVisibilityFilter } from '../../shared/permissions'
 
 // Define InterviewCaseTabType - should match your Prisma schema enum
 type InterviewCaseTabType = 'DOCTORS_NOTE' | 'PATIENT_SCRIPT' | 'MEDICAL_NOTES'
@@ -173,6 +174,14 @@ export class InterviewCaseService {
     }
 
     return interviewCase
+  }
+
+  async findByIdVisibleTo(id: string, userId: number | null, isAdmin: boolean) {
+    const visibilityWhere = await interviewCaseVisibilityFilter(this.prisma, userId, isAdmin)
+    return this.prisma.interviewCase.findFirst({
+      where: { AND: [{ id }, visibilityWhere] },
+      include: this.getStandardInclude(),
+    })
   }
 
   async findBySlug(interviewSlug: string, courseSlug: string, caseSlug: string) {

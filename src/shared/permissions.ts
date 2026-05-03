@@ -21,12 +21,12 @@ export type ResourceTarget =
   | { kind: 'interview_course'; id: string }
   | { kind: 'interview_case'; id: string }
 
-export type Ancestor = { resourceType: PermissionResourceType; resourceId: string }
+export type ResourceKey = { resourceType: PermissionResourceType; resourceId: string }
 
 export async function resolveAncestors(
   prisma: PrismaClient,
   target: ResourceTarget,
-): Promise<Ancestor[]> {
+): Promise<ResourceKey[]> {
   switch (target.kind) {
     case 'exam': {
       return [{ resourceType: 'exam', resourceId: target.id }]
@@ -148,183 +148,85 @@ export async function userHasPermission(
   })
 }
 
-export async function userGrantsForResource(
-  prisma: PrismaClient,
-  userId: number,
-  target: ResourceTarget,
-): Promise<ReadonlyArray<Permission>> {
-  const ancestors = await resolveAncestors(prisma, target)
-  if (ancestors.length === 0) {
-    return []
-  }
-  const grants = await prisma.permissionGrant.findMany({
-    where: {
-      userId,
-      OR: ancestors.map((a) => ({
-        resourceType: a.resourceType,
-        resourceId: a.resourceId,
-      })),
-    },
-    select: { role: true },
-  })
-  const set = new Set<Permission>()
-  for (const grant of grants) {
-    for (const permission of ROLE_PERMISSIONS[grant.role]) {
-      set.add(permission)
-    }
-  }
-  return Array.from(set)
+type GrantHierarchy = {
+  parentResourceType: PermissionResourceType
+  childResourceType: PermissionResourceType
+  fetchChildIdsForParents: (prisma: PrismaClient, parentIds: string[]) => Promise<string[]>
 }
 
-export async function userHasAnyGrantOnExam(
-  prisma: PrismaClient,
-  userId: number,
-  examId: string,
-): Promise<boolean> {
-  const grant = await prisma.permissionGrant.findFirst({
-    where: {
-      userId,
-      resourceType: { in: ['exam', 'course'] },
-      OR: [
-        { resourceType: 'exam', resourceId: examId },
-        {
-          resourceType: 'course',
-          resourceId: { in: (await prisma.course.findMany({ where: { examId }, select: { id: true } })).map((c) => c.id) },
-        },
-      ],
-    },
-    select: { id: true },
-  })
-  return grant !== null
-}
-
-export async function userHasAnyGrantOnCourse(
-  prisma: PrismaClient,
-  userId: number,
-  courseId: string,
-): Promise<boolean> {
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
-    select: { examId: true },
-  })
-  if (!course) {
-    return false
-  }
-  const grant = await prisma.permissionGrant.findFirst({
-    where: {
-      userId,
-      OR: [
-        { resourceType: 'course', resourceId: courseId },
-        { resourceType: 'exam', resourceId: course.examId },
-      ],
-    },
-    select: { id: true },
-  })
-  return grant !== null
-}
-
-export async function userHasAnyGrantOnInterview(
-  prisma: PrismaClient,
-  userId: number,
-  interviewId: string,
-): Promise<boolean> {
-  const grant = await prisma.permissionGrant.findFirst({
-    where: {
-      userId,
-      OR: [
-        { resourceType: 'interview', resourceId: interviewId },
-        {
-          resourceType: 'interview_course',
-          resourceId: { in: (await prisma.interviewCourse.findMany({ where: { interviewId }, select: { id: true } })).map((ic) => ic.id) },
-        },
-      ],
-    },
-    select: { id: true },
-  })
-  return grant !== null
-}
-
-export type Viewer = { userId: number | null; isAdmin: boolean }
-
-async function getViewerCourseIds(prisma: PrismaClient, userId: number): Promise<string[]> {
-  const grants = await prisma.permissionGrant.findMany({
-    where: {
-      userId,
-      resourceType: { in: ['exam', 'course'] },
-    },
-    select: { resourceType: true, resourceId: true },
-  })
-  if (grants.length === 0) {
-    return []
-  }
-  const courseIdSet = new Set<string>()
-  const examIds: string[] = []
-  for (const g of grants) {
-    if (g.resourceType === 'course') {
-      courseIdSet.add(g.resourceId)
-    } else if (g.resourceType === 'exam') {
-      examIds.push(g.resourceId)
-    }
-  }
-  if (examIds.length > 0) {
+const COURSE_HIERARCHY: GrantHierarchy = {
+  parentResourceType: 'exam',
+  childResourceType: 'course',
+  fetchChildIdsForParents: async (prisma, examIds) => {
     const courses = await prisma.course.findMany({
       where: { examId: { in: examIds } },
       select: { id: true },
     })
-    for (const c of courses) {
-      courseIdSet.add(c.id)
-    }
-  }
-  return Array.from(courseIdSet)
+    return courses.map((c) => c.id)
+  },
 }
 
-async function getViewerInterviewCourseIds(prisma: PrismaClient, userId: number): Promise<string[]> {
+const INTERVIEW_HIERARCHY: GrantHierarchy = {
+  parentResourceType: 'interview',
+  childResourceType: 'interview_course',
+  fetchChildIdsForParents: async (prisma, interviewIds) => {
+    const interviewCourses = await prisma.interviewCourse.findMany({
+      where: { interviewId: { in: interviewIds } },
+      select: { id: true },
+    })
+    return interviewCourses.map((ic) => ic.id)
+  },
+}
+
+async function expandViewerScope(
+  prisma: PrismaClient,
+  userId: number,
+  hierarchy: GrantHierarchy,
+): Promise<string[]> {
   const grants = await prisma.permissionGrant.findMany({
     where: {
       userId,
-      resourceType: { in: ['interview', 'interview_course'] },
+      resourceType: { in: [hierarchy.parentResourceType, hierarchy.childResourceType] },
     },
     select: { resourceType: true, resourceId: true },
   })
   if (grants.length === 0) {
     return []
   }
-  const interviewCourseIdSet = new Set<string>()
-  const interviewIds: string[] = []
+  const childIdSet = new Set<string>()
+  const parentIds: string[] = []
   for (const g of grants) {
-    if (g.resourceType === 'interview_course') {
-      interviewCourseIdSet.add(g.resourceId)
-    } else if (g.resourceType === 'interview') {
-      interviewIds.push(g.resourceId)
+    if (g.resourceType === hierarchy.childResourceType) {
+      childIdSet.add(g.resourceId)
+    } else if (g.resourceType === hierarchy.parentResourceType) {
+      parentIds.push(g.resourceId)
     }
   }
-  if (interviewIds.length > 0) {
-    const interviewCourses = await prisma.interviewCourse.findMany({
-      where: { interviewId: { in: interviewIds } },
-      select: { id: true },
-    })
-    for (const ic of interviewCourses) {
-      interviewCourseIdSet.add(ic.id)
+  if (parentIds.length > 0) {
+    const childIds = await hierarchy.fetchChildIdsForParents(prisma, parentIds)
+    for (const id of childIds) {
+      childIdSet.add(id)
     }
   }
-  return Array.from(interviewCourseIdSet)
+  return Array.from(childIdSet)
 }
 
-export async function getVisibleCourseCasesWhere(
+export async function courseCaseVisibilityFilter(
   prisma: PrismaClient,
-  viewer: Viewer,
+  userId: number | null,
+  isAdmin: boolean,
 ): Promise<Prisma.CourseCaseWhereInput> {
-  if (viewer.isAdmin) {
+  if (isAdmin) {
     return {}
   }
   const publicWhere: Prisma.CourseCaseWhereInput = {
     isPublished: true,
     course: { isPublished: true },
   }
-  if (viewer.userId === null) {
+  if (userId === null) {
     return publicWhere
   }
-  const courseIds = await getViewerCourseIds(prisma, viewer.userId)
+  const courseIds = await expandViewerScope(prisma, userId, COURSE_HIERARCHY)
   if (courseIds.length === 0) {
     return publicWhere
   }
@@ -333,21 +235,22 @@ export async function getVisibleCourseCasesWhere(
   }
 }
 
-export async function getVisibleInterviewCasesWhere(
+export async function interviewCaseVisibilityFilter(
   prisma: PrismaClient,
-  viewer: Viewer,
+  userId: number | null,
+  isAdmin: boolean,
 ): Promise<Prisma.InterviewCaseWhereInput> {
-  if (viewer.isAdmin) {
+  if (isAdmin) {
     return {}
   }
   const publicWhere: Prisma.InterviewCaseWhereInput = {
     isPublished: true,
     interviewCourse: { isPublished: true },
   }
-  if (viewer.userId === null) {
+  if (userId === null) {
     return publicWhere
   }
-  const interviewCourseIds = await getViewerInterviewCourseIds(prisma, viewer.userId)
+  const interviewCourseIds = await expandViewerScope(prisma, userId, INTERVIEW_HIERARCHY)
   if (interviewCourseIds.length === 0) {
     return publicWhere
   }
@@ -356,83 +259,9 @@ export async function getVisibleInterviewCasesWhere(
   }
 }
 
-export async function canViewerSeeCourseCase(
-  prisma: PrismaClient,
-  viewer: Viewer,
-  courseCaseId: string,
-): Promise<boolean> {
-  if (viewer.isAdmin) {
-    return true
-  }
-  const c = await prisma.courseCase.findUnique({
-    where: { id: courseCaseId },
-    select: {
-      isPublished: true,
-      courseId: true,
-      course: { select: { examId: true, isPublished: true } },
-    },
-  })
-  if (!c) {
-    return false
-  }
-  if (c.isPublished && c.course.isPublished) {
-    return true
-  }
-  if (viewer.userId === null) {
-    return false
-  }
-  const grant = await prisma.permissionGrant.findFirst({
-    where: {
-      userId: viewer.userId,
-      OR: [
-        { resourceType: 'course', resourceId: c.courseId },
-        { resourceType: 'exam', resourceId: c.course.examId },
-      ],
-    },
-    select: { id: true },
-  })
-  return grant !== null
-}
-
-export async function canViewerSeeInterviewCase(
-  prisma: PrismaClient,
-  viewer: Viewer,
-  interviewCaseId: string,
-): Promise<boolean> {
-  if (viewer.isAdmin) {
-    return true
-  }
-  const c = await prisma.interviewCase.findUnique({
-    where: { id: interviewCaseId },
-    select: {
-      isPublished: true,
-      interviewCourseId: true,
-      interviewCourse: { select: { interviewId: true, isPublished: true } },
-    },
-  })
-  if (!c) {
-    return false
-  }
-  if (c.isPublished && c.interviewCourse.isPublished) {
-    return true
-  }
-  if (viewer.userId === null) {
-    return false
-  }
-  const grant = await prisma.permissionGrant.findFirst({
-    where: {
-      userId: viewer.userId,
-      OR: [
-        { resourceType: 'interview_course', resourceId: c.interviewCourseId },
-        { resourceType: 'interview', resourceId: c.interviewCourse.interviewId },
-      ],
-    },
-    select: { id: true },
-  })
-  return grant !== null
-}
-
-export function resolveViewerFromRequest(request: { isAdmin?: boolean; user?: unknown }): Viewer {
+export function resolveViewerFromRequest(
+  request: { isAdmin?: boolean; user?: unknown },
+): { userId: number | null; isAdmin: boolean } {
   const userId =
     request.user && typeof request.user === 'object' && 'userId' in request.user
       ? (request.user as { userId?: number }).userId ?? null
@@ -477,29 +306,4 @@ export async function autoGrantOnCreate(
     },
     update: {},
   })
-}
-
-export async function userHasAnyGrantOnInterviewCourse(
-  prisma: PrismaClient,
-  userId: number,
-  interviewCourseId: string,
-): Promise<boolean> {
-  const interviewCourse = await prisma.interviewCourse.findUnique({
-    where: { id: interviewCourseId },
-    select: { interviewId: true },
-  })
-  if (!interviewCourse) {
-    return false
-  }
-  const grant = await prisma.permissionGrant.findFirst({
-    where: {
-      userId,
-      OR: [
-        { resourceType: 'interview_course', resourceId: interviewCourseId },
-        { resourceType: 'interview', resourceId: interviewCourse.interviewId },
-      ],
-    },
-    select: { id: true },
-  })
-  return grant !== null
 }
