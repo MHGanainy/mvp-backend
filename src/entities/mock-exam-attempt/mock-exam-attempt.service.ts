@@ -70,6 +70,8 @@ export class MockExamAttemptService {
               title: true,
               slug: true,
               isActive: true,
+              isFree: true,
+              courseId: true,
               course: { select: { slug: true, exam: { select: { slug: true } } } }
             }
           },
@@ -137,6 +139,8 @@ export class MockExamAttemptService {
           title: s.courseCase.title,
           slug: s.courseCase.slug,
           isActive: s.courseCase.isActive,
+          isFree: s.courseCase.isFree,
+          courseId: s.courseCase.courseId,
           courseSlug: s.courseCase.course?.slug ?? null,
           examSlug: s.courseCase.course?.exam?.slug ?? null
         }
@@ -444,6 +448,8 @@ export class MockExamAttemptService {
               title: true,
               slug: true,
               isActive: true,
+              isFree: true,
+              courseId: true,
               course: { select: { slug: true, exam: { select: { slug: true } } } }
             }
           },
@@ -512,6 +518,8 @@ export class MockExamAttemptService {
           title: s.courseCase.title,
           slug: s.courseCase.slug,
           isActive: s.courseCase.isActive,
+          isFree: s.courseCase.isFree,
+          courseId: s.courseCase.courseId,
           courseSlug: s.courseCase.course?.slug ?? null,
           examSlug: s.courseCase.course?.exam?.slug ?? null
         },
@@ -887,43 +895,50 @@ export class MockExamAttemptService {
   }
 
   // Assemble the LLM input from a fully-loaded mock-exam attempt row.
-  // Failed-AI stations are included with analysisStatus: 'failed' and a marker
-  // so the model can acknowledge the gap without fabricating their content.
+  // All percentages use criteria-count (percentageMet = criteriaMet/totalCriteria)
+  // so the narrative the AI writes is consistent with what the results page shows.
+  // Failed-AI stations are included with analysisStatus: 'failed' so the model
+  // can acknowledge the gap without fabricating their content.
   private buildSummaryInput(attempt: any): MockExamSummaryInput {
-    type DomainAcc = { name: string; achievedPoints: number; totalPoints: number }
+    // Accumulate per-domain criteria counts across all successful stations.
+    type DomainAcc = { name: string; met: number; total: number }
     const domainAcc = new Map<string, DomainAcc>()
 
     const stations: MockExamSummaryStation[] = (attempt.slots as any[]).map((slot) => {
       const fb = slot.simulationAttempt?.aiFeedback as any
       const status: 'success' | 'failed' =
         fb && fb.analysisStatus !== 'failed' ? 'success' : 'failed'
+
       const stationDomains = (Array.isArray(fb?.markingDomains) ? fb.markingDomains : []).map(
         (d: any) => {
-          const achieved = Number(d.achievedPoints ?? 0)
-          const total = Number(d.totalPossiblePoints ?? 0)
-          // Aggregate across stations for the breakdown — mirror getAnalysis arithmetic.
+          const criteria: any[] = Array.isArray(d.criteria) ? d.criteria : []
+          const domainTotal = criteria.length
+          const domainMet = criteria.filter((c: any) => c.met).length
+          const pct = domainTotal > 0 ? Math.round((domainMet / domainTotal) * 1000) / 10 : 0
+
+          // Aggregate for cross-station domain breakdown.
           if (status === 'success' && d.domainName) {
-            const cur = domainAcc.get(d.domainName) ?? {
-              name: d.domainName,
-              achievedPoints: 0,
-              totalPoints: 0
-            }
-            cur.achievedPoints += achieved
-            cur.totalPoints += total
+            const cur = domainAcc.get(d.domainName) ?? { name: d.domainName, met: 0, total: 0 }
+            cur.met += domainMet
+            cur.total += domainTotal
             domainAcc.set(d.domainName, cur)
           }
+
           return {
             domainName: String(d.domainName ?? ''),
-            achievedPoints: achieved,
-            totalPossiblePoints: total,
-            percentage: total > 0 ? Math.round((achieved / total) * 1000) / 10 : 0
+            achievedPoints: domainMet,       // repurposed: met criteria count
+            totalPossiblePoints: domainTotal, // repurposed: total criteria count
+            percentage: pct
           }
         }
       )
-      const score =
-        slot.simulationAttempt?.score !== null && slot.simulationAttempt?.score !== undefined
-          ? Number(slot.simulationAttempt.score.toString())
+
+      // Station-level score: use percentageMet (criteria-count %) from the AI result.
+      const score: number | null =
+        status === 'success' && fb?.overallResult?.percentageMet !== undefined
+          ? Number(fb.overallResult.percentageMet)
           : null
+
       return {
         displayOrder: slot.displayOrder,
         caseTitle: slot.courseCase?.title ?? '(case unavailable)',
@@ -935,11 +950,12 @@ export class MockExamAttemptService {
       }
     })
 
+    // Cross-station domain breakdown using criteria counts.
     const domainBreakdown: MockExamSummaryDomainBreakdown[] = Array.from(domainAcc.values()).map(
       (d) => {
-        const percentage = d.totalPoints > 0 ? (d.achievedPoints / d.totalPoints) * 100 : 0
+        const percentage = d.total > 0 ? (d.met / d.total) * 100 : 0
         const category: 'STRENGTH' | 'MODERATE' | 'WEAKNESS' =
-          percentage >= 70 ? 'STRENGTH' : percentage >= 50 ? 'MODERATE' : 'WEAKNESS'
+          percentage > 75 ? 'STRENGTH' : percentage >= 50 ? 'MODERATE' : 'WEAKNESS'
         return {
           domainName: d.name,
           percentage: Math.round(percentage * 10) / 10,
@@ -948,12 +964,20 @@ export class MockExamAttemptService {
       }
     )
 
+    // Overall score: average percentageMet across successful stations.
+    const successfulStations = stations.filter((s) => s.score !== null)
+    const overallScore =
+      successfulStations.length > 0
+        ? Math.round(
+            (successfulStations.reduce((sum, s) => sum + (s.score as number), 0) /
+              successfulStations.length) *
+              10
+          ) / 10
+        : null
+
     return {
       examTitle: attempt.mockExamConfig?.title ?? attempt.title ?? 'Mock Exam',
-      overallScore:
-        attempt.overallScore !== null && attempt.overallScore !== undefined
-          ? Number(attempt.overallScore.toString())
-          : null,
+      overallScore,
       stations,
       domainBreakdown
     }
