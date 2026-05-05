@@ -4,6 +4,15 @@ export const startCuratedSchema = z.object({
   mockExamConfigId: z.string().uuid('Invalid mock exam config ID')
 })
 
+export const generateRandomSchema = z.object({
+  examId: z.string().uuid('Invalid exam ID'),
+  stationCount: z.number().int().min(1).max(20),
+  specialtyIds: z.array(z.string().uuid()).optional(),
+  curriculumIds: z.array(z.string().uuid()).optional(),
+  courseIds: z.array(z.string().uuid()).optional(),
+  onlyUnpracticed: z.boolean().optional()
+})
+
 export const completeSlotSchema = z.object({
   slotId: z.string().uuid('Invalid slot ID'),
   simulationAttemptId: z.string().uuid('Invalid simulation attempt ID')
@@ -34,3 +43,4 @@ export type CompleteSlotInput = z.infer<typeof completeSlotSchema>
 export type AttemptIdParam = z.infer<typeof attemptIdParamSchema>
 export type MyAttemptsQuery = z.infer<typeof myAttemptsQuerySchema>
 export type RegenerateFeedbackParams = z.infer<typeof regenerateFeedbackParamsSchema>
+export type GenerateRandomInput = z.infer<typeof generateRandomSchema>

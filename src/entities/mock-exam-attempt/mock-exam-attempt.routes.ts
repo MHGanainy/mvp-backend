@@ -15,7 +15,8 @@ import {
   completeSlotSchema,
   attemptIdParamSchema,
   myAttemptsQuerySchema,
-  regenerateFeedbackParamsSchema
+  regenerateFeedbackParamsSchema,
+  generateRandomSchema
 } from './mock-exam-attempt.schema'
 import { authenticate, getCurrentStudentId } from '../../middleware/auth.middleware'
 import { replyInternalError } from '../../shared/route-error'
@@ -50,9 +51,14 @@ function mapServiceError(reply: FastifyReply, error: unknown): boolean {
     error.message === 'Mock exam config has no stations' ||
     error.message === 'Mock exam config references archived course cases (data integrity)' ||
     error.message.startsWith('Attempt is not finished') ||
-    error.message === 'Slot has no associated simulation attempt to regenerate'
+    error.message === 'Slot has no associated simulation attempt to regenerate' ||
+    error.message.startsWith('Not enough cases available')
   ) {
     reply.status(400).send({ error: error.message })
+    return true
+  }
+  if (error.message === 'Exam not found') {
+    reply.status(404).send({ error: error.message })
     return true
   }
   return false
@@ -85,6 +91,33 @@ export default async function mockExamAttemptRoutes(fastify: FastifyInstance) {
       } catch (error) {
         if (mapServiceError(reply, error)) return
         replyInternalError(request, reply, error, 'Failed to start mock exam attempt')
+      }
+    }
+  )
+
+  // POST /mock-exam-attempts/generate-random
+  fastify.post(
+    '/mock-exam-attempts/generate-random',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      try {
+        const data = generateRandomSchema.parse(request.body)
+        const studentId = ensureStudent(request, reply)
+        if (!studentId) return
+
+        const attempt = await service.generateRandom(
+          data.examId,
+          studentId,
+          data.stationCount,
+          data.specialtyIds,
+          data.curriculumIds,
+          data.courseIds,
+          data.onlyUnpracticed
+        )
+        reply.status(201).send(attempt)
+      } catch (error) {
+        if (mapServiceError(reply, error)) return
+        replyInternalError(request, reply, error, 'Failed to generate random mock exam')
       }
     }
   )

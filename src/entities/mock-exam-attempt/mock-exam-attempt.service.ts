@@ -223,6 +223,109 @@ export class MockExamAttemptService {
     return this.formatAttempt(created, attemptNumber)
   }
 
+  // ===== generateRandom =====
+
+  async generateRandom(
+    examId: string,
+    studentId: string,
+    stationCount: number,
+    specialtyIds?: string[],
+    curriculumIds?: string[],
+    courseIds?: string[],
+    onlyUnpracticed?: boolean
+  ) {
+    // Verify exam exists
+    const exam = await this.prisma.exam.findUnique({ where: { id: examId } })
+    if (!exam) throw new Error('Exam not found')
+
+    // Build WHERE clause: active cases from RANDOM-style courses only
+    // (STRUCTURED courses are learning content, not case-bank stations)
+    const courseFilter = courseIds && courseIds.length > 0
+      ? { id: { in: courseIds }, examId, style: 'RANDOM' }
+      : { examId, style: 'RANDOM' }
+
+    const whereConditions: any = {
+      isActive: true,
+      course: courseFilter
+    }
+    if (specialtyIds && specialtyIds.length > 0) {
+      whereConditions.caseSpecialties = { some: { specialtyId: { in: specialtyIds } } }
+    }
+    if (curriculumIds && curriculumIds.length > 0) {
+      whereConditions.caseCurriculums = { some: { curriculumId: { in: curriculumIds } } }
+    }
+    if (onlyUnpracticed) {
+      whereConditions.NOT = {
+        studentPractice: {
+          some: { studentId, isPracticed: true }
+        }
+      }
+    }
+
+    // Fetch matching case IDs
+    const allCases = await this.prisma.courseCase.findMany({
+      where: whereConditions,
+      select: { id: true }
+    })
+
+    if (allCases.length < stationCount) {
+      throw new Error(
+        `Not enough cases available: found ${allCases.length}, need ${stationCount}`
+      )
+    }
+
+    // Fisher-Yates shuffle then take first stationCount
+    const ids = allCases.map((c) => c.id)
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[ids[i], ids[j]] = [ids[j], ids[i]]
+    }
+    const selectedIds = ids.slice(0, stationCount)
+
+    // Build title from specialty names if filter was applied
+    let title = 'Custom Mock Exam'
+    if (specialtyIds && specialtyIds.length > 0) {
+      const specialties = await this.prisma.specialty.findMany({
+        where: { id: { in: specialtyIds } },
+        select: { name: true }
+      })
+      const names = specialties.map((s) => s.name).slice(0, 2).join(', ')
+      if (names) title = `Custom Mock: ${names}`
+    }
+
+    // Create attempt + slots in a single transaction
+    const created = await this.prisma.$transaction(async (tx) => {
+      const attempt = await tx.mockExamAttempt.create({
+        data: {
+          studentId,
+          examId,
+          mockExamConfigId: null,
+          title,
+          creationType: 'STUDENT_GENERATED',
+          totalSlots: stationCount,
+          completedSlots: 0,
+          isFinished: false
+        }
+      })
+
+      await tx.mockExamSlot.createMany({
+        data: selectedIds.map((courseCaseId, index) => ({
+          mockExamAttemptId: attempt.id,
+          courseCaseId,
+          displayOrder: index + 1,
+          isCompleted: false
+        }))
+      })
+
+      return tx.mockExamAttempt.findUniqueOrThrow({
+        where: { id: attempt.id },
+        include: this.getDetailInclude()
+      })
+    })
+
+    return this.formatAttempt(created, null)
+  }
+
   // ===== findOne =====
 
   async findOne(attemptId: string, requestingStudentId: string) {
