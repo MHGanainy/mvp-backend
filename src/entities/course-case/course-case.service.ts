@@ -106,12 +106,13 @@ export class CourseCaseService {
       throw new Error('Cases can only be added to RANDOM style courses')
     }
 
-    // Check if display order is already taken
+    // Check if display order is already taken (active cases only — archived cases free their position)
     if (data.displayOrder) {
       const existingCase = await this.prisma.courseCase.findFirst({
         where: {
           courseId: data.courseId,
-          displayOrder: data.displayOrder
+          displayOrder: data.displayOrder,
+          isActive: true
         }
       })
 
@@ -121,13 +122,14 @@ export class CourseCaseService {
     } else {
       // Auto-assign next display order
       const maxOrder = await this.prisma.courseCase.aggregate({
-        where: { courseId: data.courseId },
+        where: { courseId: data.courseId, isActive: true },
         _max: { displayOrder: true }
       })
       data.displayOrder = (maxOrder._max.displayOrder || 0) + 1
     }
 
-    // Generate unique slug for this course
+    // Generate unique slug for this course. Slugs are reserved across active AND archived
+    // cases (full unique index on (course_id, slug)) — no filter on isActive here.
     const slug = await generateUniqueSlug(data.title, async (testSlug) => {
       const existing = await this.prisma.courseCase.findFirst({
         where: { courseId: data.courseId, slug: testSlug }
@@ -152,8 +154,9 @@ export class CourseCaseService {
     })
   }
 
-  async findAll() {
+  async findAll(options: { includeArchived?: boolean } = {}) {
     return await this.prisma.courseCase.findMany({
+      where: options.includeArchived ? undefined : { isActive: true },
       include: this.getStandardInclude(),
       orderBy: [
         { courseId: 'asc' },
@@ -203,11 +206,12 @@ export class CourseCaseService {
       throw new Error('Course not found')
     }
 
-    // Finally find the case by slug within the course
+    // Finally find the case by slug within the course (active only — archived cases free their slug)
     const courseCase = await this.prisma.courseCase.findFirst({
       where: {
         courseId: course.id,
-        slug: caseSlug
+        slug: caseSlug,
+        isActive: true
       },
       include: this.getStandardInclude()
     })
@@ -219,7 +223,7 @@ export class CourseCaseService {
     return courseCase
   }
 
-  async findByCourse(courseId: string) {
+  async findByCourse(courseId: string, options: { includeArchived?: boolean } = {}) {
     // Verify course exists
     const course = await this.prisma.course.findUnique({
       where: { id: courseId }
@@ -230,7 +234,7 @@ export class CourseCaseService {
     }
 
     return await this.prisma.courseCase.findMany({
-      where: { courseId },
+      where: options.includeArchived ? { courseId } : { courseId, isActive: true },
       include: this.getStandardInclude(),
       orderBy: {
         displayOrder: 'asc'
@@ -253,6 +257,7 @@ export class CourseCaseService {
       studentId?: string
       notPracticed?: boolean
       bookmarked?: boolean
+      includeArchived?: boolean
     }
   ) {
     // Verify course exists
@@ -266,9 +271,11 @@ export class CourseCaseService {
 
     const skip = (options.page - 1) * options.limit
 
-    // Build where conditions
+    // Build where conditions. Instructor-facing routes can pass includeArchived=true to
+    // see archived cases (e.g. for un-archive UX); default hides them for student listings.
     const whereConditions: any = {
-      courseId
+      courseId,
+      ...(options.includeArchived ? {} : { isActive: true })
     }
 
     // Add specialty filter (cases that have ANY of the specified specialties)
@@ -420,7 +427,8 @@ export class CourseCaseService {
     return await this.prisma.courseCase.findMany({
       where: {
         courseId,
-        isFree: true
+        isFree: true,
+        isActive: true
       },
       include: this.getStandardInclude(),
       orderBy: {
@@ -433,7 +441,8 @@ export class CourseCaseService {
     return await this.prisma.courseCase.findMany({
       where: {
         courseId,
-        isFree: false
+        isFree: false,
+        isActive: true
       },
       include: this.getStandardInclude(),
       orderBy: {
@@ -446,7 +455,8 @@ export class CourseCaseService {
     return await this.prisma.courseCase.findMany({
       where: {
         courseId,
-        patientGender: gender
+        patientGender: gender,
+        isActive: true
       },
       include: this.getStandardInclude(),
       orderBy: {
@@ -459,13 +469,14 @@ export class CourseCaseService {
     // Check if course case exists
     const existingCase = await this.findById(id)
 
-    // If updating display order, check it's not taken by another case
+    // If updating display order, check it's not taken by another active case
     if (data.displayOrder && data.displayOrder !== existingCase.displayOrder) {
       const conflictingCase = await this.prisma.courseCase.findFirst({
         where: {
           courseId: existingCase.courseId,
           displayOrder: data.displayOrder,
-          id: { not: id }
+          id: { not: id },
+          isActive: true
         }
       })
 
@@ -481,12 +492,33 @@ export class CourseCaseService {
     })
   }
 
+  // Soft-delete: archives the case so children (MarkingCriterion, CaseTab, Simulation,
+  // SimulationAttempt, StudentCasePractice, mock-exam slots) survive. Hard-delete is
+  // intentionally unavailable from this service.
   async delete(id: string) {
     // Check if course case exists
     await this.findById(id)
 
-    return await this.prisma.courseCase.delete({
+    return await this.prisma.courseCase.update({
+      where: { id },
+      data: { isActive: false },
+      include: this.getStandardInclude()
+    })
+  }
+
+  async toggleActive(id: string) {
+    const currentCase = await this.prisma.courseCase.findUnique({
       where: { id }
+    })
+
+    if (!currentCase) {
+      throw new Error('Course case not found')
+    }
+
+    return await this.prisma.courseCase.update({
+      where: { id },
+      data: { isActive: !currentCase.isActive },
+      include: this.getStandardInclude()
     })
   }
 
@@ -503,12 +535,13 @@ export class CourseCaseService {
   async reorder(id: string, newOrder: number) {
     const courseCase = await this.findById(id)
 
-    // Check if new order is taken by another case
+    // Check if new order is taken by another active case
     const conflictingCase = await this.prisma.courseCase.findFirst({
       where: {
         courseId: courseCase.courseId,
         displayOrder: newOrder,
-        id: { not: id }
+        id: { not: id },
+        isActive: true
       }
     })
 
@@ -526,21 +559,22 @@ export class CourseCaseService {
   // ===== STATISTICS & ANALYTICS =====
 
   async getCaseStats(courseId: string) {
+    // All stats exclude archived cases — analytics should not be inflated by inactive content.
     const totalCases = await this.prisma.courseCase.count({
-      where: { courseId }
+      where: { courseId, isActive: true }
     })
 
     const freeCases = await this.prisma.courseCase.count({
-      where: { courseId, isFree: true }
+      where: { courseId, isFree: true, isActive: true }
     })
 
     const paidCases = await this.prisma.courseCase.count({
-      where: { courseId, isFree: false }
+      where: { courseId, isFree: false, isActive: true }
     })
 
     const genderDistribution = await this.prisma.courseCase.groupBy({
       by: ['patientGender'],
-      where: { courseId },
+      where: { courseId, isActive: true },
       _count: {
         patientGender: true
       }
@@ -549,6 +583,7 @@ export class CourseCaseService {
     const casesWithSimulations = await this.prisma.courseCase.count({
       where: {
         courseId,
+        isActive: true,
         simulation: {
           isNot: null
         }
@@ -570,7 +605,7 @@ export class CourseCaseService {
 
   async getAgeRange(courseId: string) {
     const ageStats = await this.prisma.courseCase.aggregate({
-      where: { courseId },
+      where: { courseId, isActive: true },
       _min: { patientAge: true },
       _max: { patientAge: true },
       _avg: { patientAge: true }
@@ -596,9 +631,10 @@ export class CourseCaseService {
       throw new Error('Course not found')
     }
 
-    // Build the filter conditions
+    // Build the filter conditions (active cases only — student/instructor filtering UI)
     const whereConditions: any = {
-      courseId: courseId
+      courseId: courseId,
+      isActive: true
     }
 
     // Add gender filter
@@ -826,25 +862,25 @@ export class CourseCaseService {
 
   async getFilteringStats(courseId: string) {
     const totalCases = await this.prisma.courseCase.count({
-      where: { courseId }
+      where: { courseId, isActive: true }
     })
 
-    // Get specialty distribution
+    // Get specialty distribution (active cases only)
     const specialtyDistribution = await this.prisma.caseSpecialty.groupBy({
       by: ['specialtyId'],
       where: {
-        courseCase: { courseId }
+        courseCase: { courseId, isActive: true }
       },
       _count: {
         specialtyId: true
       }
     })
 
-    // Get curriculum distribution
+    // Get curriculum distribution (active cases only)
     const curriculumDistribution = await this.prisma.caseCurriculum.groupBy({
       by: ['curriculumId'],
       where: {
-        courseCase: { courseId }
+        courseCase: { courseId, isActive: true }
       },
       _count: {
         curriculumId: true
@@ -911,7 +947,7 @@ export class CourseCaseService {
   
       if (!data.courseCase.displayOrder) {
         const maxOrder = await tx.courseCase.aggregate({
-          where: { courseId: data.courseCase.courseId },
+          where: { courseId: data.courseCase.courseId, isActive: true },
           _max: { displayOrder: true }
         })
         data.courseCase.displayOrder = (maxOrder._max.displayOrder || 0) + 1
@@ -919,16 +955,18 @@ export class CourseCaseService {
         const existingCase = await tx.courseCase.findFirst({
           where: {
             courseId: data.courseCase.courseId,
-            displayOrder: data.courseCase.displayOrder
+            displayOrder: data.courseCase.displayOrder,
+            isActive: true
           }
         })
-  
+
         if (existingCase) {
           throw new Error(`Display order ${data.courseCase.displayOrder} is already taken for this course`)
         }
       }
 
-      // Generate unique slug for this course
+      // Generate unique slug for this course. Slugs are reserved across active AND archived
+      // cases (full unique index on (course_id, slug)) — no filter on isActive here.
       const baseSlug = generateSlug(data.courseCase.title)
       let slug = baseSlug
       let counter = 1
@@ -1225,13 +1263,14 @@ export class CourseCaseService {
       // Step 2: Update course case if data provided
       let updatedCourseCase = existingCourseCase
       if (data.courseCase) {
-        if (data.courseCase.displayOrder && 
+        if (data.courseCase.displayOrder &&
             data.courseCase.displayOrder !== existingCourseCase.displayOrder) {
           const conflictingCase = await tx.courseCase.findFirst({
             where: {
               courseId: existingCourseCase.courseId,
               displayOrder: data.courseCase.displayOrder,
-              id: { not: data.courseCaseId }
+              id: { not: data.courseCaseId },
+              isActive: true
             }
           })
   

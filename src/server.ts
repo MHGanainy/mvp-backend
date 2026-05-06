@@ -22,6 +22,8 @@ import interviewRoutes from "./entities/interview/interview.routes";
 import interviewCourseRoutes from "./entities/interview-course/interview-course.routes";
 import courseRoutes from "./entities/course/course.routes";
 import courseCaseRoutes from "./entities/course-case/course-case.routes";
+import mockExamConfigRoutes from "./entities/mock-exam-config/mock-exam-config.routes";
+import mockExamAttemptRoutes from "./entities/mock-exam-attempt/mock-exam-attempt.routes";
 import interviewCaseRoutes from "./entities/interview-case/interview-case.routes";
 import caseTabRoutes from "./entities/case-tab/case-tab.routes";
 import interviewCaseTabRoutes from "./entities/interview-case-tab/interview-case-tab.routes";
@@ -244,6 +246,8 @@ const start = async () => {
     await fastify.register(courseEnrollmentRoutes, { prefix: "/api" });
     await fastify.register(subsectionProgressRoutes, { prefix: "/api" });
     await fastify.register(courseCaseRoutes, { prefix: "/api" });
+    await fastify.register(mockExamConfigRoutes, { prefix: "/api" });
+    await fastify.register(mockExamAttemptRoutes, { prefix: "/api" });
     await fastify.register(interviewCaseRoutes, { prefix: "/api" });
     await fastify.register(caseTabRoutes, { prefix: "/api" });
     await fastify.register(interviewCaseTabRoutes, { prefix: "/api" });

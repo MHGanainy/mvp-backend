@@ -119,3 +119,4 @@ docs/
 thoughts/*
 tools/
 *.sql
+!prisma/migrations/**/*.sql

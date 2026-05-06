@@ -299,9 +299,9 @@ export class CaseTabService {
   }
 
   async getCourseTabsOverview(courseId: string) {
-    // Get all cases for this course
+    // Content-completion analytics — only active cases count toward course readiness.
     const courseCases = await this.prisma.courseCase.findMany({
-      where: { courseId },
+      where: { courseId, isActive: true },
       include: {
         caseTabs: {
           select: {

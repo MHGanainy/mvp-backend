@@ -127,7 +127,9 @@ export const paginatedCourseCasesQuerySchema = z.object({
   // Student-specific filters
   studentId: z.string().uuid().optional(),
   notPracticed: z.string().optional().transform(val => val === 'true'),
-  bookmarked: z.string().optional().transform(val => val === 'true')
+  bookmarked: z.string().optional().transform(val => val === 'true'),
+  // Archive visibility — instructors pass `true` to see archived cases for un-archive UX
+  includeArchived: z.string().optional().transform(val => val === 'true')
 })
 
 // Paginated response schema

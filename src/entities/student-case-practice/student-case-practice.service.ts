@@ -128,9 +128,9 @@ export class StudentCasePracticeService {
       throw new Error('Course not found')
     }
 
-    // Get all case IDs for this course
+    // Get all case IDs for this course (active only — student practice UI shouldn't surface archived cases)
     const courseCases = await this.prisma.courseCase.findMany({
-      where: { courseId },
+      where: { courseId, isActive: true },
       select: { id: true }
     })
     const courseCaseIds = courseCases.map(c => c.id)

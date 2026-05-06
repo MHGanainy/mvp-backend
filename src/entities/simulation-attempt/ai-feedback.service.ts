@@ -984,6 +984,147 @@ Remember:
 
 Please provide your evaluation in the required JSON format.${jsonReminder}`;
  }
+
+  // ===========================================================================
+  // Phase 6: Mock-exam cross-station summary
+  // ===========================================================================
+  // Produces a 2-3 paragraph examiner-tone narrative + 3-5 specific
+  // recommendations across an entire finished mock exam. Caller is
+  // MockExamAttemptService.getSummary; cached by the caller in
+  // MockExamAttempt.aiSummary on success. Failed generation throws and
+  // the caller propagates a 502 — failed generation does NOT cache.
+
+  async generateMockExamSummary(input: MockExamSummaryInput): Promise<MockExamSummaryResponse> {
+    const log = this.log;
+    const startTime = Date.now();
+
+    log.info('[AI-API] generateMockExamSummary START', {
+      examTitle: input.examTitle,
+      stationCount: input.stations.length,
+      successfulStations: input.stations.filter(s => s.analysisStatus === 'success').length,
+      failedStations: input.stations.filter(s => s.analysisStatus === 'failed').length,
+      lifecycle: 'MOCK_EXAM_SUMMARY',
+      stage: 'GENERATE',
+      action: 'START',
+    });
+
+    const systemPrompt = this.buildMockExamSummarySystemPrompt();
+    const userPrompt = this.buildMockExamSummaryUserPrompt(input);
+
+    const responseContent = await this.getCompletion(systemPrompt, userPrompt);
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(responseContent);
+    } catch (err) {
+      log.error('[AI-API] generateMockExamSummary failed to parse JSON', err, {
+        responsePreview: responseContent.substring(0, 200),
+      });
+      throw new Error(`Mock exam summary returned invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    const result = parsed as Partial<MockExamSummaryResponse>;
+    if (!result || typeof result.summary !== 'string' || !Array.isArray(result.recommendations)) {
+      throw new Error(`Mock exam summary missing required fields. Got keys: ${Object.keys(result || {}).join(', ')}`);
+    }
+
+    // Coerce recommendations to strings, trim, drop empties.
+    const recommendations = (result.recommendations as unknown[])
+      .map((r) => (typeof r === 'string' ? r.trim() : ''))
+      .filter((r) => r.length > 0);
+
+    if (recommendations.length === 0) {
+      throw new Error('Mock exam summary returned no recommendations');
+    }
+
+    const durationMs = Date.now() - startTime;
+    log.info('[AI-API] generateMockExamSummary SUCCESS', {
+      durationMs,
+      summaryLength: result.summary.length,
+      recommendationsCount: recommendations.length,
+      lifecycle: 'MOCK_EXAM_SUMMARY',
+      stage: 'GENERATE',
+      action: 'SUCCESS',
+    });
+
+    return {
+      summary: result.summary.trim(),
+      recommendations,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  private buildMockExamSummarySystemPrompt(): string {
+    return `You are an OSCE examiner giving a post-circuit debrief to a medical student who has just finished a mock exam. You will receive structured JSON describing their performance across multiple stations. Write a concise, actionable summary in the tone of a clinical examiner — direct, professional, encouraging where deserved, honest where needed.
+
+OUTPUT FORMAT — return ONLY a JSON object with these exact keys:
+{
+  "summary": "<string>",
+  "recommendations": ["<string>", "<string>", ...]
+}
+
+CONTENT RULES:
+1. summary: 2–3 paragraphs of natural-language prose. Identify cross-station patterns ("you missed safety-netting in 3 of 4 counselling stations"). Note trajectories if visible ("station 4 was tighter than station 1"). Avoid restating numbers — the student already sees those.
+2. recommendations: 3–5 specific action items. Each should reference a behaviour, station, or domain — NOT generic phrases like "practice more X cases" or "review the marking criteria". Each item 1–2 sentences.
+
+STRICT RULES:
+- DO NOT fabricate cross-station patterns from a single data point. If only 2 stations are present, frame observations cautiously ("Across the two stations you completed…").
+- DO NOT mention stations whose analysisStatus is "failed" as if you saw them. Acknowledge the gap if it materially affects the summary ("Two stations couldn't be auto-graded; this summary is based on the six that succeeded").
+- DO NOT use bullet lists, headings, or markdown inside the "summary" field — prose only.
+- DO NOT include scores, percentages, or station numbers in the summary that aren't present in the input.
+- DO maintain examiner tone: "Your structure was clearer in stations 3 and 5" — not "You did great!" or "Awesome work!". Avoid emoji and exclamation marks.
+- DO NOT invent criteria, domains, or feedback the input does not contain.
+
+Return only the JSON object. No prose before or after.`;
+  }
+
+  private buildMockExamSummaryUserPrompt(input: MockExamSummaryInput): string {
+    return `Mock exam debrief input (structured JSON below).
+
+${JSON.stringify(input, null, 2)}
+
+Write the JSON response described in the system prompt now.`;
+  }
+}
+
+// ===========================================================================
+// Phase 6 types — exported for callers
+// ===========================================================================
+
+export interface MockExamSummaryStationDomain {
+  domainName: string;
+  achievedPoints: number;
+  totalPossiblePoints: number;
+  percentage: number;
+}
+
+export interface MockExamSummaryStation {
+  displayOrder: number;
+  caseTitle: string;
+  score: number | null;
+  classificationLabel: string | null;
+  overallFeedback: string | null;
+  analysisStatus: 'success' | 'failed';
+  domains: MockExamSummaryStationDomain[];
+}
+
+export interface MockExamSummaryDomainBreakdown {
+  domainName: string;
+  percentage: number;
+  category: 'STRENGTH' | 'MODERATE' | 'WEAKNESS';
+}
+
+export interface MockExamSummaryInput {
+  examTitle: string;
+  overallScore: number | null;
+  stations: MockExamSummaryStation[];
+  domainBreakdown: MockExamSummaryDomainBreakdown[];
+}
+
+export interface MockExamSummaryResponse {
+  summary: string;
+  recommendations: string[];
+  generatedAt: string;
 }
 
 
