@@ -263,7 +263,7 @@ export class CourseService {
         }
       },
       orderBy: {
-        createdAt: 'desc'
+        createdAt: 'asc'
       }
     })
   }
