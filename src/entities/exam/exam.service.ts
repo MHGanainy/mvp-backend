@@ -197,16 +197,34 @@ export class ExamService {
       throw new Error('Instructor not found')
     }
 
-    const examIds = await getResourcesWithPermissions(this.prisma, {
-      userId: instructor.userId,
-      resourceType: 'exam'
-    })
-    if (examIds.length === 0) {
+    const [grantedExamIds, grantedCourseIds] = await Promise.all([
+      getResourcesWithPermissions(this.prisma, {
+        userId: instructor.userId,
+        resourceType: 'exam'
+      }),
+      getResourcesWithPermissions(this.prisma, {
+        userId: instructor.userId,
+        resourceType: 'course'
+      })
+    ])
+
+    const examIdSet = new Set<string>(grantedExamIds)
+    if (grantedCourseIds.length > 0) {
+      const parentExams = await this.prisma.course.findMany({
+        where: { id: { in: grantedCourseIds } },
+        select: { examId: true }
+      })
+      for (const c of parentExams) {
+        examIdSet.add(c.examId)
+      }
+    }
+
+    if (examIdSet.size === 0) {
       return []
     }
 
     const exams = await this.prisma.exam.findMany({
-      where: { id: { in: examIds } },
+      where: { id: { in: Array.from(examIdSet) } },
       include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'

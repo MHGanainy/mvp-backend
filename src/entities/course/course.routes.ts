@@ -135,50 +135,42 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-// GET /courses/instructor/:instructorId - Get courses by instructor
-fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
-  try {
-    const { instructorId } = courseInstructorParamsSchema.parse(request.params)
-    
-    let isUserAdmin = false
-    let canViewAll = false
+  // GET /courses/instructor/:instructorId - Show courses visible to the instructor (via permission grants)
+  fastify.get('/courses/instructor/:instructorId', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
-      await request.jwtVerify()
-      isUserAdmin = isAdmin(request)
-      canViewAll = isUserAdmin || getCurrentInstructorId(request) === instructorId
-    } catch {
-      // Not authenticated - can only see published
-    }
-    
-    // FIXED: Admin gets ALL courses, not filtered by instructor
-    let courses
-    if (isUserAdmin) {
-      // Admin sees ALL courses from all instructors
-      courses = await courseService.findAll()
-    } else if (canViewAll) {
-      // Instructor sees all their own courses
-      courses = await courseService.findByInstructor(instructorId)
-    } else {
-      // Public/other users see only published courses from this instructor
-      const instructorCourses = await courseService.findByInstructor(instructorId)
-      courses = instructorCourses.filter(course => course.isPublished)
-    }
-    
-    reply.send(courses)
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Instructor not found') {
-      reply.status(404).send({ error: 'Instructor not found' })
-    } else {
-      reply.status(400).send({ error: 'Invalid request' })
-    }
-  }
-})
+      const { instructorId } = courseInstructorParamsSchema.parse(request.params)
 
-  // GET /exams/:examSlug/courses/:courseSlug - Get course by slugs (requires course permission)
+      if (!isAdmin(request) && getCurrentInstructorId(request) !== instructorId) {
+        reply.status(403).send({ error: 'Forbidden' })
+        return
+      }
+
+      const courses = isAdmin(request)
+        ? await courseService.findAll()
+        : await courseService.findVisibleToInstructor(instructorId)
+
+      reply.send(courses)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Instructor not found') {
+        reply.status(404).send({ error: 'Instructor not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
+    }
+  })
+
+  // GET /exams/:examSlug/courses/:courseSlug - Get course by slugs (public for published, permission required for drafts)
   fastify.get('/exams/:examSlug/courses/:courseSlug', async (request, reply) => {
     try {
       const { examSlug, courseSlug } = request.params as { examSlug: string; courseSlug: string }
       const course = await courseService.findBySlug(examSlug, courseSlug, true)
+
+      if (course.isPublished) {
+        reply.send(course)
+        return
+      }
 
       const { userId, isAdmin } = resolveViewerFromRequest(request)
       if (!isAdmin) {
@@ -189,7 +181,7 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
           target: { kind: 'course', id: course.id }
         })
         if (!allowed) {
-          reply.status(403).send({ error: 'Forbidden' })
+          reply.status(404).send({ error: 'Course not found' })
           return
         }
       }

@@ -63,11 +63,16 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /interviews/:interviewSlug/courses/:courseSlug - Get interview course by slugs (requires course permission)
+  // GET /interviews/:interviewSlug/courses/:courseSlug - Get interview course by slugs (public for published, permission required for drafts)
   fastify.get('/interviews/:interviewSlug/courses/:courseSlug', async (request, reply) => {
     try {
       const { interviewSlug, courseSlug } = request.params as { interviewSlug: string; courseSlug: string }
       const interviewCourse = await interviewCourseService.findBySlug(interviewSlug, courseSlug)
+
+      if (interviewCourse.isPublished) {
+        reply.send(interviewCourse)
+        return
+      }
 
       const { userId, isAdmin } = resolveViewerFromRequest(request)
       if (!isAdmin) {
@@ -78,7 +83,7 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
           target: { kind: 'interview_course', id: interviewCourse.id }
         })
         if (!allowed) {
-          reply.status(403).send({ error: 'Forbidden' })
+          reply.status(404).send({ error: 'Interview course not found' })
           return
         }
       }
@@ -165,44 +170,31 @@ export default async function interviewCourseRoutes(fastify: FastifyInstance) {
     }
   })
 
-// GET /interview-courses/instructor/:instructorId - Get interview courses by instructor
-fastify.get('/interview-courses/instructor/:instructorId', async (request, reply) => {
-  try {
-    const { instructorId } = interviewCourseInstructorParamsSchema.parse(request.params)
-
-    let isUserAdmin = false
-    let canViewAll = false
+  // GET /interview-courses/instructor/:instructorId - Show interview courses visible to the instructor (via permission grants)
+  fastify.get('/interview-courses/instructor/:instructorId', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
-      await request.jwtVerify()
-      isUserAdmin = isAdmin(request)
-      canViewAll = isUserAdmin || getCurrentInstructorId(request) === instructorId
-    } catch {
-      // Not authenticated - can only see published
-    }
+      const { instructorId } = interviewCourseInstructorParamsSchema.parse(request.params)
 
-    // FIXED: Admin gets ALL interview courses, not filtered by instructor
-    let interviewCourses
-    if (isUserAdmin) {
-      // Admin sees ALL interview courses from all instructors
-      interviewCourses = await interviewCourseService.findAll()
-    } else if (canViewAll) {
-      // Instructor sees all their own interview courses
-      interviewCourses = await interviewCourseService.findByInstructor(instructorId)
-    } else {
-      // Public/other users see only published interview courses from this instructor
-      const instructorInterviewCourses = await interviewCourseService.findByInstructor(instructorId)
-      interviewCourses = instructorInterviewCourses.filter(interviewCourse => interviewCourse.isPublished)
-    }
+      if (!isAdmin(request) && getCurrentInstructorId(request) !== instructorId) {
+        reply.status(403).send({ error: 'Forbidden' })
+        return
+      }
 
-    reply.send(interviewCourses)
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Instructor not found') {
-      reply.status(404).send({ error: 'Instructor not found' })
-    } else {
-      reply.status(400).send({ error: 'Invalid request' })
+      const interviewCourses = isAdmin(request)
+        ? await interviewCourseService.findAll()
+        : await interviewCourseService.findVisibleToInstructor(instructorId)
+
+      reply.send(interviewCourses)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Instructor not found') {
+        reply.status(404).send({ error: 'Instructor not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
     }
-  }
-})
+  })
 
   // GET /interview-courses/:id - Get interview course by ID
   fastify.get('/interview-courses/:id', async (request, reply) => {

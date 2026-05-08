@@ -190,16 +190,34 @@ export class InterviewService {
   }
 
   async findVisibleToUser(userId: number) {
-    const interviewIds = await getResourcesWithPermissions(this.prisma, {
-      userId,
-      resourceType: 'interview'
-    })
-    if (interviewIds.length === 0) {
+    const [grantedInterviewIds, grantedInterviewCourseIds] = await Promise.all([
+      getResourcesWithPermissions(this.prisma, {
+        userId,
+        resourceType: 'interview'
+      }),
+      getResourcesWithPermissions(this.prisma, {
+        userId,
+        resourceType: 'interview_course'
+      })
+    ])
+
+    const interviewIdSet = new Set<string>(grantedInterviewIds)
+    if (grantedInterviewCourseIds.length > 0) {
+      const parents = await this.prisma.interviewCourse.findMany({
+        where: { id: { in: grantedInterviewCourseIds } },
+        select: { interviewId: true }
+      })
+      for (const ic of parents) {
+        interviewIdSet.add(ic.interviewId)
+      }
+    }
+
+    if (interviewIdSet.size === 0) {
       return []
     }
 
     const interviews = await this.prisma.interview.findMany({
-      where: { id: { in: interviewIds } },
+      where: { id: { in: Array.from(interviewIdSet) } },
       include: this.getFullInclude(),
       orderBy: {
         createdAt: 'desc'
