@@ -369,7 +369,6 @@ model InterviewCase {
   patientGender            PatientGender               @map("patient_gender")
   description              String
   isFree                   Boolean                     @default(false) @map("is_free")
-  isPublished              Boolean                     @default(false) @map("is_published")
   displayOrder             Int                         @map("display_order")
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")

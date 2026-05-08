@@ -491,32 +491,6 @@ export default async function interviewCaseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /interview-cases/:id/publish - Set draft/published state
-  fastify.patch('/interview-cases/:id/publish', {
-    preHandler: requirePermission('case.publish', (req) => {
-      const { id } = interviewCaseParamsSchema.parse(req.params)
-      return { kind: 'interview_case', id }
-    })
-  }, async (request, reply) => {
-    try {
-      const { id } = interviewCaseParamsSchema.parse(request.params)
-      const { isPublished } = z.object({ isPublished: z.boolean() }).parse(request.body)
-      const interviewCase = await interviewCaseService.setPublished(id, isPublished)
-      reply.send({
-        message: `Case ${interviewCase.isPublished ? 'published' : 'unpublished'} successfully`,
-        interviewCase
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Interview case not found') {
-        reply.status(404).send({ error: 'Interview case not found' })
-      } else if (error instanceof z.ZodError) {
-        reply.status(400).send({ error: 'Invalid request', details: error.errors })
-      } else {
-        replyInternalError(request, reply, error, 'Failed to update publish state')
-      }
-    }
-  })
-
   // GET /interview-cases/interview-course/:interviewCourseId/filtered
   fastify.get('/interview-cases/interview-course/:interviewCourseId/filtered', async (request, reply) => {
     try {

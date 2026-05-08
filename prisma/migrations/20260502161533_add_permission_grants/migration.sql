@@ -4,12 +4,6 @@ CREATE TYPE "PermissionRole" AS ENUM ('case_collaborator', 'case_editor');
 -- CreateEnum
 CREATE TYPE "PermissionResourceType" AS ENUM ('exam', 'course', 'interview', 'interview_course');
 
--- AlterTable
-ALTER TABLE "course_cases" ADD COLUMN     "is_published" BOOLEAN NOT NULL DEFAULT false;
-
--- AlterTable
-ALTER TABLE "interview_cases" ADD COLUMN     "is_published" BOOLEAN NOT NULL DEFAULT false;
-
 -- CreateTable
 CREATE TABLE "permission_grants" (
     "id" TEXT NOT NULL,

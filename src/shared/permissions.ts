@@ -221,7 +221,6 @@ export async function courseCaseVisibilityFilter(
   }
   const publicWhere: Prisma.CourseCaseWhereInput = {
     isActive: true,
-    course: { isPublished: true },
   }
   if (userId === null) {
     return publicWhere
@@ -244,7 +243,6 @@ export async function interviewCaseVisibilityFilter(
     return {}
   }
   const publicWhere: Prisma.InterviewCaseWhereInput = {
-    isPublished: true,
     interviewCourse: { isPublished: true },
   }
   if (userId === null) {
@@ -272,13 +270,13 @@ export async function canViewerSeeCourseCase(
     select: {
       isActive: true,
       courseId: true,
-      course: { select: { examId: true, isPublished: true } },
+      course: { select: { examId: true } },
     },
   })
   if (!c) {
     return false
   }
-  if (c.isActive && c.course.isPublished) {
+  if (c.isActive) {
     return true
   }
   if (viewer.userId === null) {
@@ -308,7 +306,6 @@ export async function canViewerSeeInterviewCase(
   const c = await prisma.interviewCase.findUnique({
     where: { id: interviewCaseId },
     select: {
-      isPublished: true,
       interviewCourseId: true,
       interviewCourse: { select: { interviewId: true, isPublished: true } },
     },
@@ -316,7 +313,7 @@ export async function canViewerSeeInterviewCase(
   if (!c) {
     return false
   }
-  if (c.isPublished && c.interviewCourse.isPublished) {
+  if (c.interviewCourse.isPublished) {
     return true
   }
   if (viewer.userId === null) {
