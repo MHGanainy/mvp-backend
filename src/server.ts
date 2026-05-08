@@ -1,334 +1,51 @@
-import Fastify from "fastify";
-import { PrismaClient } from "@prisma/client";
-import fastifyJwt from "@fastify/jwt";
-import fastifyCors from "@fastify/cors";
-import helmet from "@fastify/helmet";
-import rateLimit from "@fastify/rate-limit";
-import multipart from "@fastify/multipart";
-import "./shared/types";
-import { optionalAuth } from "./middleware/auth.middleware";
-import { registerRequestLogging } from "./middleware/request-logger.middleware";
-
-// Add all imports
-import authRoutes from "./entities/auth/auth.routes";
-import subscriptionRoutes from "./entities/subscription/subscription.routes";
-import specialtyRoutes from "./entities/specialty/specialty.routes";
-import curriculumRoutes from "./entities/curriculum/curriculum.routes";
-import markingDomainRoutes from "./entities/marking-domain/marking-domain.routes";
-import instructorRoutes from "./entities/instructor/instructor.routes";
-import studentRoutes from "./entities/student/student.routes";
-import examRoutes from "./entities/exam/exam.routes";
-import interviewRoutes from "./entities/interview/interview.routes";
-import interviewCourseRoutes from "./entities/interview-course/interview-course.routes";
-import courseRoutes from "./entities/course/course.routes";
-import courseCaseRoutes from "./entities/course-case/course-case.routes";
-import mockExamConfigRoutes from "./entities/mock-exam-config/mock-exam-config.routes";
-import mockExamAttemptRoutes from "./entities/mock-exam-attempt/mock-exam-attempt.routes";
-import interviewCaseRoutes from "./entities/interview-case/interview-case.routes";
-import caseTabRoutes from "./entities/case-tab/case-tab.routes";
-import interviewCaseTabRoutes from "./entities/interview-case-tab/interview-case-tab.routes";
-import simulationRoutes from "./entities/simulation/simulation.routes";
-import simulationAttemptRoutes from "./entities/simulation-attempt/simulation-attempt.routes";
-import interviewSimulationAttemptRoutes from "./entities/interview-simulation-attempt/interview-simulation-attempt.routes";
-import paymentRoutes from "./entities/payment/payment.routes";
-import markingCriterionRoutes from "./entities/marking-criterion/marking-criterion.routes";
-import billingRoutes from "./entities/billing/billing.routes";
-import creditPackageRoutes from "./entities/credit-package/credit-package.routes";
-import webhookRoutes from "./entities/webhook/webhook.routes";
-import courseSectionRoutes from "./entities/course-section/course-section.routes";
-import courseSubsectionRoutes from "./entities/course-subsection/course-subsection.routes";
-import courseEnrollmentRoutes from "./entities/course-enrollment/course-enrollment.routes";
-import subsectionProgressRoutes from "./entities/subsection-progress/subsection-progress.routes";
-import studentCasePracticeRoutes from "./entities/student-case-practice/student-case-practice.routes";
-import studentInterviewPracticeRoutes from "./entities/student-interview-practice/student-interview-practice.routes";
-import interviewCourseSectionRoutes from "./entities/interview-course-section/interview-course-section.routes";
-import interviewCourseSubsectionRoutes from "./entities/interview-course-subsection/interview-course-subsection.routes";
-import interviewCourseEnrollmentRoutes from "./entities/interview-course-enrollment/interview-course-enrollment.routes";
-import interviewSubsectionProgressRoutes from "./entities/interview-subsection-progress/interview-subsection-progress.routes";
-import affiliateRoutes from "./entities/affiliate/affiliate.routes";
-import permissionGrantRoutes from "./entities/permission-grant/permission-grant.routes";
-import pricingPlanRoutes from "./entities/pricing-plan/pricing-plan.routes";
-import promoCodeRoutes from "./entities/promo-code/promo-code.routes";
-import blogArticleRoutes from "./entities/blog-article/blog-article.routes";
-import blogCategoryRoutes from "./entities/blog-category/blog-category.routes";
-import tagRoutes from "./entities/tag/tag.routes";
-import blogUploadRoutes from "./entities/blog-upload/blog-upload.routes";
-import voiceSessionRoutes from "./entities/voice-session/voice-session.routes";
-import { CleanupService } from "./services/cleanup.service";
-
-const NODE_ENV = process.env.NODE_ENV || "development";
-const LOG_LEVEL = process.env.LOG_LEVEL || "info";
-
-const fastify = Fastify({
-  logger:
-    NODE_ENV !== "production"
-      ? {
-          level: LOG_LEVEL,
-          transport: {
-            target: "pino-pretty",
-            options: {
-              colorize: true,
-              translateTime: "SYS:standard",
-              ignore: "pid,hostname",
-            },
-          },
-        }
-      : {
-          level: LOG_LEVEL,
-        },
-});
+import { PrismaClient } from '@prisma/client';
+import { buildApp } from './app';
+import { CleanupService } from './services/cleanup.service';
 
 const prisma = new PrismaClient();
 
-// Register prisma on fastify instance
-fastify.decorate("prisma", prisma);
-
-// Register JWT plugin
-const JWT_SECRET =
-  process.env.JWT_SECRET ||
-  "your-super-secret-jwt-key-change-this-in-production";
-fastify.register(fastifyJwt, {
-  secret: JWT_SECRET,
-  sign: {
-    expiresIn: "1h",
-  },
-});
-
-// Register CORS plugin - Allow ALL origins
-fastify.register(fastifyCors, {
-  origin: true, // This allows ALL origins
-  credentials: true, // Allow cookies/credentials
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Allowed methods
-});
-
-// Register security headers
-fastify.register(helmet, {
-  contentSecurityPolicy: false,
-});
-
-// Register rate limiting
-fastify.register(rateLimit, {
-  max: 100,
-  timeWindow: "1 minute",
-});
-
-// Register multipart file upload support
-fastify.register(multipart, {
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB
-    files: 1,
-  },
-});
-
-// Register request logging middleware (must be after JWT plugin)
-registerRequestLogging(fastify);
-
-// Add raw body support for Stripe webhook signature verification
-// MUST be added before any routes are registered
-fastify.addContentTypeParser(
-  "application/json",
-  { parseAs: "buffer" },
-  async (req: any, body: Buffer) => {
-    // Store raw body for webhook signature verification
-    if (req.url?.includes("/webhooks/stripe")) {
-      req.rawBody = body.toString("utf-8");
-    }
-    const str = body.toString("utf-8");
-    if (!str) return null;
-    return JSON.parse(str);
-  },
-);
-
-// GLOBAL AUTHENTICATION HOOK - Runs on EVERY request
-// This attempts to authenticate but doesn't block if no token
-// Ensures admin users are always identified
-fastify.addHook("onRequest", async (request, reply) => {
-  // Skip for health check, webhooks, and other system endpoints
-  if (
-    request.url === "/health" ||
-    request.url === "/favicon.ico" ||
-    request.url?.includes("/webhooks/")
-  ) {
-    return;
-  }
-
-  // Attempt to authenticate on every request
-  await optionalAuth(request, reply);
-});
-
-// Health check
-fastify.get("/health", async () => {
-  return { status: "OK", timestamp: new Date().toISOString() };
-});
-
-fastify.get("/api/health", async () => {
-  return { status: "OK", timestamp: new Date().toISOString() };
-});
-
-// Clean User routes
-fastify.get("/users", async (request) => {
-  // Admin check will work because of global hook
-  if (!request.isAdmin) {
-    throw new Error("Admin access required");
-  }
-
-  const users = await prisma.user.findMany({
-    include: {
-      instructor: true,
-      student: true,
-    },
-  });
-  return users;
-});
-
-fastify.post("/users", async (request, reply) => {
-  // Admin check will work because of global hook
-  if (!request.isAdmin) {
-    reply.status(403).send({ error: "Admin access required" });
-    return;
-  }
-
-  const { email, name } = request.body as { email: string; name?: string };
-
-  const user = await prisma.user.create({
-    data: { email, name },
-  });
-  return user;
-});
-
-fastify.get("/users/:id", async (request, reply) => {
-  // Admin check will work because of global hook
-  if (!request.isAdmin) {
-    reply.status(403).send({ error: "Admin access required" });
-    return;
-  }
-
-  const { id } = request.params as { id: string };
-
-  const user = await prisma.user.findUnique({
-    where: { id: parseInt(id) },
-    include: {
-      instructor: true,
-      student: true,
-    },
-  });
-
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-});
-
-// Start server
 const start = async () => {
   try {
-    // Register webhook routes FIRST (needs raw body, no auth)
-    await fastify.register(webhookRoutes, { prefix: "/api/webhooks" });
-
-    // Register auth routes
-    await fastify.register(authRoutes, { prefix: "/api" });
-
-    // Register subscription routes (also at root level for easier access)
-    await fastify.register(subscriptionRoutes, { prefix: "/api" });
-
-    // Register all other route sets
-    await fastify.register(specialtyRoutes, { prefix: "/api" });
-    await fastify.register(curriculumRoutes, { prefix: "/api" });
-    await fastify.register(markingDomainRoutes, { prefix: "/api" });
-    await fastify.register(instructorRoutes, { prefix: "/api" });
-    await fastify.register(studentRoutes, { prefix: "/api" });
-    await fastify.register(examRoutes, { prefix: "/api" });
-    await fastify.register(interviewRoutes, { prefix: "/api" });
-    await fastify.register(interviewCourseRoutes, { prefix: "/api" });
-    await fastify.register(courseRoutes, { prefix: "/api" });
-    await fastify.register(courseSectionRoutes, { prefix: "/api" });
-    await fastify.register(courseSubsectionRoutes, { prefix: "/api" });
-    await fastify.register(courseEnrollmentRoutes, { prefix: "/api" });
-    await fastify.register(subsectionProgressRoutes, { prefix: "/api" });
-    await fastify.register(courseCaseRoutes, { prefix: "/api" });
-    await fastify.register(mockExamConfigRoutes, { prefix: "/api" });
-    await fastify.register(mockExamAttemptRoutes, { prefix: "/api" });
-    await fastify.register(interviewCaseRoutes, { prefix: "/api" });
-    await fastify.register(caseTabRoutes, { prefix: "/api" });
-    await fastify.register(interviewCaseTabRoutes, { prefix: "/api" });
-    await fastify.register(simulationRoutes, { prefix: "/api" });
-    await fastify.register(simulationAttemptRoutes, { prefix: "/api" });
-    await fastify.register(interviewSimulationAttemptRoutes, {
-      prefix: "/api",
+    const app = await buildApp({
+      prisma,
+      jwtSecret: process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production',
     });
-    await fastify.register(paymentRoutes, { prefix: "/api" });
-    await fastify.register(pricingPlanRoutes, { prefix: "/api" });
-    await fastify.register(promoCodeRoutes, { prefix: "/api" });
-    await fastify.register(markingCriterionRoutes, { prefix: "/api" });
-    await fastify.register(billingRoutes, { prefix: "/api" });
-    await fastify.register(creditPackageRoutes, {
-      prefix: "/api/credit-packages",
-    });
-    await fastify.register(studentCasePracticeRoutes, { prefix: "/api" });
-    await fastify.register(studentInterviewPracticeRoutes, { prefix: "/api" });
-    await fastify.register(interviewCourseSectionRoutes, { prefix: "/api" });
-    await fastify.register(interviewCourseSubsectionRoutes, { prefix: "/api" });
-    await fastify.register(interviewCourseEnrollmentRoutes, { prefix: "/api" });
-    await fastify.register(interviewSubsectionProgressRoutes, {
-      prefix: "/api",
-    });
-    await fastify.register(affiliateRoutes, { prefix: "/api" });
-    await fastify.register(permissionGrantRoutes, { prefix: "/api" });
-    await fastify.register(voiceSessionRoutes, { prefix: "/api" });
 
-    // Blog routes
-    await fastify.register(blogArticleRoutes, { prefix: "/api" });
-    await fastify.register(blogCategoryRoutes, { prefix: "/api" });
-    await fastify.register(tagRoutes, { prefix: "/api" });
-    await fastify.register(blogUploadRoutes, { prefix: "/api" });
-
-    const port = Number(process.env.PORT) || 3000;
-    const host = process.env.HOST || "0.0.0.0";
-
-    await fastify.listen({ port, host });
-    fastify.log.info({ host, port }, "Server running");
-    fastify.log.info("JWT authentication enabled with global auth hook");
-    fastify.log.info("Admin users automatically identified on all routes");
-    fastify.log.info("CORS enabled for ALL origins");
-
-    // Start cleanup service for pending registrations
     const cleanupService = new CleanupService(
       prisma,
-      fastify.log.child({ service: "CleanupService" }),
+      app.log.child({ service: 'CleanupService' }),
     );
 
-    fastify.log.info("Running initial cleanup");
+    app.log.info('Running initial cleanup');
     await cleanupService.cleanupExpiredOTPs();
 
     setInterval(
       async () => {
-        fastify.log.info("Running scheduled cleanup");
+        app.log.info('Running scheduled cleanup');
         try {
           await cleanupService.cleanupExpiredOTPs();
           await cleanupService.cleanupExpiredPendingRegistrations();
         } catch (error) {
-          fastify.log.error({ err: error }, "Cleanup failed");
+          app.log.error({ err: error }, 'Cleanup failed');
         }
       },
       6 * 60 * 60 * 1000,
     );
 
-    fastify.log.info("Cleanup service started (runs every 6 hours)");
+    app.log.info('Cleanup service started (runs every 6 hours)');
+
+    const port = Number(process.env.PORT) || 3000;
+    const host = process.env.HOST || '0.0.0.0';
+
+    await app.listen({ port, host });
+    app.log.info({ host, port }, 'Server running');
   } catch (err) {
-    fastify.log.error({ err }, "Server startup failed");
+    console.error(err);
     process.exit(1);
   }
 };
 
 start();
 
-process.on("SIGTERM", async () => {
-  fastify.log.info("SIGTERM received, shutting down gracefully");
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  fastify.log.info("SIGINT received, shutting down gracefully");
-  process.exit(0);
-});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));
