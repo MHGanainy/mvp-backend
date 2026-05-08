@@ -29,7 +29,7 @@ import {
 } from '../../shared/junction-tables.schema'
 import { authenticate, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
-import { courseCaseVisibilityFilter, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
+import { computeResourcePermissions, courseCaseVisibilityFilter, getBulkResourcePermissions, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const genderParamsSchema = z.object({
@@ -87,7 +87,23 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         include: courseCaseService.getStandardInclude(),
         orderBy: { displayOrder: 'asc' }
       })
-      reply.send(courseCases)
+
+      if (userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId,
+          isAdmin,
+          resources: courseCases.map((c) => ({
+            id: c.id,
+            ancestorKeys: [
+              { resourceType: 'course' as const, resourceId: courseId },
+              { resourceType: 'exam' as const, resourceId: course.examId },
+            ],
+          })),
+        })
+        reply.send(courseCases.map((c) => ({ ...c, permissions: permMap.get(c.id) })))
+      } else {
+        reply.send(courseCases)
+      }
     } catch (error) {
       if (error instanceof Error && error.message === 'Course not found') {
         reply.status(404).send({ error: 'Course not found' })
@@ -206,7 +222,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
-      reply.send(courseCase)
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id: slugLookup.id },
+          })
+        : undefined
+      reply.send({ ...courseCase, permissions })
     } catch (error) {
       if (error instanceof Error) {
         if (error.message === 'Exam not found') {
@@ -234,7 +257,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
-      reply.send(courseCase)
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id },
+          })
+        : undefined
+      reply.send({ ...courseCase, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Course case not found') {
         reply.status(404).send({ error: 'Course case not found' })
@@ -740,6 +770,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         return
       }
 
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id },
+          })
+        : undefined
+
       const tabsResponse: any = {}
       for (const tab of courseCase.caseTabs) {
         tabsResponse[tab.tabType] = {
@@ -792,7 +830,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         specialties,
         curriculums,
         simulation: courseCase.simulation,
-        course: courseCase.course
+        course: courseCase.course,
+        permissions,
       })
     } catch (error) {
       request.log.error({ err: error }, 'Error fetching complete course case')
@@ -820,6 +859,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
+
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id },
+          })
+        : undefined
 
       const tabsResponse: any = {}
       for (const tab of courseCase.caseTabs) {
@@ -874,7 +921,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         specialties,
         curriculums,
         simulation: courseCase.simulation,
-        course: courseCase.course
+        course: courseCase.course,
+        permissions,
       })
     } catch (error) {
       if (error instanceof Error) {

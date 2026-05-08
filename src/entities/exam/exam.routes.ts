@@ -21,7 +21,7 @@ import {
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, getCurrentStudentId, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
-import { userHasPermission } from '../../shared/permissions'
+import { computeResourcePermissions, getBulkResourcePermissions, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const examIdParamsSchema = z.object({
@@ -64,7 +64,20 @@ export default async function examRoutes(fastify: FastifyInstance) {
         exams = await examService.findActive()
       }
 
-      reply.send(exams)
+      const viewer = resolveViewerFromRequest(request)
+      if (viewer.userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId: viewer.userId,
+          isAdmin: viewer.isAdmin,
+          resources: exams.map((e) => ({
+            id: e.id,
+            ancestorKeys: [{ resourceType: 'exam' as const, resourceId: e.id }],
+          })),
+        })
+        reply.send(exams.map((e) => ({ ...e, permissions: permMap.get(e.id) })))
+      } else {
+        reply.send(exams)
+      }
     } catch (error) {
       replyInternalError(request, reply, error, 'Failed to fetch exams')
     }
@@ -96,7 +109,20 @@ export default async function examRoutes(fastify: FastifyInstance) {
         ? await examService.findAll()
         : await examService.findVisibleToInstructor(instructorId)
 
-      reply.send(exams)
+      const viewer = resolveViewerFromRequest(request)
+      if (viewer.userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId: viewer.userId,
+          isAdmin: viewer.isAdmin,
+          resources: exams.map((e) => ({
+            id: e.id,
+            ancestorKeys: [{ resourceType: 'exam' as const, resourceId: e.id }],
+          })),
+        })
+        reply.send(exams.map((e) => ({ ...e, permissions: permMap.get(e.id) })))
+      } else {
+        reply.send(exams)
+      }
     } catch (error) {
       if (error instanceof Error && error.message === 'Instructor not found') {
         reply.status(404).send({ error: 'Instructor not found' })
@@ -159,36 +185,31 @@ export default async function examRoutes(fastify: FastifyInstance) {
     try {
       const { slug } = request.params as { slug: string }
       const exam = await examService.findBySlug(slug)
+      const viewer = resolveViewerFromRequest(request)
 
-      if (exam.isActive) {
-        reply.send(exam)
-        return
-      }
-
-      let isUserAdmin = false
-      let userId: number | undefined
-      try {
-        await request.jwtVerify()
-        isUserAdmin = isAdmin(request)
-        userId = request.user?.userId
-      } catch {
-        // not authenticated
-      }
-
-      if (!isUserAdmin) {
-        const allowed = userId !== undefined && await userHasPermission(fastify.prisma, {
-          userId,
-          isAdmin: false,
-          permission: 'case.edit',
-          target: { kind: 'exam', id: exam.id }
-        })
-        if (!allowed) {
-          reply.status(404).send({ error: 'Exam not found' })
-          return
+      if (!exam.isActive) {
+        if (!viewer.isAdmin) {
+          const allowed = viewer.userId !== null && await userHasPermission(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: false,
+            permission: 'case.edit',
+            target: { kind: 'exam', id: exam.id },
+          })
+          if (!allowed) {
+            reply.status(404).send({ error: 'Exam not found' })
+            return
+          }
         }
       }
 
-      reply.send(exam)
+      const permissions = viewer.userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: viewer.isAdmin,
+            target: { kind: 'exam', id: exam.id },
+          })
+        : undefined
+      reply.send({ ...exam, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Exam not found') {
         reply.status(404).send({ error: 'Exam not found' })
@@ -203,7 +224,15 @@ export default async function examRoutes(fastify: FastifyInstance) {
     try {
       const { id } = examParamsSchema.parse(request.params)
       const exam = await examService.findById(id)
-      reply.send(exam)
+      const viewer = resolveViewerFromRequest(request)
+      const permissions = viewer.userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: viewer.isAdmin,
+            target: { kind: 'exam', id },
+          })
+        : undefined
+      reply.send({ ...exam, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Exam not found') {
         reply.status(404).send({ error: 'Exam not found' })

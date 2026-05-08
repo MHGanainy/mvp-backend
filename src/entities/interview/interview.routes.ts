@@ -21,7 +21,7 @@ import {
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, getCurrentUserId, isAdmin } from '../../middleware/auth.middleware'
 import { requirePermission } from '../../middleware/require-permission.middleware'
-import { userHasPermission } from '../../shared/permissions'
+import { computeResourcePermissions, getBulkResourcePermissions, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const interviewIdParamsSchema = z.object({
@@ -60,7 +60,20 @@ export default async function interviewRoutes(fastify: FastifyInstance) {
         interviews = await interviewService.findActive()
       }
 
-      reply.send(interviews)
+      const viewer = resolveViewerFromRequest(request)
+      if (viewer.userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId: viewer.userId,
+          isAdmin: viewer.isAdmin,
+          resources: interviews.map((i) => ({
+            id: i.id,
+            ancestorKeys: [{ resourceType: 'interview' as const, resourceId: i.id }],
+          })),
+        })
+        reply.send(interviews.map((i) => ({ ...i, permissions: permMap.get(i.id) })))
+      } else {
+        reply.send(interviews)
+      }
     } catch (error) {
       replyInternalError(request, reply, error, 'Failed to fetch interviews')
     }
@@ -106,7 +119,20 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
       interviews = instructorInterviews.filter(interview => interview.isActive)
     }
 
-    reply.send(interviews)
+    const viewer = resolveViewerFromRequest(request)
+    if (viewer.userId !== null) {
+      const permMap = await getBulkResourcePermissions(fastify.prisma, {
+        userId: viewer.userId,
+        isAdmin: viewer.isAdmin,
+        resources: interviews.map((i) => ({
+          id: i.id,
+          ancestorKeys: [{ resourceType: 'interview' as const, resourceId: i.id }],
+        })),
+      })
+      reply.send(interviews.map((i) => ({ ...i, permissions: permMap.get(i.id) })))
+    } else {
+      reply.send(interviews)
+    }
   } catch (error) {
     if (error instanceof Error && error.message === 'Instructor not found') {
       reply.status(404).send({ error: 'Instructor not found' })
@@ -121,36 +147,31 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
     try {
       const { slug } = request.params as { slug: string }
       const interview = await interviewService.findBySlug(slug)
+      const viewer = resolveViewerFromRequest(request)
 
-      if (interview.isActive) {
-        reply.send(interview)
-        return
-      }
-
-      let isUserAdmin = false
-      let userId: number | undefined
-      try {
-        await request.jwtVerify()
-        isUserAdmin = isAdmin(request)
-        userId = request.user?.userId
-      } catch {
-        // not authenticated
-      }
-
-      if (!isUserAdmin) {
-        const allowed = userId !== undefined && await userHasPermission(fastify.prisma, {
-          userId,
-          isAdmin: false,
-          permission: 'case.edit',
-          target: { kind: 'interview', id: interview.id }
-        })
-        if (!allowed) {
-          reply.status(404).send({ error: 'Interview not found' })
-          return
+      if (!interview.isActive) {
+        if (!viewer.isAdmin) {
+          const allowed = viewer.userId !== null && await userHasPermission(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: false,
+            permission: 'case.edit',
+            target: { kind: 'interview', id: interview.id },
+          })
+          if (!allowed) {
+            reply.status(404).send({ error: 'Interview not found' })
+            return
+          }
         }
       }
 
-      reply.send(interview)
+      const permissions = viewer.userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: viewer.isAdmin,
+            target: { kind: 'interview', id: interview.id },
+          })
+        : undefined
+      reply.send({ ...interview, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Interview not found') {
         reply.status(404).send({ error: 'Interview not found' })
@@ -165,7 +186,15 @@ fastify.get('/interviews/instructor/:instructorId', async (request, reply) => {
     try {
       const { id } = interviewParamsSchema.parse(request.params)
       const interview = await interviewService.findById(id)
-      reply.send(interview)
+      const viewer = resolveViewerFromRequest(request)
+      const permissions = viewer.userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: viewer.isAdmin,
+            target: { kind: 'interview', id },
+          })
+        : undefined
+      reply.send({ ...interview, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Interview not found') {
         reply.status(404).send({ error: 'Interview not found' })

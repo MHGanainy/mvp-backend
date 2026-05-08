@@ -367,6 +367,109 @@ export async function getResourcesWithPermissions(
   return grants.map((g) => g.resourceId)
 }
 
+export type ResourcePermissions = {
+  canEdit: boolean
+  canPublish: boolean
+  canDelete: boolean
+}
+
+const ALL_TRUE: ResourcePermissions = { canEdit: true, canPublish: true, canDelete: true }
+const ALL_FALSE: ResourcePermissions = { canEdit: false, canPublish: false, canDelete: false }
+
+function derivePermissions(grantedPerms: ReadonlySet<Permission>): ResourcePermissions {
+  return {
+    canEdit: grantedPerms.has('case.edit'),
+    canPublish: grantedPerms.has('case.publish'),
+    canDelete: grantedPerms.has('case.delete'),
+  }
+}
+
+export async function computeResourcePermissions(
+  prisma: PrismaClient,
+  args: { userId: number; isAdmin: boolean; target: ResourceTarget },
+): Promise<ResourcePermissions> {
+  if (args.isAdmin) {
+    return ALL_TRUE
+  }
+  const ancestors = await resolveAncestors(prisma, args.target)
+  if (ancestors.length === 0) {
+    return ALL_FALSE
+  }
+  const grants = await prisma.permissionGrant.findMany({
+    where: {
+      userId: args.userId,
+      OR: ancestors.map((a) => ({ resourceType: a.resourceType, resourceId: a.resourceId })),
+    },
+    select: { role: true },
+  })
+  const perms = new Set<Permission>(grants.flatMap((g) => ROLE_PERMISSIONS[g.role] as Permission[]))
+  return derivePermissions(perms)
+}
+
+export async function getBulkResourcePermissions(
+  prisma: PrismaClient,
+  args: {
+    userId: number
+    isAdmin: boolean
+    resources: ReadonlyArray<{ id: string; ancestorKeys: ReadonlyArray<ResourceKey> }>
+  },
+): Promise<Map<string, ResourcePermissions>> {
+  if (args.isAdmin) {
+    return new Map(args.resources.map((r) => [r.id, ALL_TRUE]))
+  }
+  if (args.resources.length === 0) {
+    return new Map()
+  }
+
+  const allKeys: ResourceKey[] = []
+  const seen = new Set<string>()
+  for (const r of args.resources) {
+    for (const k of r.ancestorKeys) {
+      const dedupeKey = `${k.resourceType}:${k.resourceId}`
+      if (!seen.has(dedupeKey)) {
+        seen.add(dedupeKey)
+        allKeys.push(k)
+      }
+    }
+  }
+
+  const grants = await prisma.permissionGrant.findMany({
+    where: {
+      userId: args.userId,
+      OR: allKeys.map((k) => ({ resourceType: k.resourceType, resourceId: k.resourceId })),
+    },
+    select: { resourceType: true, resourceId: true, role: true },
+  })
+
+  const grantPermsByKey = new Map<string, Set<Permission>>()
+  for (const g of grants) {
+    const key = `${g.resourceType}:${g.resourceId}`
+    if (!grantPermsByKey.has(key)) {
+      grantPermsByKey.set(key, new Set())
+    }
+    for (const p of ROLE_PERMISSIONS[g.role] as Permission[]) {
+      grantPermsByKey.get(key)!.add(p)
+    }
+  }
+
+  const result = new Map<string, ResourcePermissions>()
+  for (const r of args.resources) {
+    const combined = new Set<Permission>()
+    for (const k of r.ancestorKeys) {
+      const key = `${k.resourceType}:${k.resourceId}`
+      const perms = grantPermsByKey.get(key)
+      if (perms) {
+        for (const p of perms) {
+          combined.add(p)
+        }
+      }
+    }
+    result.set(r.id, combined.size > 0 ? derivePermissions(combined) : ALL_FALSE)
+  }
+
+  return result
+}
+
 export async function autoGrantOnCreate(
   tx: TxClient,
   args: {
