@@ -33,15 +33,141 @@ export class StudentService {
     })
   }
 
-  async findAll() {
-    return await this.prisma.student.findMany({
-      include: {
-        user: true
-      },
-      orderBy: {
-        createdAt: 'desc'
+  async findAll(query?: {
+    q?: string
+    page?: number
+    limit?: number
+    sortBy?: 'joinedAt' | 'simulationCount' | 'creditBalance'
+    paid?: boolean
+    examId?: string
+  }) {
+    const { q, page = 1, limit = 20, sortBy = 'joinedAt', paid, examId } = query ?? {}
+
+    const where: Prisma.StudentWhereInput = {}
+
+    if (q) {
+      where.OR = [
+        { firstName: { contains: q, mode: 'insensitive' } },
+        { lastName: { contains: q, mode: 'insensitive' } },
+        { user: { email: { contains: q, mode: 'insensitive' } } },
+      ]
+    }
+
+    if (paid === true) {
+      where.creditTransactions = {
+        some: {
+          transactionType: 'CREDIT',
+          sourceType: { in: ['PURCHASE', 'SUBSCRIPTION'] },
+        },
       }
-    })
+    }
+
+    if (examId) {
+      where.simulationAttempts = {
+        some: {
+          simulation: {
+            courseCase: {
+              course: { examId },
+            },
+          },
+        },
+      }
+    }
+
+    const orderBy =
+      sortBy === 'simulationCount'
+        ? { simulationAttempts: { _count: 'desc' as const } }
+        : sortBy === 'creditBalance'
+        ? { creditBalance: 'desc' as const }
+        : { createdAt: 'desc' as const }
+
+    const [students, total, globalTotal, paidStudents] = await Promise.all([
+      this.prisma.student.findMany({
+        where,
+        include: {
+          user: true,
+          _count: { select: { simulationAttempts: true } },
+        },
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.student.count({ where }),
+      this.prisma.student.count(),
+      this.prisma.student.count({
+        where: {
+          checkoutSessions: {
+            some: {
+              completedAt: { not: null },
+            },
+          },
+        },
+      }),
+    ])
+
+    const studentIds = students.map((s) => s.id)
+
+    interface ExamRow {
+      student_id: string
+      exam_id: string
+      exam_title: string
+      exam_slug: string
+    }
+
+    const [lastAttempts, examRows] = await Promise.all([
+      this.prisma.simulationAttempt.findMany({
+        where: { studentId: { in: studentIds } },
+        select: { studentId: true, startedAt: true },
+        orderBy: { startedAt: 'desc' },
+        distinct: ['studentId'],
+      }),
+      studentIds.length > 0
+        ? this.prisma.$queryRaw<ExamRow[]>`
+            SELECT DISTINCT
+              sa.student_id,
+              e.id   AS exam_id,
+              e.title AS exam_title,
+              e.slug  AS exam_slug
+            FROM simulation_attempts sa
+            JOIN simulations   s  ON s.id  = sa.simulation_id
+            JOIN course_cases  cc ON cc.id = s.course_case_id
+            JOIN courses       c  ON c.id  = cc.course_id
+            JOIN exams         e  ON e.id  = c.exam_id
+            WHERE sa.student_id = ANY(${studentIds})
+          `
+        : Promise.resolve([] as ExamRow[]),
+    ])
+
+    const lastActiveMap = new Map(lastAttempts.map((a) => [a.studentId, a.startedAt]))
+
+    // Group distinct exams per student
+    const examsByStudent = new Map<string, { id: string; title: string; slug: string }[]>()
+    for (const row of examRows) {
+      if (!examsByStudent.has(row.student_id)) {
+        examsByStudent.set(row.student_id, [])
+      }
+      examsByStudent.get(row.student_id)!.push({
+        id: row.exam_id,
+        title: row.exam_title,
+        slug: row.exam_slug,
+      })
+    }
+
+    return {
+      students: students.map((s) => ({
+        ...s,
+        simulationCount: s._count.simulationAttempts,
+        lastActive: lastActiveMap.get(s.id) ?? null,
+        exams: examsByStudent.get(s.id) ?? [],
+      })),
+      total,
+      page,
+      limit,
+      stats: {
+        totalStudents: globalTotal,
+        paidStudents,
+      },
+    }
   }
 
   async findById(id: string) {

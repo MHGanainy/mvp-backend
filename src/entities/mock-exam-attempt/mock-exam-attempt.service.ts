@@ -346,6 +346,17 @@ export class MockExamAttemptService {
     return this.formatAttempt(attempt, attemptNumber)
   }
 
+  // ===== getAttemptStudentId (admin helper) =====
+
+  async getAttemptStudentId(attemptId: string): Promise<string> {
+    const row = await this.prisma.mockExamAttempt.findUnique({
+      where: { id: attemptId },
+      select: { studentId: true }
+    })
+    if (!row) throw new Error('Mock exam attempt not found')
+    return row.studentId
+  }
+
   // ===== completeSlot =====
 
   async completeSlot(
@@ -763,14 +774,13 @@ export class MockExamAttemptService {
 
   async findMyAttempts(
     studentId: string,
-    examId: string,
+    examId: string | undefined,
     limit: number,
     offset: number
   ) {
+    const where = examId ? { studentId, examId } : { studentId }
     // Total count for pagination math
-    const total = await this.prisma.mockExamAttempt.count({
-      where: { studentId, examId }
-    })
+    const total = await this.prisma.mockExamAttempt.count({ where })
 
     if (total === 0) {
       return { attempts: [], total: 0, limit, offset }
@@ -778,7 +788,7 @@ export class MockExamAttemptService {
 
     // Page query — sorted newest first per Phase 1's index (studentId, examId, createdAt DESC)
     const rows = await this.prisma.mockExamAttempt.findMany({
-      where: { studentId, examId },
+      where,
       orderBy: [
         { createdAt: Prisma.SortOrder.desc },
         { id: Prisma.SortOrder.desc } // tiebreaker — matches ROW_NUMBER ORDER BY createdAt, id

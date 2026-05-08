@@ -1,12 +1,22 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { StudentService } from './student.service'
-import { 
-  createStudentSchema, 
-  updateStudentSchema, 
-  studentUserParamsSchema 
+import {
+  createStudentSchema,
+  updateStudentSchema,
+  studentUserParamsSchema
 } from './student.schema'
 import { replyInternalError } from '../../shared/route-error'
+import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+
+const studentListQuerySchema = z.object({
+  q: z.string().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  sortBy: z.enum(['joinedAt', 'simulationCount', 'creditBalance']).default('joinedAt'),
+  paid: z.coerce.boolean().optional(),
+  examId: z.string().uuid().optional(),
+})
 
 // Credit operation schemas
 const creditOperationSchema = z.object({
@@ -23,13 +33,35 @@ const setCreditSchema = z.object({
 export default async function studentRoutes(fastify: FastifyInstance) {
   const studentService = new StudentService(fastify.prisma)
 
-  // GET /students - Get all students
-  fastify.get('/students', async (request, reply) => {
+  // GET /students - Get all students with search + pagination (admin only)
+  fastify.get('/students', { preHandler: authenticate }, async (request, reply) => {
+    if (!isAdmin(request)) {
+      return reply.status(403).send({ error: 'Admin access required' })
+    }
     try {
-      const students = await studentService.findAll()
-      reply.send(students)
+      const query = studentListQuerySchema.parse(request.query)
+      const result = await studentService.findAll(query)
+      reply.send(result)
     } catch (error) {
       replyInternalError(request, reply, error, 'Failed to fetch students')
+    }
+  })
+
+  // GET /students/admin/:studentId - Get student by UUID (admin only)
+  fastify.get('/students/admin/:studentId', { preHandler: authenticate }, async (request, reply) => {
+    if (!isAdmin(request)) {
+      return reply.status(403).send({ error: 'Admin access required' })
+    }
+    try {
+      const { studentId } = request.params as { studentId: string }
+      const student = await studentService.findById(studentId)
+      reply.send(student)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Student not found') {
+        reply.status(404).send({ error: 'Student not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
     }
   })
 
