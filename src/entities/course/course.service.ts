@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { CreateCourseInput, UpdateCourseInput, UpdateStructuredCourseCompleteInput, CourseStyle } from './course.schema'
+import { getResourcesWithPermissions } from '../../shared/permissions'
 import { generateSlug, generateUniqueSlug } from '../../shared/slug'
 
 export class CourseService {
@@ -280,6 +281,63 @@ export class CourseService {
 
     return await this.prisma.course.findMany({
       where: { instructorId },
+      include: {
+        exam: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            isActive: true
+          }
+        },
+        instructor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            bio: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+  }
+
+  async findVisibleToInstructor(instructorId: string) {
+    const instructor = await this.prisma.instructor.findUnique({
+      where: { id: instructorId },
+      select: { userId: true }
+    })
+
+    if (!instructor) {
+      throw new Error('Instructor not found')
+    }
+
+    const [grantedExamIds, grantedCourseIds] = await Promise.all([
+      getResourcesWithPermissions(this.prisma, {
+        userId: instructor.userId,
+        resourceType: 'exam'
+      }),
+      getResourcesWithPermissions(this.prisma, {
+        userId: instructor.userId,
+        resourceType: 'course'
+      })
+    ])
+
+    if (grantedExamIds.length === 0 && grantedCourseIds.length === 0) {
+      return []
+    }
+
+    const where = grantedExamIds.length > 0 && grantedCourseIds.length > 0
+      ? { OR: [{ examId: { in: grantedExamIds } }, { id: { in: grantedCourseIds } }] }
+      : grantedExamIds.length > 0
+        ? { examId: { in: grantedExamIds } }
+        : { id: { in: grantedCourseIds } }
+
+    return await this.prisma.course.findMany({
+      where,
       include: {
         exam: {
           select: {

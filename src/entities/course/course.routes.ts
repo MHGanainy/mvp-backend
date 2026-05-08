@@ -13,6 +13,8 @@ import {
   CourseStyleEnum
 } from './course.schema'
 import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { requirePermission } from '../../middleware/require-permission.middleware'
+import { computeResourcePermissions, getBulkResourcePermissions, getResourcesWithPermissions, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const styleParamsSchema = z.object({
@@ -82,84 +84,146 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // GET /courses/exam/:examId - Get courses by exam
+  // GET /courses/exam/:examId - Show courses visible to the instructor for this exam
   fastify.get('/courses/exam/:examId', async (request, reply) => {
     try {
       const { examId } = courseExamParamsSchema.parse(request.params)
 
-      let includeUnpublished = false
-      try {
-        await request.jwtVerify()
-        includeUnpublished = isAdmin(request) || !!getCurrentInstructorId(request)
-      } catch {
-        // Not authenticated - public access
+      const exam = await fastify.prisma.exam.findUnique({ where: { id: examId } })
+      if (!exam) {
+        reply.status(404).send({ error: 'Exam not found' })
+        return
       }
 
-      const courses = await courseService.findByExam(examId, includeUnpublished)
-      reply.send(courses)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+
+      let where: any = { examId, isPublished: true }
+      if (isAdmin) {
+        where = { examId }
+      } else if (userId !== null) {
+        const grantedExamIds = await getResourcesWithPermissions(fastify.prisma, {
+          userId,
+          resourceType: 'exam'
+        })
+        if (grantedExamIds.includes(examId)) {
+          where = { examId }
+        } else {
+          const grantedCourseIds = await getResourcesWithPermissions(fastify.prisma, {
+            userId,
+            resourceType: 'course'
+          })
+          if (grantedCourseIds.length > 0) {
+            where = {
+              examId,
+              OR: [{ isPublished: true }, { id: { in: grantedCourseIds } }]
+            }
+          }
+        }
+      }
+
+      const courses = await fastify.prisma.course.findMany({
+        where,
+        include: {
+          exam: { select: { id: true, title: true, slug: true, isActive: true } },
+          instructor: { select: { id: true, firstName: true, lastName: true, bio: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      })
+
+      if (userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId,
+          isAdmin,
+          resources: courses.map((c) => ({
+            id: c.id,
+            ancestorKeys: [
+              { resourceType: 'course' as const, resourceId: c.id },
+              { resourceType: 'exam' as const, resourceId: c.examId },
+            ],
+          })),
+        })
+        reply.send(courses.map((c) => ({ ...c, permissions: permMap.get(c.id) })))
+      } else {
+        reply.send(courses)
+      }
     } catch (error) {
-      if (error instanceof Error && error.message === 'Exam not found') {
-        reply.status(404).send({ error: 'Exam not found' })
+      reply.status(400).send({ error: 'Invalid request' })
+    }
+  })
+
+  // GET /courses/instructor/:instructorId - Show courses visible to the instructor (via permission grants)
+  fastify.get('/courses/instructor/:instructorId', {
+    preHandler: authenticate
+  }, async (request, reply) => {
+    try {
+      const { instructorId } = courseInstructorParamsSchema.parse(request.params)
+
+      if (!isAdmin(request) && getCurrentInstructorId(request) !== instructorId) {
+        reply.status(403).send({ error: 'Forbidden' })
+        return
+      }
+
+      const courses = isAdmin(request)
+        ? await courseService.findAll()
+        : await courseService.findVisibleToInstructor(instructorId)
+
+      const viewer = resolveViewerFromRequest(request)
+      if (viewer.userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId: viewer.userId,
+          isAdmin: viewer.isAdmin,
+          resources: courses.map((c) => ({
+            id: c.id,
+            ancestorKeys: [
+              { resourceType: 'course' as const, resourceId: c.id },
+              { resourceType: 'exam' as const, resourceId: c.examId },
+            ],
+          })),
+        })
+        reply.send(courses.map((c) => ({ ...c, permissions: permMap.get(c.id) })))
+      } else {
+        reply.send(courses)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Instructor not found') {
+        reply.status(404).send({ error: 'Instructor not found' })
       } else {
         reply.status(400).send({ error: 'Invalid request' })
       }
     }
   })
 
-// GET /courses/instructor/:instructorId - Get courses by instructor
-fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
-  try {
-    const { instructorId } = courseInstructorParamsSchema.parse(request.params)
-    
-    let isUserAdmin = false
-    let canViewAll = false
-    try {
-      await request.jwtVerify()
-      isUserAdmin = isAdmin(request)
-      canViewAll = isUserAdmin || getCurrentInstructorId(request) === instructorId
-    } catch {
-      // Not authenticated - can only see published
-    }
-    
-    // FIXED: Admin gets ALL courses, not filtered by instructor
-    let courses
-    if (isUserAdmin) {
-      // Admin sees ALL courses from all instructors
-      courses = await courseService.findAll()
-    } else if (canViewAll) {
-      // Instructor sees all their own courses
-      courses = await courseService.findByInstructor(instructorId)
-    } else {
-      // Public/other users see only published courses from this instructor
-      const instructorCourses = await courseService.findByInstructor(instructorId)
-      courses = instructorCourses.filter(course => course.isPublished)
-    }
-    
-    reply.send(courses)
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Instructor not found') {
-      reply.status(404).send({ error: 'Instructor not found' })
-    } else {
-      reply.status(400).send({ error: 'Invalid request' })
-    }
-  }
-})
-
-  // GET /exams/:examSlug/courses/:courseSlug - Get course by slugs (clean URL)
+  // GET /exams/:examSlug/courses/:courseSlug - Get course by slugs (public for published, permission required for drafts)
   fastify.get('/exams/:examSlug/courses/:courseSlug', async (request, reply) => {
     try {
       const { examSlug, courseSlug } = request.params as { examSlug: string; courseSlug: string }
+      const course = await courseService.findBySlug(examSlug, courseSlug, true)
 
-      let includeUnpublished = false
-      try {
-        await request.jwtVerify()
-        includeUnpublished = isAdmin(request) || !!getCurrentInstructorId(request)
-      } catch {
-        // Not authenticated
+      const { userId, isAdmin: viewerIsAdmin } = resolveViewerFromRequest(request)
+
+      if (!course.isPublished) {
+        if (!viewerIsAdmin) {
+          const allowed = userId !== null && await userHasPermission(fastify.prisma, {
+            userId,
+            isAdmin: false,
+            permission: 'case.edit',
+            target: { kind: 'course', id: course.id },
+          })
+          if (!allowed) {
+            reply.status(404).send({ error: 'Course not found' })
+            return
+          }
+        }
       }
 
-      const course = await courseService.findBySlug(examSlug, courseSlug, includeUnpublished)
-      reply.send(course)
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin: viewerIsAdmin,
+            target: { kind: 'course', id: course.id },
+          })
+        : undefined
+      reply.send({ ...course, permissions })
     } catch (error) {
       if (error instanceof Error) {
         if (error.message === 'Exam not found') {
@@ -180,7 +244,15 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const course = await courseService.findById(id)
-      reply.send(course)
+      const viewer = resolveViewerFromRequest(request)
+      const permissions = viewer.userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: viewer.isAdmin,
+            target: { kind: 'course', id },
+          })
+        : undefined
+      reply.send({ ...course, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Course not found') {
         reply.status(404).send({ error: 'Course not found' })
@@ -192,19 +264,13 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // POST /courses - Create new course
   fastify.post('/courses', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = createCourseSchema.parse(req.body)
+      return { kind: 'exam', id: body.examId }
+    })
   }, async (request, reply) => {
     try {
       const data = createCourseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
-          reply.status(403).send({ error: 'You can only create courses for yourself' })
-          return
-        }
-      }
-      
       const course = await courseService.create(data)
       reply.status(201).send(course)
     } catch (error) {
@@ -226,22 +292,14 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PUT /courses/:id - Update course
   fastify.put('/courses/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const data = updateCourseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own courses' })
-          return
-        }
-      }
-      
       const course = await courseService.update(id, data)
       reply.send(course)
     } catch (error) {
@@ -255,21 +313,13 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PATCH /courses/:id/toggle - Toggle published status
   fastify.patch('/courses/:id/toggle', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.publish', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only toggle your own courses' })
-          return
-        }
-      }
-      
       const course = await courseService.togglePublished(id)
       reply.send({
         message: `Course ${course.isPublished ? 'published' : 'unpublished'} successfully`,
@@ -286,22 +336,14 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PATCH /courses/:id/info-points - Update info points
   fastify.patch('/courses/:id/info-points', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const { infoPoints } = updateCourseInfoPointsSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update info points for your own courses' })
-          return
-        }
-      }
-      
       const course = await courseService.update(id, { infoPoints })
       reply.send({
         message: 'Course info points updated successfully',
@@ -318,19 +360,16 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // POST /courses/create-structured-complete - Create STRUCTURED course with sections and subsections
   fastify.post('/courses/create-structured-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = req.body as { examId?: string }
+      if (!body || typeof body.examId !== 'string') {
+        throw new Error('examId is required')
+      }
+      return { kind: 'exam', id: body.examId }
+    })
   }, async (request, reply) => {
     try {
       const data = request.body as any
-
-      if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.instructorId) {
-          reply.status(403).send({ error: 'You can only create courses for yourself' })
-          return
-        }
-      }
-
       const result = await courseService.createStructuredComplete(data)
       reply.status(201).send(result)
     } catch (error) {
@@ -348,23 +387,14 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
 
   // PUT /courses/:id/update-structured-complete - Update STRUCTURED course with sections and subsections
   fastify.put('/courses/:id/update-structured-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseParamsSchema.parse(req.params)
+      return { kind: 'course', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseParamsSchema.parse(request.params)
       const data = updateStructuredCourseCompleteSchema.parse(request.body)
-
-      // Verify ownership (same as normal course update)
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own courses' })
-          return
-        }
-      }
-
       const result = await courseService.updateStructuredComplete(id, data)
       reply.send(result)
     } catch (error) {
@@ -384,7 +414,7 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // DELETE /courses/:id - Delete course
+  // DELETE /courses/:id - Delete course (admin only)
   fastify.delete('/courses/:id', {
     preHandler: authenticate
   }, async (request, reply) => {
@@ -392,13 +422,8 @@ fastify.get('/courses/instructor/:instructorId', async (request, reply) => {
       const { id } = courseParamsSchema.parse(request.params)
 
       if (!isAdmin(request)) {
-        const course = await courseService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only delete your own courses' })
-          return
-        }
+        reply.status(403).send({ error: 'Forbidden' })
+        return
       }
 
       await courseService.delete(id)

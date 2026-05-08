@@ -2,9 +2,9 @@
 import { z } from 'zod'
 import { FastifyInstance } from 'fastify'
 import { ExamService } from './exam.service'
-import { 
-  createExamSchema, 
-  updateExamSchema, 
+import {
+  createExamSchema,
+  updateExamSchema,
   examParamsSchema,
   examInstructorParamsSchema,
   createCompleteExamSchema,
@@ -20,6 +20,8 @@ import {
   examRemoveMarkingDomainParamsSchema
 } from '../../shared/junction-tables.schema'
 import { authenticate, getCurrentInstructorId, getCurrentStudentId, isAdmin } from '../../middleware/auth.middleware'
+import { requirePermission } from '../../middleware/require-permission.middleware'
+import { computeResourcePermissions, getBulkResourcePermissions, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const examIdParamsSchema = z.object({
@@ -34,7 +36,7 @@ export default async function examRoutes(fastify: FastifyInstance) {
     try {
       let isUserAdmin = false
       let currentInstructorId = null
-      
+
       try {
         await request.jwtVerify()
         isUserAdmin = isAdmin(request)
@@ -42,7 +44,7 @@ export default async function examRoutes(fastify: FastifyInstance) {
       } catch {
         // Not authenticated - public access
       }
-      
+
       let exams
       if (isUserAdmin) {
         // Admin sees ALL exams
@@ -61,8 +63,21 @@ export default async function examRoutes(fastify: FastifyInstance) {
         // Public sees only active exams
         exams = await examService.findActive()
       }
-      
-      reply.send(exams)
+
+      const viewer = resolveViewerFromRequest(request)
+      if (viewer.userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId: viewer.userId,
+          isAdmin: viewer.isAdmin,
+          resources: exams.map((e) => ({
+            id: e.id,
+            ancestorKeys: [{ resourceType: 'exam' as const, resourceId: e.id }],
+          })),
+        })
+        reply.send(exams.map((e) => ({ ...e, permissions: permMap.get(e.id) })))
+      } else {
+        reply.send(exams)
+      }
     } catch (error) {
       replyInternalError(request, reply, error, 'Failed to fetch exams')
     }
@@ -78,45 +93,44 @@ export default async function examRoutes(fastify: FastifyInstance) {
     }
   })
 
-// GET /exams/instructor/:instructorId - Get exams by instructor
-fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
-  try {
-    const { instructorId } = examInstructorParamsSchema.parse(request.params)
-    
-    // Check authentication and admin status
-    let isUserAdmin = false
-    let canViewAll = false
+  // GET /exams/instructor/:instructorId - Show exams visible to the instructor (via permission grants)
+  fastify.get('/exams/instructor/:instructorId', {
+    preHandler: authenticate
+  }, async (request, reply) => {
     try {
-      await request.jwtVerify()
-      isUserAdmin = isAdmin(request)
-      canViewAll = isUserAdmin || getCurrentInstructorId(request) === instructorId
-    } catch {
-      // Not authenticated - can only see active exams
+      const { instructorId } = examInstructorParamsSchema.parse(request.params)
+
+      if (!isAdmin(request) && getCurrentInstructorId(request) !== instructorId) {
+        reply.status(403).send({ error: 'Forbidden' })
+        return
+      }
+
+      const exams = isAdmin(request)
+        ? await examService.findAll()
+        : await examService.findVisibleToInstructor(instructorId)
+
+      const viewer = resolveViewerFromRequest(request)
+      if (viewer.userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId: viewer.userId,
+          isAdmin: viewer.isAdmin,
+          resources: exams.map((e) => ({
+            id: e.id,
+            ancestorKeys: [{ resourceType: 'exam' as const, resourceId: e.id }],
+          })),
+        })
+        reply.send(exams.map((e) => ({ ...e, permissions: permMap.get(e.id) })))
+      } else {
+        reply.send(exams)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Instructor not found') {
+        reply.status(404).send({ error: 'Instructor not found' })
+      } else {
+        reply.status(400).send({ error: 'Invalid request' })
+      }
     }
-    
-    // FIXED: Admin gets ALL exams, not filtered by instructor
-    let exams
-    if (isUserAdmin) {
-      // Admin sees ALL exams regardless of instructor
-      exams = await examService.findAll()
-    } else if (canViewAll) {
-      // Instructor sees all their own exams
-      exams = await examService.findByInstructor(instructorId)
-    } else {
-      // Public/other users see only active exams from this instructor
-      const instructorExams = await examService.findByInstructor(instructorId)
-      exams = instructorExams.filter(exam => exam.isActive)
-    }
-    
-    reply.send(exams)
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Instructor not found') {
-      reply.status(404).send({ error: 'Instructor not found' })
-    } else {
-      reply.status(400).send({ error: 'Invalid request' })
-    }
-  }
-})
+  })
 
   // GET /exams/:examId/pricing-summary - Get exam bundle + course plans by ID (public, optional auth)
   fastify.get('/exams/:examId/pricing-summary', async (request, reply) => {
@@ -166,12 +180,36 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // GET /exams/slug/:slug - Get exam by slug
+  // GET /exams/slug/:slug - Get exam by slug (public for active exams, permission required for inactive)
   fastify.get('/exams/slug/:slug', async (request, reply) => {
     try {
       const { slug } = request.params as { slug: string }
       const exam = await examService.findBySlug(slug)
-      reply.send(exam)
+      const viewer = resolveViewerFromRequest(request)
+
+      if (!exam.isActive) {
+        if (!viewer.isAdmin) {
+          const allowed = viewer.userId !== null && await userHasPermission(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: false,
+            permission: 'case.edit',
+            target: { kind: 'exam', id: exam.id },
+          })
+          if (!allowed) {
+            reply.status(404).send({ error: 'Exam not found' })
+            return
+          }
+        }
+      }
+
+      const permissions = viewer.userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: viewer.isAdmin,
+            target: { kind: 'exam', id: exam.id },
+          })
+        : undefined
+      reply.send({ ...exam, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Exam not found') {
         reply.status(404).send({ error: 'Exam not found' })
@@ -186,7 +224,15 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     try {
       const { id } = examParamsSchema.parse(request.params)
       const exam = await examService.findById(id)
-      reply.send(exam)
+      const viewer = resolveViewerFromRequest(request)
+      const permissions = viewer.userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId: viewer.userId,
+            isAdmin: viewer.isAdmin,
+            target: { kind: 'exam', id },
+          })
+        : undefined
+      reply.send({ ...exam, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Exam not found') {
         reply.status(404).send({ error: 'Exam not found' })
@@ -202,7 +248,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
   }, async (request, reply) => {
     try {
       const data = createExamSchema.parse(request.body)
-      
+
       if (!isAdmin(request)) {
         const currentInstructorId = getCurrentInstructorId(request)
         if (!currentInstructorId || currentInstructorId !== data.instructorId) {
@@ -210,7 +256,7 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
           return
         }
       }
-      
+
       const exam = await examService.create(data)
       reply.status(201).send(exam)
     } catch (error) {
@@ -276,21 +322,17 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // POST /exams/create-complete - Create exam with all relations
+  // POST /exams/create-complete - Create exam with all relations (admin only)
   fastify.post('/exams/create-complete', {
     preHandler: authenticate
   }, async (request, reply) => {
     try {
-      const data = createCompleteExamSchema.parse(request.body)
-      
       if (!isAdmin(request)) {
-        const currentInstructorId = getCurrentInstructorId(request)
-        if (!currentInstructorId || currentInstructorId !== data.exam.instructorId) {
-          reply.status(403).send({ error: 'You can only create exams for yourself' })
-          return
-        }
+        reply.status(403).send({ error: 'Forbidden' })
+        return
       }
-      
+
+      const data = createCompleteExamSchema.parse(request.body)
       const result = await examService.createCompleteExam(data)
       reply.status(201).send({
         message: 'Exam created and configured successfully',
@@ -315,22 +357,14 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // PUT /exams/:id - Update exam
   fastify.put('/exams/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = examParamsSchema.parse(req.params)
+      return { kind: 'exam', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = examParamsSchema.parse(request.params)
       const data = updateExamSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own exams' })
-          return
-        }
-      }
-      
       const exam = await examService.update(id, data)
       reply.send(exam)
     } catch (error) {
@@ -350,22 +384,14 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // PUT /exams/update-complete - Update exam with all relations
   fastify.put('/exams/update-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const body = updateCompleteExamSchema.parse(req.body)
+      return { kind: 'exam', id: body.examId }
+    })
   }, async (request, reply) => {
     try {
       const data = updateCompleteExamSchema.parse(request.body)
       const { examId, ...updateData } = data
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.updateCompleteExam(examId, updateData)
       reply.send({
         message: 'Exam updated and configured successfully',
@@ -390,21 +416,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // PATCH /exams/:id/toggle - Toggle exam active status
   fastify.patch('/exams/:id/toggle', {
-    preHandler: authenticate
+    preHandler: requirePermission(['case.publish'], (req) => {
+      const { id } = examParamsSchema.parse(req.params)
+      return { kind: 'exam', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = examParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only toggle your own exams' })
-          return
-        }
-      }
-      
       const exam = await examService.toggleActive(id)
       reply.send({
         message: `Exam ${exam.isActive ? 'activated' : 'deactivated'} successfully`,
@@ -419,23 +437,18 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // DELETE /exams/:id - Delete exam
+  // DELETE /exams/:id - Delete exam (admin only)
   fastify.delete('/exams/:id', {
     preHandler: authenticate
   }, async (request, reply) => {
     try {
       const { id } = examParamsSchema.parse(request.params)
-      
+
       if (!isAdmin(request)) {
-        const exam = await examService.findById(id)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only delete your own exams' })
-          return
-        }
+        reply.status(403).send({ error: 'Forbidden' })
+        return
       }
-      
+
       await examService.delete(id)
       reply.status(204).send()
     } catch (error) {
@@ -524,21 +537,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // POST /exams/assign-specialties
   fastify.post('/exams/assign-specialties', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = assignExamSpecialtiesSchema.parse(req.body)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId, specialtyIds } = assignExamSpecialtiesSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.assignSpecialties(examId, specialtyIds)
       reply.send({
         message: 'Specialties assigned to exam successfully',
@@ -563,21 +568,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // POST /exams/assign-curriculums
   fastify.post('/exams/assign-curriculums', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = assignExamCurriculumsSchema.parse(req.body)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId, curriculumIds } = assignExamCurriculumsSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.assignCurriculums(examId, curriculumIds)
       reply.send({
         message: 'Curriculum items assigned to exam successfully',
@@ -602,21 +599,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // POST /exams/assign-marking-domains
   fastify.post('/exams/assign-marking-domains', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = assignExamMarkingDomainsSchema.parse(req.body)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId, markingDomainIds } = assignExamMarkingDomainsSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.assignMarkingDomains(examId, markingDomainIds)
       reply.send({
         message: 'Marking domains assigned to exam successfully',
@@ -641,21 +630,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // POST /exams/bulk-configure
   fastify.post('/exams/bulk-configure', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = bulkConfigureExamSchema.parse(req.body)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId, ...configuration } = bulkConfigureExamSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.bulkConfigureExam(examId, configuration)
       reply.send(result)
     } catch (error) {
@@ -675,21 +656,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // DELETE /exams/:examId/specialties/:specialtyId
   fastify.delete('/exams/:examId/specialties/:specialtyId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = examRemoveSpecialtyParamsSchema.parse(req.params)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId, specialtyId } = examRemoveSpecialtyParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.removeSpecialty(examId, specialtyId)
       reply.send(result)
     } catch (error) {
@@ -709,21 +682,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // DELETE /exams/:examId/curriculums/:curriculumId
   fastify.delete('/exams/:examId/curriculums/:curriculumId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = examRemoveCurriculumParamsSchema.parse(req.params)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId, curriculumId } = examRemoveCurriculumParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.removeCurriculum(examId, curriculumId)
       reply.send(result)
     } catch (error) {
@@ -743,21 +708,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // DELETE /exams/:examId/marking-domains/:markingDomainId
   fastify.delete('/exams/:examId/marking-domains/:markingDomainId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = examRemoveMarkingDomainParamsSchema.parse(req.params)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId, markingDomainId } = examRemoveMarkingDomainParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.removeMarkingDomain(examId, markingDomainId)
       reply.send(result)
     } catch (error) {
@@ -775,8 +732,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     }
   })
 
-  // GET /exams/:examId/with-configuration
-  fastify.get('/exams/:examId/with-configuration', async (request, reply) => {
+  // GET /exams/:examId/with-configuration - Requires exam permission
+  fastify.get('/exams/:examId/with-configuration', {
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = examIdParamsSchema.parse(req.params)
+      return { kind: 'exam', id: examId }
+    })
+  }, async (request, reply) => {
     try {
       const { examId } = examIdParamsSchema.parse(request.params)
       const examWithConfig = await examService.getExamWithConfiguration(examId)
@@ -792,21 +754,13 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
 
   // POST /exams/:examId/clear-configuration
   fastify.post('/exams/:examId/clear-configuration', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { examId } = examIdParamsSchema.parse(req.params)
+      return { kind: 'exam', id: examId }
+    })
   }, async (request, reply) => {
     try {
       const { examId } = examIdParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const exam = await examService.findById(examId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || exam.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify your own exams' })
-          return
-        }
-      }
-      
       const result = await examService.clearExamConfiguration(examId)
       reply.send(result)
     } catch (error) {
@@ -823,9 +777,9 @@ fastify.get('/exams/instructor/:instructorId', async (request, reply) => {
     try {
       const { examId } = examIdParamsSchema.parse(request.params)
       const isConfigured = await examService.isExamFullyConfigured(examId)
-      reply.send({ 
-        examId, 
-        isFullyConfigured: isConfigured 
+      reply.send({
+        examId,
+        isFullyConfigured: isConfigured
       })
     } catch (error) {
       if (error instanceof Error && error.message === 'Exam not found') {

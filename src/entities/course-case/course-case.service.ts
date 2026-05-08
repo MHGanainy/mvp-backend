@@ -2,6 +2,7 @@
 import { PrismaClient, PatientGender, Prisma } from '@prisma/client'
 import { CreateCourseCaseInput, UpdateCourseCaseInput, CreateCompleteCourseCaseInput, UpdateCompleteCourseCaseInput } from './course-case.schema'
 import { generateSlug, generateUniqueSlug } from '../../shared/slug'
+import { courseCaseVisibilityFilter } from '../../shared/permissions'
 
 // Define CaseTabType - should match your Prisma schema enum
 type CaseTabType = 'DOCTORS_NOTE' | 'PATIENT_SCRIPT' | 'MEDICAL_NOTES'
@@ -176,6 +177,14 @@ export class CourseCaseService {
     }
 
     return courseCase
+  }
+
+  async findByIdVisibleTo(id: string, userId: number | null, isAdmin: boolean) {
+    const visibilityWhere = await courseCaseVisibilityFilter(this.prisma, userId, isAdmin)
+    return this.prisma.courseCase.findFirst({
+      where: { AND: [{ id }, visibilityWhere] },
+      include: this.getStandardInclude(),
+    })
   }
 
   /**
@@ -524,7 +533,7 @@ export class CourseCaseService {
 
   async toggleFree(id: string) {
     const courseCase = await this.findById(id)
-    
+
     return await this.prisma.courseCase.update({
       where: { id },
       data: { isFree: !courseCase.isFree },
