@@ -12,6 +12,7 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 !.env.example
+!.env.test.example
 
 # Build Output
 dist/
