@@ -1,8 +1,37 @@
 import { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PermissionRole, PermissionResourceType } from '@prisma/client';
 import { makeStudent } from '../factories/student';
 import { makeInstructor } from '../factories/instructor';
 import { makeUser } from '../factories/user';
+
+export async function grantPermission(
+  prisma: PrismaClient,
+  args: {
+    userId: number;
+    role: PermissionRole;
+    resourceType: PermissionResourceType;
+    resourceId: string;
+  },
+) {
+  await prisma.permissionGrant.upsert({
+    where: {
+      userId_role_resourceType_resourceId: {
+        userId: args.userId,
+        role: args.role,
+        resourceType: args.resourceType,
+        resourceId: args.resourceId,
+      },
+    },
+    create: {
+      userId: args.userId,
+      role: args.role,
+      resourceType: args.resourceType,
+      resourceId: args.resourceId,
+      grantedById: args.userId,
+    },
+    update: {},
+  });
+}
 
 export async function loginAsStudent(
   app: FastifyInstance,

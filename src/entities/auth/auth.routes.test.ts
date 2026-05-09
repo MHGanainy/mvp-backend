@@ -92,7 +92,8 @@ describe('POST /api/auth/verify-otp', () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.accessToken).toBeDefined();
+    expect(typeof body.accessToken).toBe('string');
+    expect(body.accessToken.length).toBeGreaterThan(0);
     expect(body.role).toBe('student');
   });
 
@@ -131,7 +132,8 @@ describe('POST /api/auth/login', () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.accessToken).toBeDefined();
+    expect(typeof body.accessToken).toBe('string');
+    expect(body.accessToken.length).toBeGreaterThan(0);
     expect(body.role).toBe('student');
   });
 
@@ -182,6 +184,7 @@ describe('GET /api/auth/me', () => {
     });
 
     expect(res.statusCode).toBe(200);
+    expect(res.json().user.id).toBe(user.id);
     expect(res.json().user.email).toBe(user.email);
   });
 });
