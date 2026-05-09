@@ -1013,8 +1013,8 @@ export class MockExamAttemptService {
   // Failed-AI stations are included with analysisStatus: 'failed' so the model
   // can acknowledge the gap without fabricating their content.
   private buildSummaryInput(attempt: any): MockExamSummaryInput {
-    // Accumulate per-domain criteria counts across all successful stations.
-    type DomainAcc = { name: string; met: number; total: number }
+    // Accumulate points across all successful stations per domain.
+    type DomainAcc = { name: string; achieved: number; total: number }
     const domainAcc = new Map<string, DomainAcc>()
 
     const stations: MockExamSummaryStation[] = (attempt.slots as any[]).map((slot) => {
@@ -1024,29 +1024,45 @@ export class MockExamAttemptService {
 
       const stationDomains = (Array.isArray(fb?.markingDomains) ? fb.markingDomains : []).map(
         (d: any) => {
-          const criteria: any[] = Array.isArray(d.criteria) ? d.criteria : []
-          const domainTotal = criteria.length
-          const domainMet = criteria.filter((c: any) => c.met).length
-          const pct = domainTotal > 0 ? Math.round((domainMet / domainTotal) * 1000) / 10 : 0
+          // Use stored achievedPoints / totalPossiblePoints from the domain result
+          // (already computed by ai-feedback.service.ts with MET/PARTIALLY_MET support).
+          // Fall back to criteria-count for legacy attempts that predate the points system.
+          const totalPoints: number = typeof d.totalPossiblePoints === 'number' && d.totalPossiblePoints > 0
+            ? d.totalPossiblePoints
+            : (Array.isArray(d.criteria) ? d.criteria.length : 0)
+
+          const achievedPoints: number = typeof d.achievedPoints === 'number'
+            ? d.achievedPoints
+            : (() => {
+                const criteria: any[] = Array.isArray(d.criteria) ? d.criteria : []
+                return criteria.reduce((sum: number, c: any) => {
+                  const rawStatus: string = c.status ?? (c.met === true ? 'MET' : 'NOT_MET')
+                  if (rawStatus === 'MET') return sum + (typeof c.points === 'number' ? c.points : 1)
+                  if (rawStatus === 'PARTIALLY_MET') return sum + (typeof c.points === 'number' ? c.points * 0.5 : 0.5)
+                  return sum
+                }, 0)
+              })()
+
+          const pct = totalPoints > 0 ? Math.round((achievedPoints / totalPoints) * 1000) / 10 : 0
 
           // Aggregate for cross-station domain breakdown.
           if (status === 'success' && d.domainName) {
-            const cur = domainAcc.get(d.domainName) ?? { name: d.domainName, met: 0, total: 0 }
-            cur.met += domainMet
-            cur.total += domainTotal
+            const cur = domainAcc.get(d.domainName) ?? { name: d.domainName, achieved: 0, total: 0 }
+            cur.achieved += achievedPoints
+            cur.total += totalPoints
             domainAcc.set(d.domainName, cur)
           }
 
           return {
             domainName: String(d.domainName ?? ''),
-            achievedPoints: domainMet,       // repurposed: met criteria count
-            totalPossiblePoints: domainTotal, // repurposed: total criteria count
+            achievedPoints,
+            totalPossiblePoints: totalPoints,
             percentage: pct
           }
         }
       )
 
-      // Station-level score: use percentageMet (criteria-count %) from the AI result.
+      // Station-level score: points-based percentageMet from the AI result.
       const score: number | null =
         status === 'success' && fb?.overallResult?.percentageMet !== undefined
           ? Number(fb.overallResult.percentageMet)
@@ -1063,10 +1079,10 @@ export class MockExamAttemptService {
       }
     })
 
-    // Cross-station domain breakdown using criteria counts.
+    // Cross-station domain breakdown using points.
     const domainBreakdown: MockExamSummaryDomainBreakdown[] = Array.from(domainAcc.values()).map(
       (d) => {
-        const percentage = d.total > 0 ? (d.met / d.total) * 100 : 0
+        const percentage = d.total > 0 ? (d.achieved / d.total) * 100 : 0
         const category: 'STRENGTH' | 'MODERATE' | 'WEAKNESS' =
           percentage > 75 ? 'STRENGTH' : percentage >= 50 ? 'MODERATE' : 'WEAKNESS'
         return {

@@ -27,7 +27,8 @@ interface MarkingCriterionResult {
   criterionId: string;
   criterionText: string;
   points: number;
-  met: boolean;
+  achievedPoints: number;
+  status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET';
   transcriptReferences: string[];
   feedback: string;
 }
@@ -52,8 +53,11 @@ interface OverallResult {
   classification: PerformanceClassification;
   classificationLabel: string;
   percentageMet: number;
+  totalPoints: number;
+  achievedPoints: number;
   totalCriteria: number;
   criteriaMet: number;
+  criteriaPartiallyMet: number;
   criteriaNotMet: number;
   description: string;
 }
@@ -119,25 +123,25 @@ export class AIFeedbackService {
       return {
         classification: PerformanceClassification.CLEAR_PASS,
         label: 'Clear Pass',
-        description: 'More than 75% of checklist items met'
+        description: 'More than 75% of total points achieved'
       };
     } else if (percentageMet >= 50) {
       return {
         classification: PerformanceClassification.BORDERLINE_PASS,
         label: 'Borderline Pass',
-        description: '50% - 75% of checklist items met'
+        description: '50% - 75% of total points achieved'
       };
     } else if (percentageMet >= 25) {
       return {
         classification: PerformanceClassification.BORDERLINE_FAIL,
         label: 'Borderline Fail',
-        description: '25% - 50% of checklist items met'
+        description: '25% - 50% of total points achieved'
       };
     } else {
       return {
         classification: PerformanceClassification.CLEAR_FAIL,
         label: 'Clear Fail',
-        description: 'Less than 25% of checklist items met'
+        description: 'Less than 25% of total points achieved'
       };
     }
   }
@@ -605,6 +609,7 @@ export class AIFeedbackService {
       // Calculate overall statistics from the raw response
       let totalCriteriaCount = 0;
       let criteriaMetCount = 0;
+      let criteriaPartiallyMetCount = 0;
       let totalPossiblePointsCalc = 0;
       let totalAchievedPoints = 0;
 
@@ -626,21 +631,40 @@ export class AIFeedbackService {
 
         const fullCriteria: MarkingCriterionResult[] = domain.criteria.map((criterion: any) => {
           totalCriteriaCount++;
-          totalPossiblePointsCalc += criterion.points;
-          domainTotalPoints += criterion.points;
 
-          if (criterion.met) {
+          // Use the points value echoed by the LLM — it reads directly from the
+          // prompt template where the DB value is baked in ("points": N), so
+          // this is always the correct DB value without needing a separate lookup.
+          const points = typeof criterion.points === 'number' ? criterion.points : 0;
+          totalPossiblePointsCalc += points;
+          domainTotalPoints += points;
+
+          // Normalise status — accept legacy boolean `met` from older LLM responses
+          const rawStatus: string = criterion.status ?? (criterion.met === true ? 'MET' : 'NOT_MET');
+          const status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET' =
+            rawStatus === 'MET' ? 'MET'
+            : rawStatus === 'PARTIALLY_MET' ? 'PARTIALLY_MET'
+            : 'NOT_MET';
+
+          let earned = 0;
+          if (status === 'MET') {
+            earned = points;
             criteriaMetCount++;
-            totalAchievedPoints += criterion.points;
-            domainAchievedPoints += criterion.points;
             domainCriteriaMet++;
+          } else if (status === 'PARTIALLY_MET') {
+            earned = points * 0.5;
+            criteriaPartiallyMetCount++;
           }
+
+          totalAchievedPoints += earned;
+          domainAchievedPoints += earned;
 
           return {
             criterionId: criterion.criterionId,
             criterionText: criterion.criterionText,
-            points: criterion.points,
-            met: criterion.met,
+            points,
+            achievedPoints: earned,
+            status,
             transcriptReferences: criterion.transcriptReferences,
             feedback: criterion.feedback
           };
@@ -673,21 +697,25 @@ export class AIFeedbackService {
         };
       });
 
-      const percentageMet = totalCriteriaCount > 0 ? (criteriaMetCount / totalCriteriaCount) * 100 : 0;
+      // Core scoring: points achieved / total points possible
+      const percentageMet = totalPossiblePointsCalc > 0
+        ? (totalAchievedPoints / totalPossiblePointsCalc) * 100
+        : 0;
+      const score = Math.round(percentageMet);
       const classification = this.calculatePerformanceClassification(percentageMet);
       const statsDurationMs = Date.now() - statsStart;
 
       log.info('[AI-FEEDBACK] [STEP 5/5] Feedback statistics calculated', {
         totalCriteria: totalCriteriaCount,
         criteriaMet: criteriaMetCount,
-        criteriaNotMet: totalCriteriaCount - criteriaMetCount,
+        criteriaPartiallyMet: criteriaPartiallyMetCount,
+        criteriaNotMet: totalCriteriaCount - criteriaMetCount - criteriaPartiallyMetCount,
         percentageMet: Math.round(percentageMet * 10) / 10,
+        totalPoints: totalPossiblePointsCalc,
+        achievedPoints: totalAchievedPoints,
+        score,
         classification: classification.classification,
         classificationLabel: classification.label,
-        classificationDescription: classification.description,
-        totalPossiblePoints: totalPossiblePointsCalc,
-        totalAchievedPoints,
-        scorePercentage: totalPossiblePointsCalc > 0 ? Math.round((totalAchievedPoints / totalPossiblePointsCalc) * 100) : 0,
         domainsProcessed: fullDomains.length,
         statsDurationMs,
         lifecycle: 'AI_FEEDBACK',
@@ -705,8 +733,9 @@ export class AIFeedbackService {
           totalPossiblePoints: d.totalPossiblePoints,
           percentageScore: d.percentageScore,
           criteriaCount: d.criteria.length,
-          criteriaMet: d.criteria.filter(c => c.met).length,
-          criteriaNotMet: d.criteria.filter(c => !c.met).length,
+          criteriaMet: d.criteria.filter(c => c.status === 'MET').length,
+          criteriaPartiallyMet: d.criteria.filter(c => c.status === 'PARTIALLY_MET').length,
+          criteriaNotMet: d.criteria.filter(c => c.status === 'NOT_MET').length,
         })),
         lifecycle: 'AI_FEEDBACK',
         stage: 'STATISTICS',
@@ -714,21 +743,23 @@ export class AIFeedbackService {
         action: 'DOMAIN_BREAKDOWN',
       });
 
-      // Log criteria that were NOT met for debugging
+      // Log criteria not fully met for debugging
       const unmetCriteria = fullDomains.flatMap(d =>
-        d.criteria.filter(c => !c.met).map(c => ({
+        d.criteria.filter(c => c.status !== 'MET').map(c => ({
           domainName: d.domainName,
           criterionId: c.criterionId,
           criterionText: c.criterionText.substring(0, 100),
+          status: c.status,
           points: c.points,
+          achievedPoints: c.achievedPoints,
           feedback: c.feedback?.substring(0, 100),
         }))
       );
 
       if (unmetCriteria.length > 0) {
-        log.debug('[AI-FEEDBACK] [STEP 5/5] Criteria NOT met', {
-          unmetCount: unmetCriteria.length,
-          unmetCriteria: unmetCriteria.slice(0, 10), // Limit to first 10
+        log.debug('[AI-FEEDBACK] [STEP 5/5] Criteria not fully met', {
+          count: unmetCriteria.length,
+          criteria: unmetCriteria.slice(0, 10),
           lifecycle: 'AI_FEEDBACK',
           stage: 'STATISTICS',
           step: '5/5',
@@ -742,17 +773,16 @@ export class AIFeedbackService {
           classification: classification.classification,
           classificationLabel: classification.label,
           percentageMet: Math.round(percentageMet * 10) / 10,
+          totalPoints: totalPossiblePointsCalc,
+          achievedPoints: Math.round(totalAchievedPoints * 10) / 10,
           totalCriteria: totalCriteriaCount,
           criteriaMet: criteriaMetCount,
-          criteriaNotMet: totalCriteriaCount - criteriaMetCount,
+          criteriaPartiallyMet: criteriaPartiallyMetCount,
+          criteriaNotMet: totalCriteriaCount - criteriaMetCount - criteriaPartiallyMetCount,
           description: classification.description
         },
         markingDomains: fullDomains
       };
-
-      const score = totalPossiblePointsCalc > 0
-        ? Math.round((totalAchievedPoints / totalPossiblePointsCalc) * 100)
-        : 0;
 
       const totalDurationMs = Date.now() - startTime;
 
@@ -763,11 +793,12 @@ export class AIFeedbackService {
         classification: classification.classification,
         classificationLabel: classification.label,
         criteriaMet: criteriaMetCount,
-        criteriaNotMet: totalCriteriaCount - criteriaMetCount,
+        criteriaPartiallyMet: criteriaPartiallyMetCount,
+        criteriaNotMet: totalCriteriaCount - criteriaMetCount - criteriaPartiallyMetCount,
         totalCriteria: totalCriteriaCount,
         percentageMet: Math.round(percentageMet * 10) / 10,
-        totalPossiblePoints: totalPossiblePointsCalc,
-        totalAchievedPoints,
+        totalPoints: totalPossiblePointsCalc,
+        achievedPoints: totalAchievedPoints,
         overallFeedbackLength: aiResponse.overallFeedback?.length || 0,
         domainsCount: fullDomains.length,
         // Timing breakdown
@@ -876,30 +907,34 @@ Criteria to Evaluate:
 ${domain.criteria.map((criterion, cIndex) => `
   ${cIndex + 1}. [ID: ${criterion.id}] ${criterion.text}
      Points: ${criterion.points}
-     Evaluate if MET or NOT MET based on the transcript.`).join('')}`;
+     Evaluate as MET, PARTIALLY_MET, or NOT_MET based on the transcript.`).join('')}`;
 }).join('\n')}
 
 ================================
 PERFORMANCE CLASSIFICATION RULES:
 ================================
-Based on the percentage of criteria MET:
-- Clear Pass: More than 75% of criteria met
-- Borderline Pass: 50% - 75% of criteria met
-- Borderline Fail: 25% - 50% of criteria met
-- Clear Fail: Less than 25% of criteria met
+Based on total points achieved / total points possible:
+- Clear Pass: More than 75% of total points achieved
+- Borderline Pass: 50% - 75% of total points achieved
+- Borderline Fail: 25% - 50% of total points achieved
+- Clear Fail: Less than 25% of total points achieved
 
 
 EVALUATION INSTRUCTIONS:
-1. For EACH criterion:
-  - Determine if it was MET (demonstrated) or NOT MET (not/partially demonstrated). If a criterion is partially demonstrated at >75% completion, accept it as MET.
+1. For EACH criterion assign one of three statuses:
+  - MET: The student clearly and sufficiently demonstrated this criterion. Full points awarded.
+  - PARTIALLY_MET: The student showed some evidence but the demonstration was incomplete (e.g., asked about a symptom but did not follow up, mentioned a diagnosis but did not explain it). Half points awarded.
+  - NOT_MET: No evidence in the transcript. Zero points awarded.
   - Provide 1-3 EXACT quotes from the transcript supporting your decision
   - Provide feedback explaining your decision
 
-2. Criteria are binary - either MET (full points) or NOT MET (0 points)
-3. Be strict but fair - the student must demonstrate competency based on the expected standards
-4. Count the total number of criteria MET vs NOT MET for classification
-5. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
-6. If information is volunteered by the patient without the student asking, the student does not need to gather this information again - the criterion can still be met.
+2. Points: MET = full points, PARTIALLY_MET = half points (rounded down if odd), NOT_MET = 0 points
+
+3. ASSESS CLINICAL INTENT OVER EXACT TERMINOLOGY: If the student conveys the correct clinical concept using different, indirect, or implied language, the criterion MUST be marked as MET or PARTIALLY_MET according to context. Students often communicate clinical concepts conversationally rather than in textbook language — this is acceptable and professional. Do NOT require explicit or textbook phrasing. If the underlying clinical message was communicated, even indirectly or implicitly, mark as MET. Only mark NOT_MET if the clinical concept was genuinely absent from the consultation.
+
+4. INFORMATION ALREADY PROVIDED BY PATIENT = CRITERION MET: If a criterion requires the student to "ask about X" but the patient has already mentioned X at any point in the conversation (unprompted or in response to another question), mark that criterion as MET. The student does NOT need to re-ask for information already disclosed by the patient. Example: criterion says "Asks about duration of symptoms" but the patient already said "I've had this for 3 days" earlier in the conversation → mark MET even if the student never specifically asked about duration.
+
+5. TEXT TRANSCRIPT ONLY — you cannot assess tone of voice, facial expressions, or body language. For interpersonal and communication criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
 
 
 RESPONSE FORMAT:${jsonInstruction}
@@ -920,9 +955,9 @@ ${domain.criteria.map(criterion => `        {
          "criterionId": "${criterion.id}",
          "criterionText": "${criterion.text}",
          "points": ${criterion.points},
-         "met": true_or_false,
+         "status": "MET" | "PARTIALLY_MET" | "NOT_MET",
          "transcriptReferences": ["exact quote 1", "exact quote 2"],
-         "feedback": "Explanation of your evaluation"
+         "feedback": "Explanation of your evaluation decision"
        }`).join(',\n')}
      ]
    }`}).join(',\n')}
@@ -967,19 +1002,17 @@ SESSION DETAILS:
 
 
 CRITICAL INSTRUCTIONS:
-1. Compare the student's performance against the marking criteria provided
-2. Evaluate EACH criterion as either MET or NOT MET (binary decision). If a criterion is partially demonstrated at >75% completion, accept it as MET
-3. Provide 1-3 EXACT quotes from the transcript for each criterion
-4. Calculate points: MET = full points, NOT MET = 0 points
-5. Be aware that the overall classification depends on the percentage of criteria MET
-6. This evaluation is based on TEXT TRANSCRIPT ONLY - you cannot assess tone of voice, facial expressions, or body language. So in any interpersonal skills marking criteria, simple verbal acknowledgments ARE sufficient (e.g., "I'm sorry", "I understand", "That must be difficult"). Brief empathetic statements COUNT as meeting empathy criteria.
-
+1. Evaluate EACH criterion as MET (full points), PARTIALLY_MET (half points), or NOT_MET (0 points)
+2. Provide 1-3 EXACT quotes from the transcript for each criterion
+3. CLINICAL INTENT: Award MET if the correct clinical concept was communicated — even if phrased conversationally or indirectly. Do NOT penalise for non-textbook language.
+4. PATIENT-DISCLOSED INFO: If the patient has already mentioned information relevant to a criterion at any point in the conversation, mark that criterion as MET — the student does not need to ask again.
+5. TEXT ONLY: Verbal acknowledgments are sufficient for empathy and communication criteria.
 
 Remember:
-- Clear Pass requires >75% of criteria MET
-- Borderline Pass requires 50-75% of criteria MET
-- Borderline Fail requires 25-50% of criteria MET
-- Clear Fail is <25% of criteria MET
+- Clear Pass: >75% of total points
+- Borderline Pass: 50–75%
+- Borderline Fail: 25–50%
+- Clear Fail: <25%
 
 
 Please provide your evaluation in the required JSON format.${jsonReminder}`;
@@ -1055,7 +1088,7 @@ Please provide your evaluation in the required JSON format.${jsonReminder}`;
   }
 
   private buildMockExamSummarySystemPrompt(): string {
-    return `You are an OSCE examiner giving a post-circuit debrief to a medical student who has just finished a mock exam. You will receive structured JSON describing their performance across multiple stations. Write a concise, actionable summary in the tone of a clinical examiner — direct, professional, encouraging where deserved, honest where needed.
+    return `You are an OSCE examiner giving a post-circuit debrief to a medical student who has just finished a mock exam. You will receive structured JSON describing their performance across multiple stations, including per-domain scores aggregated across the whole exam. Write a concise, actionable debrief in the tone of a clinical examiner — direct, professional, encouraging where deserved, honest where needed.
 
 OUTPUT FORMAT — return ONLY a JSON object with these exact keys:
 {
@@ -1064,16 +1097,25 @@ OUTPUT FORMAT — return ONLY a JSON object with these exact keys:
 }
 
 CONTENT RULES:
-1. summary: 2–3 paragraphs of natural-language prose. Identify cross-station patterns ("you missed safety-netting in 3 of 4 counselling stations"). Note trajectories if visible ("station 4 was tighter than station 1"). Avoid restating numbers — the student already sees those.
-2. recommendations: 3–5 specific action items. Each should reference a behaviour, station, or domain — NOT generic phrases like "practice more X cases" or "review the marking criteria". Each item 1–2 sentences.
+1. summary: 2–3 paragraphs of natural-language prose structured as follows:
+   - Paragraph 1: Overall impression across the circuit — what the student did consistently well and where they consistently fell short. Reference domains by name (e.g. "Clinical Reasoning", "Communication Skills"). Use the domainBreakdown STRENGTH/MODERATE/WEAKNESS categories to anchor your observations.
+   - Paragraph 2: Domain-level analysis — for each domain that is WEAKNESS or MODERATE, describe what was missing in specific clinical terms (e.g. "In History Taking, you frequently omitted follow-up questions after identifying a presenting complaint" rather than "you scored poorly in History Taking"). For STRENGTH domains, briefly acknowledge the consistency.
+   - Paragraph 3: Cross-station patterns — note any recurring behaviours across stations (e.g. "safety-netting was absent in the majority of stations", "your examination technique was methodical but lacked verbal commentary"). Note trajectories if visible. Avoid restating numbers — the student already sees those in the breakdown.
+
+2. recommendations: 3–5 specific, prioritised action items. Each must:
+   - Reference a named domain AND a specific clinical behaviour to change
+   - Be actionable — tell the student exactly what to do differently next time
+   - NOT use generic phrases like "practice more", "revise X", "review the marking criteria"
+   - Be 1–2 sentences maximum
 
 STRICT RULES:
-- DO NOT fabricate cross-station patterns from a single data point. If only 2 stations are present, frame observations cautiously ("Across the two stations you completed…").
-- DO NOT mention stations whose analysisStatus is "failed" as if you saw them. Acknowledge the gap if it materially affects the summary ("Two stations couldn't be auto-graded; this summary is based on the six that succeeded").
-- DO NOT use bullet lists, headings, or markdown inside the "summary" field — prose only.
-- DO NOT include scores, percentages, or station numbers in the summary that aren't present in the input.
-- DO maintain examiner tone: "Your structure was clearer in stations 3 and 5" — not "You did great!" or "Awesome work!". Avoid emoji and exclamation marks.
-- DO NOT invent criteria, domains, or feedback the input does not contain.
+- DO NOT fabricate cross-station patterns from a single data point. If only 2 stations are present, frame observations cautiously.
+- DO NOT mention stations whose analysisStatus is "failed" as if you evaluated them. If failed stations exist, acknowledge the gap ("This summary is based on the N stations that were successfully graded").
+- DO NOT use bullet lists, headings, or markdown inside the "summary" field — continuous prose only.
+- DO NOT include raw scores or percentages in the summary — describe performance qualitatively.
+- DO maintain examiner tone: direct, clinical, no exclamation marks, no emoji, no "You did great!".
+- DO NOT invent criteria, domains, or behaviours not present in the input data.
+- The domainBreakdown field shows aggregated performance across ALL stations — this is your primary signal for domain-level strengths and weaknesses. Use it.
 
 Return only the JSON object. No prose before or after.`;
   }
