@@ -5,6 +5,7 @@ import {
   InterviewCourseStyle,
   UpdateStructuredInterviewCourseCompleteInput
 } from './interview-course.schema'
+import { getResourcesWithPermissions } from '../../shared/permissions'
 import { generateUniqueSlug } from '../../shared/slug'
 
 export class InterviewCourseService {
@@ -244,6 +245,63 @@ export class InterviewCourseService {
 
     return await this.prisma.interviewCourse.findMany({
       where: { interviewId },
+      include: {
+        interview: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            isActive: true
+          }
+        },
+        instructor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            bio: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+  }
+
+  async findVisibleToInstructor(instructorId: string) {
+    const instructor = await this.prisma.instructor.findUnique({
+      where: { id: instructorId },
+      select: { userId: true }
+    })
+
+    if (!instructor) {
+      throw new Error('Instructor not found')
+    }
+
+    const [grantedInterviewIds, grantedInterviewCourseIds] = await Promise.all([
+      getResourcesWithPermissions(this.prisma, {
+        userId: instructor.userId,
+        resourceType: 'interview'
+      }),
+      getResourcesWithPermissions(this.prisma, {
+        userId: instructor.userId,
+        resourceType: 'interview_course'
+      })
+    ])
+
+    if (grantedInterviewIds.length === 0 && grantedInterviewCourseIds.length === 0) {
+      return []
+    }
+
+    const where = grantedInterviewIds.length > 0 && grantedInterviewCourseIds.length > 0
+      ? { OR: [{ interviewId: { in: grantedInterviewIds } }, { id: { in: grantedInterviewCourseIds } }] }
+      : grantedInterviewIds.length > 0
+        ? { interviewId: { in: grantedInterviewIds } }
+        : { id: { in: grantedInterviewCourseIds } }
+
+    return await this.prisma.interviewCourse.findMany({
+      where,
       include: {
         interview: {
           select: {

@@ -12,6 +12,7 @@ import {
   simulationAttemptStudentCaseParamsSchema,
 } from "./simulation-attempt.schema";
 import { replyInternalError } from "../../shared/route-error";
+import { authenticate, canAccessStudentResource } from "../../middleware/auth.middleware";
 export default async function simulationAttemptRoutes(
   fastify: FastifyInstance
 ) {
@@ -31,14 +32,18 @@ export default async function simulationAttemptRoutes(
     }
   });
 
-  // GET /simulation-attempts/student/:studentId - Get attempts by student
+  // GET /simulation-attempts/student/:studentId - Get attempts by student (owner or admin)
   fastify.get(
     "/simulation-attempts/student/:studentId",
+    { preHandler: authenticate },
     async (request, reply) => {
       try {
         const { studentId } = simulationAttemptStudentParamsSchema.parse(
           request.params
         );
+        if (!canAccessStudentResource(request, studentId)) {
+          return reply.status(403).send({ error: "Access denied" });
+        }
         const query = simulationAttemptQuerySchema.parse(request.query);
         const attempts = await simulationAttemptService.findByStudent(
           studentId,
@@ -115,14 +120,18 @@ export default async function simulationAttemptRoutes(
     }
   );
 
-  // GET /simulation-attempts/student/:studentId/stats - Get student performance statistics
+  // GET /simulation-attempts/student/:studentId/stats - Get student performance statistics (owner or admin)
   fastify.get(
     "/simulation-attempts/student/:studentId/stats",
+    { preHandler: authenticate },
     async (request, reply) => {
       try {
         const { studentId } = simulationAttemptStudentParamsSchema.parse(
           request.params
         );
+        if (!canAccessStudentResource(request, studentId)) {
+          return reply.status(403).send({ error: "Access denied" });
+        }
         const stats = await simulationAttemptService.getStudentStats(studentId);
         reply.send(stats);
       } catch (error) {
@@ -135,14 +144,18 @@ export default async function simulationAttemptRoutes(
     }
   );
 
-  // GET /simulation-attempts/student/:studentId/analytics - Get student comprehensive analytics
+  // GET /simulation-attempts/student/:studentId/analytics - Get student comprehensive analytics (owner or admin)
   fastify.get(
     "/simulation-attempts/student/:studentId/analytics",
+    { preHandler: authenticate },
     async (request, reply) => {
       try {
         const { studentId } = simulationAttemptStudentParamsSchema.parse(
           request.params
         );
+        if (!canAccessStudentResource(request, studentId)) {
+          return reply.status(403).send({ error: "Access denied" });
+        }
         const analytics = await simulationAttemptService.getStudentAnalytics(
           studentId
         );

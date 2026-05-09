@@ -1,8 +1,8 @@
 // src/entities/course-case/course-case.routes.ts
 import { FastifyInstance } from 'fastify'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { CourseCaseService } from './course-case.service'
-import { CourseService } from '../course/course.service'
 import {
   createCourseCaseSchema,
   updateCourseCaseSchema,
@@ -27,7 +27,9 @@ import {
   curriculumRemoveParamsSchema,
   filterQuerySchema
 } from '../../shared/junction-tables.schema'
-import { authenticate, getCurrentInstructorId, isAdmin } from '../../middleware/auth.middleware'
+import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+import { requirePermission } from '../../middleware/require-permission.middleware'
+import { computeResourcePermissions, courseCaseVisibilityFilter, getBulkResourcePermissions, resolveViewerFromRequest, userHasPermission } from '../../shared/permissions'
 import { replyInternalError } from '../../shared/route-error'
 
 const genderParamsSchema = z.object({
@@ -37,56 +39,27 @@ const genderParamsSchema = z.object({
 
 export default async function courseCaseRoutes(fastify: FastifyInstance) {
   const courseCaseService = new CourseCaseService(fastify.prisma)
-  const courseService = new CourseService(fastify.prisma)
 
-  // GET /course-cases - Get course cases based on user role
+  // GET /course-cases - Get course cases based on user role / grants
   fastify.get('/course-cases', async (request, reply) => {
     try {
-      let isUserAdmin = false
-      let currentInstructorId = null
-      
-      try {
-        await request.jwtVerify()
-        isUserAdmin = isAdmin(request)
-        currentInstructorId = getCurrentInstructorId(request)
-      } catch {
-        // Not authenticated
-      }
-      
-      let courseCases
-      if (isUserAdmin) {
-        // Admin sees ALL cases including archived (so they can manage them)
-        courseCases = await courseCaseService.findAll({ includeArchived: true })
-      } else if (currentInstructorId) {
-        // Instructor sees cases from their courses, archived included so they can un-archive
-        const instructorCourses = await courseService.findByInstructor(currentInstructorId)
-        const courseIds = instructorCourses.map(c => c.id)
-        courseCases = await fastify.prisma.courseCase.findMany({
-          where: { courseId: { in: courseIds } },
-          include: courseCaseService.getStandardInclude(),
-          orderBy: [
-            { courseId: 'asc' },
-            { displayOrder: 'asc' }
-          ]
-        })
-      } else {
-        // Public sees only free, ACTIVE cases from published courses
-        const publishedCourses = await courseService.findPublished()
-        const courseIds = publishedCourses.map(c => c.id)
-        courseCases = await fastify.prisma.courseCase.findMany({
-          where: {
-            courseId: { in: courseIds },
-            isFree: true,
-            isActive: true
-          },
-          include: courseCaseService.getStandardInclude(),
-          orderBy: [
-            { courseId: 'asc' },
-            { displayOrder: 'asc' }
-          ]
-        })
-      }
-      
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const visibilityWhere = await courseCaseVisibilityFilter(fastify.prisma, userId, isAdmin)
+
+      // Public callers also get the existing "free only" restriction
+      const where: Prisma.CourseCaseWhereInput = userId === null
+        ? { AND: [visibilityWhere, { isFree: true }] }
+        : visibilityWhere
+
+      const courseCases = await fastify.prisma.courseCase.findMany({
+        where,
+        include: courseCaseService.getStandardInclude(),
+        orderBy: [
+          { courseId: 'asc' },
+          { displayOrder: 'asc' }
+        ]
+      })
+
       reply.send(courseCases)
     } catch (error) {
       replyInternalError(request, reply, error, 'Failed to fetch course cases')
@@ -100,21 +73,37 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/course-cases/course/:courseId', async (request, reply) => {
     try {
       const { courseId } = courseCaseCourseParamsSchema.parse(request.params)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const visibilityWhere = await courseCaseVisibilityFilter(fastify.prisma, userId, isAdmin)
 
-      // Optional auth — gracefully degrade if no/invalid token.
-      let isInstructor = false
-      try {
-        await request.jwtVerify()
-        isInstructor = request.role === 'instructor' || isAdmin(request)
-      } catch {
-        // Not authenticated; isInstructor stays false.
+      const course = await fastify.prisma.course.findUnique({ where: { id: courseId } })
+      if (!course) {
+        reply.status(404).send({ error: 'Course not found' })
+        return
       }
 
-      const requestedIncludeArchived = (request.query as { includeArchived?: string })?.includeArchived === 'true'
-      const includeArchived = isInstructor ? requestedIncludeArchived : false
+      const courseCases = await fastify.prisma.courseCase.findMany({
+        where: { AND: [{ courseId }, visibilityWhere] },
+        include: courseCaseService.getStandardInclude(),
+        orderBy: { displayOrder: 'asc' }
+      })
 
-      const courseCases = await courseCaseService.findByCourse(courseId, { includeArchived })
-      reply.send(courseCases)
+      if (userId !== null) {
+        const permMap = await getBulkResourcePermissions(fastify.prisma, {
+          userId,
+          isAdmin,
+          resources: courseCases.map((c) => ({
+            id: c.id,
+            ancestorKeys: [
+              { resourceType: 'course' as const, resourceId: courseId },
+              { resourceType: 'exam' as const, resourceId: course.examId },
+            ],
+          })),
+        })
+        reply.send(courseCases.map((c) => ({ ...c, permissions: permMap.get(c.id) })))
+      } else {
+        reply.send(courseCases)
+      }
     } catch (error) {
       if (error instanceof Error && error.message === 'Course not found') {
         reply.status(404).send({ error: 'Course not found' })
@@ -226,8 +215,21 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         courseSlug: string
         caseSlug: string
       }
-      const courseCase = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
-      reply.send(courseCase)
+      const slugLookup = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(slugLookup.id, userId, isAdmin)
+      if (!courseCase) {
+        reply.status(404).send({ error: 'Course case not found' })
+        return
+      }
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id: slugLookup.id },
+          })
+        : undefined
+      reply.send({ ...courseCase, permissions })
     } catch (error) {
       if (error instanceof Error) {
         if (error.message === 'Exam not found') {
@@ -249,8 +251,20 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/course-cases/:id', async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
-      const courseCase = await courseCaseService.findById(id)
-      reply.send(courseCase)
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(id, userId, isAdmin)
+      if (!courseCase) {
+        reply.status(404).send({ error: 'Course case not found' })
+        return
+      }
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id },
+          })
+        : undefined
+      reply.send({ ...courseCase, permissions })
     } catch (error) {
       if (error instanceof Error && error.message === 'Course case not found') {
         reply.status(404).send({ error: 'Course case not found' })
@@ -262,21 +276,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // POST /course-cases - Create new course case
   fastify.post('/course-cases', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = createCourseCaseSchema.parse(req.body)
+      return { kind: 'course', id: body.courseId }
+    })
   }, async (request, reply) => {
     try {
       const data = createCourseCaseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(data.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only create cases for your own courses' })
-          return
-        }
-      }
-      
       const courseCase = await courseCaseService.create(data)
       reply.status(201).send(courseCase)
     } catch (error) {
@@ -298,23 +304,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // PUT /course-cases/:id - Update course case
   fastify.put('/course-cases/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseCaseParamsSchema.parse(req.params)
+      return { kind: 'course_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
       const data = updateCourseCaseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(id)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only edit cases for your own courses' })
-          return
-        }
-      }
-      
       const courseCase = await courseCaseService.update(id, data)
       reply.send(courseCase)
     } catch (error) {
@@ -334,22 +331,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // PATCH /course-cases/:id/toggle-free
   fastify.patch('/course-cases/:id/toggle-free', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseCaseParamsSchema.parse(req.params)
+      return { kind: 'course_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(id)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
-          return
-        }
-      }
-      
       const courseCase = await courseCaseService.toggleFree(id)
       reply.send({
         message: `Case ${courseCase.isFree ? 'marked as free' : 'marked as paid'} successfully`,
@@ -367,22 +355,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   // PATCH /course-cases/:id/toggle-active
   // Soft-delete / un-archive entry point. Mirrors PATCH /exams/:id/toggle.
   fastify.patch('/course-cases/:id/toggle-active', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseCaseParamsSchema.parse(req.params)
+      return { kind: 'course_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
-
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(id)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
-          return
-        }
-      }
-
       const courseCase = await courseCaseService.toggleActive(id)
       reply.send({
         message: `Case ${courseCase.isActive ? 'restored (active)' : 'archived'} successfully`,
@@ -399,23 +378,14 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // PATCH /course-cases/:id/reorder
   fastify.patch('/course-cases/:id/reorder', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { id } = courseCaseParamsSchema.parse(req.params)
+      return { kind: 'course_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
       const { newOrder } = reorderCourseCaseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(id)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only reorder cases for your own courses' })
-          return
-        }
-      }
-      
       const courseCase = await courseCaseService.reorder(id, newOrder)
       reply.send({
         message: `Case reordered to position ${newOrder} successfully`,
@@ -438,22 +408,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // DELETE /course-cases/:id
   fastify.delete('/course-cases/:id', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.delete', (req) => {
+      const { id } = courseCaseParamsSchema.parse(req.params)
+      return { kind: 'course_case', id }
+    })
   }, async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(id)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only delete cases from your own courses' })
-          return
-        }
-      }
-      
       await courseCaseService.delete(id)
       reply.status(204).send()
     } catch (error) {
@@ -516,22 +477,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // POST /course-cases/assign-specialties
   fastify.post('/course-cases/assign-specialties', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = assignSpecialtiesSchema.parse(req.body)
+      return { kind: 'course_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, specialtyIds } = assignSpecialtiesSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(courseCaseId)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
-          return
-        }
-      }
-      
       const result = await courseCaseService.assignSpecialties(courseCaseId, specialtyIds)
       reply.send({
         message: 'Specialties assigned successfully',
@@ -556,22 +508,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // POST /course-cases/assign-curriculums
   fastify.post('/course-cases/assign-curriculums', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = assignCurriculumsSchema.parse(req.body)
+      return { kind: 'course_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, curriculumIds } = assignCurriculumsSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(courseCaseId)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
-          return
-        }
-      }
-      
       const result = await courseCaseService.assignCurriculums(courseCaseId, curriculumIds)
       reply.send({
         message: 'Curriculum items assigned successfully',
@@ -600,21 +543,28 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const { assignments } = bulkAssignFiltersSchema.parse(request.body)
-      
-      // Check permissions for each case
+
+      // Per-item permission check (preHandler can't cover variable-length payloads)
       if (!isAdmin(request)) {
+        const userId = request.user?.userId
+        if (!userId) {
+          reply.status(401).send({ error: 'Unauthorized' })
+          return
+        }
         for (const assignment of assignments) {
-          const courseCase = await courseCaseService.findById(assignment.courseCaseId)
-          const course = await courseService.findById(courseCase.courseId)
-          const currentInstructorId = getCurrentInstructorId(request)
-          
-          if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-            reply.status(403).send({ error: 'You can only modify cases for your own courses' })
+          const allowed = await userHasPermission(fastify.prisma, {
+            userId,
+            isAdmin: false,
+            permission: 'case.edit',
+            target: { kind: 'course_case', id: assignment.courseCaseId },
+          })
+          if (!allowed) {
+            reply.status(403).send({ error: 'Forbidden' })
             return
           }
         }
       }
-      
+
       const result = await courseCaseService.bulkAssignFilters(assignments)
       reply.send({
         message: 'Bulk assignment completed successfully',
@@ -632,22 +582,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // DELETE /course-cases/:courseCaseId/specialties/:specialtyId
   fastify.delete('/course-cases/:courseCaseId/specialties/:specialtyId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = specialtyRemoveParamsSchema.parse(req.params)
+      return { kind: 'course_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, specialtyId } = specialtyRemoveParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(courseCaseId)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
-          return
-        }
-      }
-      
       const result = await courseCaseService.removeSpecialty(courseCaseId, specialtyId)
       reply.send(result)
     } catch (error) {
@@ -667,22 +608,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // DELETE /course-cases/:courseCaseId/curriculums/:curriculumId
   fastify.delete('/course-cases/:courseCaseId/curriculums/:curriculumId', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const { courseCaseId } = curriculumRemoveParamsSchema.parse(req.params)
+      return { kind: 'course_case', id: courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const { courseCaseId, curriculumId } = curriculumRemoveParamsSchema.parse(request.params)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(courseCaseId)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only modify cases for your own courses' })
-          return
-        }
-      }
-      
       const result = await courseCaseService.removeCurriculum(courseCaseId, curriculumId)
       reply.send(result)
     } catch (error) {
@@ -760,21 +692,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // POST /course-cases/create-complete
   fastify.post('/course-cases/create-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.create', (req) => {
+      const body = createCompleteCourseCaseSchema.parse(req.body)
+      return { kind: 'course', id: body.courseCase.courseId }
+    })
   }, async (request, reply) => {
     try {
       const data = createCompleteCourseCaseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const course = await courseService.findById(data.courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only create cases for your own courses' })
-          return
-        }
-      }
-      
       const result = await courseCaseService.createCompleteCourseCase(data)
       reply.status(201).send({
         message: 'Course case created and configured successfully',
@@ -803,22 +727,13 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
 
   // PUT /course-cases/update-complete
   fastify.put('/course-cases/update-complete', {
-    preHandler: authenticate
+    preHandler: requirePermission('case.edit', (req) => {
+      const body = updateCompleteCourseCaseSchema.parse(req.body)
+      return { kind: 'course_case', id: body.courseCaseId }
+    })
   }, async (request, reply) => {
     try {
       const data = updateCompleteCourseCaseSchema.parse(request.body)
-      
-      if (!isAdmin(request)) {
-        const courseCase = await courseCaseService.findById(data.courseCaseId)
-        const course = await courseService.findById(courseCase.courseId)
-        const currentInstructorId = getCurrentInstructorId(request)
-        
-        if (!currentInstructorId || course.instructorId !== currentInstructorId) {
-          reply.status(403).send({ error: 'You can only update cases for your own courses' })
-          return
-        }
-      }
-      
       const result = await courseCaseService.updateCompleteCourseCase(data)
       reply.send({
         message: 'Course case updated successfully',
@@ -847,50 +762,22 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
   fastify.get('/course-cases/:id/complete', async (request, reply) => {
     try {
       const { id } = courseCaseParamsSchema.parse(request.params)
-      
-      const courseCase = await fastify.prisma.courseCase.findUnique({
-        where: { id },
-        include: {
-          course: {
-            include: {
-              exam: {
-                select: {
-                  id: true,
-                  title: true,
-                  slug: true
-                }
-              }
-            }
-          },
-          simulation: true,
-          caseTabs: true,
-          markingCriteria: {
-            include: {
-              markingDomain: true
-            },
-            orderBy: [
-              { markingDomain: { name: 'asc' } },
-              { displayOrder: 'asc' }
-            ]
-          },
-          caseSpecialties: {
-            include: {
-              specialty: true
-            }
-          },
-          caseCurriculums: {
-            include: {
-              curriculum: true
-            }
-          }
-        }
-      })
-      
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(id, userId, isAdmin)
+
       if (!courseCase) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
-      
+
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id },
+          })
+        : undefined
+
       const tabsResponse: any = {}
       for (const tab of courseCase.caseTabs) {
         tabsResponse[tab.tabType] = {
@@ -943,7 +830,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         specialties,
         curriculums,
         simulation: courseCase.simulation,
-        course: courseCase.course
+        course: courseCase.course,
+        permissions,
       })
     } catch (error) {
       request.log.error({ err: error }, 'Error fetching complete course case')
@@ -964,49 +852,21 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
       const caseLookup = await courseCaseService.findBySlug(examSlug, courseSlug, caseSlug)
       const id = caseLookup.id
 
-      // Now get the complete data using the ID
-      const courseCase = await fastify.prisma.courseCase.findUnique({
-        where: { id },
-        include: {
-          course: {
-            include: {
-              exam: {
-                select: {
-                  id: true,
-                  title: true,
-                  slug: true
-                }
-              }
-            }
-          },
-          simulation: true,
-          caseTabs: true,
-          markingCriteria: {
-            include: {
-              markingDomain: true
-            },
-            orderBy: [
-              { markingDomain: { name: 'asc' } },
-              { displayOrder: 'asc' }
-            ]
-          },
-          caseSpecialties: {
-            include: {
-              specialty: true
-            }
-          },
-          caseCurriculums: {
-            include: {
-              curriculum: true
-            }
-          }
-        }
-      })
+      const { userId, isAdmin } = resolveViewerFromRequest(request)
+      const courseCase = await courseCaseService.findByIdVisibleTo(id, userId, isAdmin)
 
       if (!courseCase) {
         reply.status(404).send({ error: 'Course case not found' })
         return
       }
+
+      const permissions = userId !== null
+        ? await computeResourcePermissions(fastify.prisma, {
+            userId,
+            isAdmin,
+            target: { kind: 'course_case', id },
+          })
+        : undefined
 
       const tabsResponse: any = {}
       for (const tab of courseCase.caseTabs) {
@@ -1061,7 +921,8 @@ export default async function courseCaseRoutes(fastify: FastifyInstance) {
         specialties,
         curriculums,
         simulation: courseCase.simulation,
-        course: courseCase.course
+        course: courseCase.course,
+        permissions,
       })
     } catch (error) {
       if (error instanceof Error) {

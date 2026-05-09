@@ -25,9 +25,17 @@ export const attemptIdParamSchema = z.object({
   id: z.string().uuid('Invalid mock exam attempt ID')
 })
 
-// Phase 4: my-attempts list query
+// Phase 4: my-attempts list query (student — examId required)
 export const myAttemptsQuerySchema = z.object({
   examId: z.string().uuid('Invalid exam ID'),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().min(0).default(0)
+})
+
+// Admin: query any student's attempts (examId optional, targetStudentId required)
+export const adminAttemptsQuerySchema = z.object({
+  targetStudentId: z.string().uuid('Invalid student ID'),
+  examId: z.string().uuid('Invalid exam ID').optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   offset: z.coerce.number().int().min(0).default(0)
 })

@@ -1,9 +1,8 @@
 // mock-exam-attempt.routes.ts
 //
-// Phase 3 — student-facing endpoints. All routes:
-//   1. authenticate (any JWT)
-//   2. require role === 'student' (admins do not take mocks)
-//   3. ownership enforced inside service via studentId match
+// Student-facing endpoints require role === 'student' via ensureStudent().
+// Admins can read results/analysis/summary for any attempt (ownership resolved
+// by fetching the attempt's studentId first via getAttemptStudentId).
 //
 // 404 vs 403: students never see 403. Both "not found" and "not yours" return
 // 404 to avoid leaking attempt existence across students.
@@ -15,10 +14,11 @@ import {
   completeSlotSchema,
   attemptIdParamSchema,
   myAttemptsQuerySchema,
+  adminAttemptsQuerySchema,
   regenerateFeedbackParamsSchema,
   generateRandomSchema
 } from './mock-exam-attempt.schema'
-import { authenticate, getCurrentStudentId } from '../../middleware/auth.middleware'
+import { authenticate, getCurrentStudentId, isAdmin } from '../../middleware/auth.middleware'
 import { replyInternalError } from '../../shared/route-error'
 
 function mapServiceError(reply: FastifyReply, error: unknown): boolean {
@@ -188,17 +188,18 @@ export default async function mockExamAttemptRoutes(fastify: FastifyInstance) {
   // ===== Phase 4 endpoints =====
 
   // GET /mock-exam-attempts?examId=&limit=&offset=  — student's My Past Attempts list
-  // Static path "/" must be registered BEFORE parametric "/:id" routes for Fastify
-  // static-first matching. The Phase 3 routes register "/:id" later; we insert this
-  // BEFORE in this function body — but Fastify route registration order within a
-  // plugin is what matters. Since this handler is added below the Phase 3 routes
-  // and Fastify uses registration order, we must ensure no path collision. The path
-  // here is "/mock-exam-attempts" (no ":id"), so there's no collision with "/:id".
+  // Admin variant: pass targetStudentId to view any student's attempts (examId optional).
   fastify.get(
     '/mock-exam-attempts',
     { preHandler: authenticate },
     async (request, reply) => {
       try {
+        if (isAdmin(request)) {
+          const { targetStudentId, examId, limit, offset } = adminAttemptsQuerySchema.parse(request.query)
+          const result = await service.findMyAttempts(targetStudentId, examId, limit, offset)
+          return reply.send(result)
+        }
+
         const { examId, limit, offset } = myAttemptsQuerySchema.parse(request.query)
         const studentId = ensureStudent(request, reply)
         if (!studentId) return
@@ -219,8 +220,14 @@ export default async function mockExamAttemptRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       try {
         const { id } = attemptIdParamSchema.parse(request.params)
-        const studentId = ensureStudent(request, reply)
-        if (!studentId) return
+        let studentId: string
+        if (isAdmin(request)) {
+          studentId = await service.getAttemptStudentId(id)
+        } else {
+          const sid = ensureStudent(request, reply)
+          if (!sid) return
+          studentId = sid
+        }
 
         const results = await service.getResults(id, studentId)
         reply.send(results)
@@ -238,8 +245,14 @@ export default async function mockExamAttemptRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       try {
         const { id } = attemptIdParamSchema.parse(request.params)
-        const studentId = ensureStudent(request, reply)
-        if (!studentId) return
+        let studentId: string
+        if (isAdmin(request)) {
+          studentId = await service.getAttemptStudentId(id)
+        } else {
+          const sid = ensureStudent(request, reply)
+          if (!sid) return
+          studentId = sid
+        }
 
         const analysis = await service.getAnalysis(id, studentId)
         reply.send(analysis)
@@ -264,8 +277,14 @@ export default async function mockExamAttemptRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       try {
         const { id } = attemptIdParamSchema.parse(request.params)
-        const studentId = ensureStudent(request, reply)
-        if (!studentId) return
+        let studentId: string
+        if (isAdmin(request)) {
+          studentId = await service.getAttemptStudentId(id)
+        } else {
+          const sid = ensureStudent(request, reply)
+          if (!sid) return
+          studentId = sid
+        }
 
         const result = await service.getSummary(id, studentId)
         reply.send(result)
