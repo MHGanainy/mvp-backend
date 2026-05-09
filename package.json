@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "MVP-BACKEND",
   "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
