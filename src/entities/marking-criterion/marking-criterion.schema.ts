@@ -11,7 +11,7 @@ export const createMarkingCriterionSchema = z.object({
     .trim(),
   points: z.number()
     .int('Points must be a whole number')
-    .min(0, 'Points cannot be negative')
+    .min(1, 'Points must be at least 1')
     .max(100, 'Points cannot exceed 100'),
   displayOrder: z.number()
     .int('Display order must be a whole number')
@@ -28,7 +28,7 @@ export const updateMarkingCriterionSchema = z.object({
     .optional(),
   points: z.number()
     .int('Points must be a whole number')
-    .min(0, 'Points cannot be negative')
+    .min(1, 'Points must be at least 1')
     .max(100, 'Points cannot exceed 100')
     .optional(),
   displayOrder: z.number()

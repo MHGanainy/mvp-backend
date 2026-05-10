@@ -12,6 +12,7 @@ import {
   TranscriptProcessorService,
   VoiceAgentTranscript,
 } from "../../services/transcript-processor.service";
+import { TranscriptClean } from "../../shared/types";
 import { StudentCasePracticeService } from "../student-case-practice/student-case-practice.service";
 import { FastifyBaseLogger } from 'fastify';
 
@@ -1829,11 +1830,27 @@ export class SimulationAttemptService {
     }
 
     this.log.info({ attemptId }, '[SimulationAttempt] Transcript found, processing...');
-    const voiceTranscript = existingAttempt.transcript as unknown as VoiceAgentTranscript;
 
-    // Process transcript to clean format
-    const cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
-    this.log.info({ totalMessages: cleanTranscript.totalMessages, duration: cleanTranscript.duration }, '[SimulationAttempt] Transcript processed');
+    // The DB may hold either the raw VoiceAgentTranscript (role/content fields)
+    // or the already-processed TranscriptClean (speaker/message fields).
+    // After the first completion the clean format is saved back, so re-running
+    // transformToCleanFormat on it maps every message to 'ai_patient' (role=undefined)
+    // which makes the AI see no student speech → all NOT_MET.
+    const rawTranscript = existingAttempt.transcript as any;
+    const firstMsg = rawTranscript?.messages?.[0];
+    const isAlreadyClean = firstMsg?.speaker !== undefined;
+
+    let cleanTranscript: TranscriptClean;
+    if (isAlreadyClean) {
+      cleanTranscript = rawTranscript as TranscriptClean;
+      this.log.info({ attemptId }, '[SimulationAttempt] Transcript already in clean format — using directly');
+    } else {
+      const voiceTranscript = rawTranscript as VoiceAgentTranscript;
+      cleanTranscript = TranscriptProcessorService.transformToCleanFormat(voiceTranscript);
+      this.log.info({ attemptId }, '[SimulationAttempt] Transcript in raw format — transformed to clean');
+    }
+
+    this.log.info({ totalMessages: cleanTranscript.totalMessages, duration: cleanTranscript.duration }, '[SimulationAttempt] Transcript ready');
 
     // Calculate duration
     const durationSeconds = existingAttempt.durationSeconds ||
