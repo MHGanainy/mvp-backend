@@ -791,9 +791,21 @@ export default async function simulationAttemptRoutes(
   });
 
   // GET /simulation-attempts/:id/recording - Get presigned download URL for the attempt's recording
-  fastify.get('/simulation-attempts/:id/recording', async (request, reply) => {
+  fastify.get('/simulation-attempts/:id/recording', { preHandler: authenticate }, async (request, reply) => {
     try {
       const { id } = simulationAttemptParamsSchema.parse(request.params)
+      const attempt = await fastify.prisma.simulationAttempt.findUnique({
+        where: { id },
+        select: { studentId: true },
+      })
+      if (!attempt) {
+        reply.status(404).send({ error: 'Simulation attempt not found' })
+        return
+      }
+      if (!canAccessStudentResource(request, attempt.studentId)) {
+        reply.status(403).send({ error: 'Forbidden' })
+        return
+      }
       const recording = await fastify.prisma.recording.findUnique({
         where: { attemptType_attemptId: { attemptType: 'CASE', attemptId: id } },
       })
