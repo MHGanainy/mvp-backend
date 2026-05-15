@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { InterviewSimulationAttemptService } from "./interview-simulation-attempt.service";
 import { aiFeedbackService } from "../simulation-attempt/ai-feedback.service";
 import { replyInternalError } from '../../shared/route-error'
+import { presignRecordingDownload } from "../../shared/s3";
 import {
   createInterviewSimulationAttemptSchema,
   completeInterviewSimulationAttemptSchema,
@@ -691,4 +692,22 @@ export default async function interviewSimulationAttemptRoutes(
       }
     }
   });
+
+  // GET /interview-simulation-attempts/:id/recording - Get presigned download URL for the attempt's recording
+  fastify.get('/interview-simulation-attempts/:id/recording', async (request, reply) => {
+    try {
+      const { id } = interviewSimulationAttemptParamsSchema.parse(request.params)
+      const recording = await fastify.prisma.recording.findUnique({
+        where: { attemptType_attemptId: { attemptType: 'INTERVIEW', attemptId: id } },
+      })
+      if (!recording || recording.status !== 'READY') {
+        reply.status(404).send({ error: 'Recording not available' })
+        return
+      }
+      const download = await presignRecordingDownload(recording.s3Key)
+      reply.send({ url: download.url, expiresAt: download.expiresAt, status: recording.status })
+    } catch (error) {
+      replyInternalError(request, reply, error, 'Failed to get recording URL')
+    }
+  })
 }
