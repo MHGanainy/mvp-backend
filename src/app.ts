@@ -110,7 +110,7 @@ export async function buildApp(opts: BuildAppOptions) {
     'application/json',
     { parseAs: 'buffer' },
     async (req: { url?: string }, body: Buffer) => {
-      if (req.url?.includes('/webhooks/stripe')) {
+      if (req.url?.includes('/webhooks/stripe') || req.url?.includes('/webhooks/livekit')) {
         (req as { rawBody?: string }).rawBody = body.toString('utf-8');
       }
       const str = body.toString('utf-8');
