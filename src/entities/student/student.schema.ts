@@ -32,6 +32,7 @@ export const updateStudentSchema = z.object({
     .max(50, 'Last name must be less than 50 characters')
     .trim()
     .optional(),
+  recordingEnabled: z.boolean().optional(),
   // dateOfBirth removed - accept but ignore for backward compatibility
   dateOfBirth: z.any().optional()
   // Note: creditBalance updates will be handled by separate business methods
