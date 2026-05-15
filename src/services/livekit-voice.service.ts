@@ -2,7 +2,15 @@ import axios, { AxiosInstance } from "axios";
 import { FastifyBaseLogger } from "fastify";
 import pino from "pino";
 import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
-import { RoomAgentDispatch, RoomConfiguration } from "@livekit/protocol";
+import {
+  RoomAgentDispatch,
+  RoomConfiguration,
+  RoomEgress,
+  RoomCompositeEgressRequest,
+  EncodedFileOutput,
+  EncodedFileType,
+  S3Upload,
+} from "@livekit/protocol";
 
 const defaultLog = pino({ level: process.env.LOG_LEVEL || "info" });
 
@@ -62,6 +70,7 @@ export class LiveKitVoiceService {
       systemPrompt: string;
       openingLine: string;
       voiceId?: string;
+      recording?: { enabled: boolean; s3Key: string };
     },
   ): Promise<{
     token: string;
@@ -96,6 +105,7 @@ export class LiveKitVoiceService {
       systemPrompt: string;
       openingLine: string;
       voiceId?: string;
+      recording?: { enabled: boolean; s3Key: string };
     },
   ): Promise<{ token: string; serverUrl: string; roomName: string }> {
     if (!this.roomService) {
@@ -126,6 +136,33 @@ export class LiveKitVoiceService {
       caseType: "simulation",
     });
 
+    const egress =
+      config.recording?.enabled
+        ? new RoomEgress({
+            room: new RoomCompositeEgressRequest({
+              roomName,
+              audioOnly: true,
+              fileOutputs: [
+                new EncodedFileOutput({
+                  fileType: EncodedFileType.OGG,
+                  filepath: config.recording.s3Key,
+                  output: {
+                    case: 's3',
+                    value: new S3Upload({
+                      accessKey: process.env.AWS_ACCESS_KEY_ID || '',
+                      secret: process.env.AWS_SECRET_ACCESS_KEY || '',
+                      region: process.env.AWS_S3_REGION || 'eu-west-2',
+                      bucket:
+                        process.env.AWS_S3_RECORDINGS_BUCKET ||
+                        'simsbuddy-recordings-dev',
+                    }),
+                  },
+                }),
+              ],
+            }),
+          })
+        : undefined
+
     await this.roomService.createRoom({
       name: roomName,
       metadata: roomMetadata,
@@ -137,6 +174,7 @@ export class LiveKitVoiceService {
           metadata: roomMetadata,
         }),
       ],
+      egress,
     });
 
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
@@ -160,6 +198,8 @@ export class LiveKitVoiceService {
         roomName,
         serverUrl: LIVEKIT_URL,
         tokenLength: token.length,
+        recordingEnabled: !!egress,
+        s3Key: config.recording?.s3Key,
         mode: "livekit-agents",
       },
       "LiveKit room created with agent dispatch",

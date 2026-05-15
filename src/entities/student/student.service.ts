@@ -201,21 +201,12 @@ export class StudentService {
   }
 
   async update(id: string, data: UpdateStudentInput) {
-    // Check if exists first
     await this.findById(id)
 
-    // Filter out dateOfBirth if it's provided (for backward compatibility)
-    const updateData: any = {
-      firstName: data.firstName,
-      lastName: data.lastName
-    }
-
-    // Remove undefined values
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined) {
-        delete updateData[key]
-      }
-    })
+    const updateData: Record<string, unknown> = {}
+    if (data.firstName !== undefined) { updateData.firstName = data.firstName }
+    if (data.lastName !== undefined) { updateData.lastName = data.lastName }
+    if (data.recordingEnabled !== undefined) { updateData.recordingEnabled = data.recordingEnabled }
 
     return await this.prisma.student.update({
       where: { id },

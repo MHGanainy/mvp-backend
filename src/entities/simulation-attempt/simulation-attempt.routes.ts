@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { SimulationAttemptService } from "./simulation-attempt.service";
 import { aiFeedbackService } from "./ai-feedback.service";
+import { presignDownloadUrl, RECORDINGS_BUCKET } from "../../shared/s3";
 import {
   createSimulationAttemptSchema,
   completeSimulationAttemptSchema,
@@ -788,4 +789,34 @@ export default async function simulationAttemptRoutes(
       }
     }
   });
+
+  // GET /simulation-attempts/:id/recording - Get presigned download URL for the attempt's recording
+  fastify.get('/simulation-attempts/:id/recording', { preHandler: authenticate }, async (request, reply) => {
+    try {
+      const { id } = simulationAttemptParamsSchema.parse(request.params)
+      const attempt = await fastify.prisma.simulationAttempt.findUnique({
+        where: { id },
+        select: { studentId: true },
+      })
+      if (!attempt) {
+        reply.status(404).send({ error: 'Simulation attempt not found' })
+        return
+      }
+      if (!canAccessStudentResource(request, attempt.studentId)) {
+        reply.status(403).send({ error: 'Forbidden' })
+        return
+      }
+      const recording = await fastify.prisma.recording.findUnique({
+        where: { attemptType_attemptId: { attemptType: 'CASE', attemptId: id } },
+      })
+      if (!recording || recording.status !== 'READY') {
+        reply.status(404).send({ error: 'Recording not available' })
+        return
+      }
+      const download = await presignDownloadUrl(RECORDINGS_BUCKET, recording.s3Key)
+      reply.send({ url: download.url, expiresAt: download.expiresAt, status: recording.status })
+    } catch (error) {
+      replyInternalError(request, reply, error, 'Failed to get recording URL')
+    }
+  })
 }

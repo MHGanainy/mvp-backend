@@ -5,9 +5,9 @@ import {
   CompleteSimulationAttemptInput,
   UpdateSimulationAttemptInput,
 } from "./simulation-attempt.schema";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { createAIFeedbackService, AIProvider } from "./ai-feedback.service";
-import { livekitVoiceService } from "../../services/livekit-voice.service";
+import { livekitVoiceService, useVoiceAgentV2 } from "../../services/livekit-voice.service";
 import {
   TranscriptProcessorService,
   VoiceAgentTranscript,
@@ -204,15 +204,21 @@ export class SimulationAttemptService {
     }
 
     // =========================================================================
-    // STEP 3: Create Simulation Attempt Record
+    // STEP 3: Create Simulation Attempt Record (+ Recording row if enabled)
     // =========================================================================
     const correlationToken = this.generateCorrelationToken();
+    const recordingEnabled =
+      useVoiceAgentV2({ userId: studentEmail }) && student.recordingEnabled === true
+    const recordingS3Key = recordingEnabled
+      ? `simulation-recordings/case/${correlationToken}.ogg`
+      : null
 
     this.log.info({
       studentEmail,
       studentId: data.studentId,
       simulationId: data.simulationId,
       correlationToken,
+      recordingEnabled,
       lifecycle: 'SIMULATION_CREATE',
       stage: 'DATABASE',
       step: '3/4',
@@ -220,13 +226,34 @@ export class SimulationAttemptService {
     }, '[STEP 3/4] Creating simulation attempt record');
 
     const attemptCreateStart = Date.now();
-    const attempt = await this.prisma.simulationAttempt.create({
-      data: {
-        studentId: data.studentId,
-        simulationId: data.simulationId,
-        startedAt: new Date(),
-        correlationToken: correlationToken,
-      },
+    const attemptId = randomUUID()
+    await this.prisma.$transaction([
+      this.prisma.simulationAttempt.create({
+        data: {
+          id: attemptId,
+          studentId: data.studentId,
+          simulationId: data.simulationId,
+          startedAt: new Date(),
+          correlationToken: correlationToken,
+        },
+      }),
+      ...(recordingEnabled && recordingS3Key
+        ? [
+            this.prisma.recording.create({
+              data: {
+                id: randomUUID(),
+                attemptType: 'CASE',
+                attemptId,
+                status: 'PENDING',
+                s3Key: recordingS3Key,
+              },
+            }),
+          ]
+        : []),
+    ])
+
+    const attempt = await this.prisma.simulationAttempt.findUniqueOrThrow({
+      where: { id: attemptId },
       include: {
         student: {
           select: {
@@ -251,7 +278,7 @@ export class SimulationAttemptService {
           },
         },
       },
-    });
+    })
     const attemptCreateDurationMs = Date.now() - attemptCreateStart;
 
     this.log.info({
@@ -300,6 +327,9 @@ export class SimulationAttemptService {
           systemPrompt: attempt.simulation.casePrompt,
           openingLine: attempt.simulation.openingLine,
           voiceId: voiceId,
+          recording: recordingEnabled && recordingS3Key
+            ? { enabled: true, s3Key: recordingS3Key }
+            : undefined,
         }
       );
       const livekitCreateDurationMs = Date.now() - livekitCreateStart;

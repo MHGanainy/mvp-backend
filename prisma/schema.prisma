@@ -77,6 +77,7 @@ model Student {
   creditBalance                Int                           @default(0) @map("credit_balance")
   stripeCustomerId             String?                       @unique @map("stripe_customer_id")
   defaultPaymentMethod         String?                       @map("default_payment_method")
+  recordingEnabled             Boolean                       @default(true) @map("recording_enabled")
   createdAt                    DateTime                      @default(now()) @map("created_at")
   updatedAt                    DateTime                      @updatedAt @map("updated_at")
   creditTransactions           CreditTransaction[]
@@ -1282,6 +1283,17 @@ model MockExamSlot {
   @@map("mock_exam_slots")
 }
 
+enum AttemptType {
+  CASE
+  INTERVIEW
+}
+
+enum RecordingStatus {
+  PENDING
+  READY
+  FAILED
+}
+
 enum PermissionRole {
   case_collaborator
   case_editor
@@ -1310,4 +1322,22 @@ model PermissionGrant {
   @@index([resourceType, resourceId])
   @@index([userId])
   @@map("permission_grants")
+}
+
+model Recording {
+  id              String          @id @default(uuid())
+  attemptType     AttemptType     @map("attempt_type")
+  attemptId       String          @map("attempt_id")
+  status          RecordingStatus @default(PENDING)
+  s3Key           String          @map("s3_key")
+  egressId        String?         @unique @map("egress_id")
+  durationSeconds Int?            @map("duration_seconds")
+  bytes           BigInt?
+  failureReason   String?         @map("failure_reason")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@unique([attemptType, attemptId])
+  @@index([status, createdAt])
+  @@map("recordings")
 }
