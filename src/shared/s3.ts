@@ -1,4 +1,5 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 const s3Client = new S3Client({
   region: process.env.AWS_S3_REGION || 'eu-west-2',
@@ -36,4 +37,18 @@ export async function uploadToS3(
   }
 }
 
-export { s3Client, BUCKET, CDN_BASE_URL }
+const RECORDINGS_BUCKET = process.env.AWS_S3_RECORDINGS_BUCKET || 'simsbuddy-recordings-dev'
+const PRESIGN_TTL = parseInt(process.env.RECORDING_PRESIGN_TTL_SECONDS || '900', 10)
+
+export interface PresignedDownload {
+  url: string
+  expiresAt: Date
+}
+
+export async function presignRecordingDownload(key: string): Promise<PresignedDownload> {
+  const command = new GetObjectCommand({ Bucket: RECORDINGS_BUCKET, Key: key })
+  const url = await getSignedUrl(s3Client, command, { expiresIn: PRESIGN_TTL })
+  return { url, expiresAt: new Date(Date.now() + PRESIGN_TTL * 1000) }
+}
+
+export { s3Client, BUCKET, CDN_BASE_URL, RECORDINGS_BUCKET }
