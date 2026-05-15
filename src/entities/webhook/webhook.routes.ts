@@ -3,6 +3,10 @@ import { StripeWebhookService } from '../../services/stripe-webhook.service';
 import { LiveKitWebhookService } from '../../services/livekit-webhook.service';
 
 export default async function webhookRoutes(fastify: FastifyInstance) {
+  fastify.addContentTypeParser('application/webhook+json', { parseAs: 'buffer' }, (req, body, done) => {
+    (req as unknown as { rawBody?: string }).rawBody = body.toString('utf-8');
+    done(null, body);
+  });
   // POST /webhooks/stripe - Stripe webhook endpoint
   // CRITICAL: No authentication - Stripe needs direct access
   // Security is handled via signature verification

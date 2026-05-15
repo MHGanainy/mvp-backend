@@ -302,6 +302,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
             firstName: user.student.firstName,
             lastName: user.student.lastName,
             creditBalance: isAdmin ? 999999 : user.student.creditBalance,
+            recordingEnabled: user.student.recordingEnabled,
           };
         } else if (role === "instructor" && user.instructor) {
           profile = {

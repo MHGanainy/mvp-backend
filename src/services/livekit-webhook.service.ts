@@ -47,6 +47,7 @@ export class LiveKitWebhookService {
   }
 
   async handle(event: WebhookEvent): Promise<void> {
+    this.log.info({ event: event.event }, 'Received LiveKit webhook event')
     if (event.event !== 'egress_started' && event.event !== 'egress_ended') {
       return
     }
@@ -88,7 +89,7 @@ export class LiveKitWebhookService {
       where: { id: recording.id },
       data: {
         status: succeeded ? 'READY' : 'FAILED',
-        durationSeconds: file?.duration ? Number(file.duration) : null,
+        durationSeconds: file?.duration ? Math.round(Number(file.duration) / 1e9) : null,
         bytes: file?.size ? BigInt(file.size) : null,
         failureReason: succeeded ? null : (egressInfo.error || null),
       },
