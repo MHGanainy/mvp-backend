@@ -2,7 +2,7 @@ import { FastifyInstance } from "fastify";
 import { InterviewSimulationAttemptService } from "./interview-simulation-attempt.service";
 import { aiFeedbackService } from "../simulation-attempt/ai-feedback.service";
 import { replyInternalError } from '../../shared/route-error'
-import { presignRecordingDownload } from "../../shared/s3";
+import { presignDownloadUrl, RECORDINGS_BUCKET } from "../../shared/s3";
 import {
   createInterviewSimulationAttemptSchema,
   completeInterviewSimulationAttemptSchema,
@@ -704,7 +704,7 @@ export default async function interviewSimulationAttemptRoutes(
         reply.status(404).send({ error: 'Recording not available' })
         return
       }
-      const download = await presignRecordingDownload(recording.s3Key)
+      const download = await presignDownloadUrl(RECORDINGS_BUCKET, recording.s3Key)
       reply.send({ url: download.url, expiresAt: download.expiresAt, status: recording.status })
     } catch (error) {
       replyInternalError(request, reply, error, 'Failed to get recording URL')

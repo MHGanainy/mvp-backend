@@ -3,13 +3,13 @@ import { FastifyInstance } from 'fastify'
 import { buildTestApp } from '../../../test/helpers/build-test-app'
 import { prisma } from '../../../test/helpers/db'
 import { makeStudent } from '../../../test/factories/student'
-import { makeCourse } from '../../../test/factories/course'
+import { makeSimulation } from '../../../test/factories/course'
 
 vi.mock('../../shared/s3', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../shared/s3')>()
   return {
     ...actual,
-    presignRecordingDownload: vi.fn().mockResolvedValue({
+    presignDownloadUrl: vi.fn().mockResolvedValue({
       url: 'https://mock-s3.example.com/recording.ogg?signed=1',
       expiresAt: new Date('2099-01-01T00:00:00Z'),
     }),
@@ -27,30 +27,7 @@ afterAll(async () => {
 
 async function makeAttemptWithRecording(status: 'PENDING' | 'READY' | 'FAILED' = 'READY') {
   const { student } = await makeStudent(prisma, { creditBalance: 10 })
-  const course = await makeCourse(prisma)
-  const courseCase = await prisma.courseCase.create({
-    data: {
-      courseId: course.id,
-      title: 'Recording Download Test',
-      diagnosis: 'Test',
-      patientName: 'Pat',
-      patientAge: 30,
-      patientGender: 'MALE',
-      description: 'Test',
-      isFree: false,
-      isActive: true,
-      displayOrder: 1,
-    },
-  })
-  const simulation = await prisma.simulation.create({
-    data: {
-      courseCaseId: courseCase.id,
-      casePrompt: 'prompt',
-      openingLine: 'hello',
-      timeLimitMinutes: 10,
-      voiceModel: 'VOICE_1',
-    },
-  })
+  const simulation = await makeSimulation(prisma)
   const correlationToken = `rec_dl_test_${Date.now()}`
   const attempt = await prisma.simulationAttempt.create({
     data: {
@@ -75,30 +52,7 @@ async function makeAttemptWithRecording(status: 'PENDING' | 'READY' | 'FAILED' =
 describe('GET /api/simulation-attempts/:id/recording', () => {
   it('returns 404 when attempt has no recording', async () => {
     const { student } = await makeStudent(prisma, { creditBalance: 10 })
-    const course = await makeCourse(prisma)
-    const courseCase = await prisma.courseCase.create({
-      data: {
-        courseId: course.id,
-        title: 'No Recording Case',
-        diagnosis: 'Test',
-        patientName: 'Pat',
-        patientAge: 30,
-        patientGender: 'MALE',
-        description: 'Test',
-        isFree: false,
-        isActive: true,
-        displayOrder: 1,
-      },
-    })
-    const simulation = await prisma.simulation.create({
-      data: {
-        courseCaseId: courseCase.id,
-        casePrompt: 'prompt',
-        openingLine: 'hello',
-        timeLimitMinutes: 10,
-        voiceModel: 'VOICE_1',
-      },
-    })
+    const simulation = await makeSimulation(prisma)
     const attempt = await prisma.simulationAttempt.create({
       data: {
         studentId: student.id,

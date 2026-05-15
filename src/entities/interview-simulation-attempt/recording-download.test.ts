@@ -3,13 +3,13 @@ import { FastifyInstance } from 'fastify'
 import { buildTestApp } from '../../../test/helpers/build-test-app'
 import { prisma } from '../../../test/helpers/db'
 import { makeStudent } from '../../../test/factories/student'
-import { makeInstructor } from '../../../test/factories/instructor'
+import { makeInterviewSimulation } from '../../../test/factories/interview'
 
 vi.mock('../../shared/s3', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../shared/s3')>()
   return {
     ...actual,
-    presignRecordingDownload: vi.fn().mockResolvedValue({
+    presignDownloadUrl: vi.fn().mockResolvedValue({
       url: 'https://mock-s3.example.com/interview-recording.ogg?signed=1',
       expiresAt: new Date('2099-01-01T00:00:00Z'),
     }),
@@ -27,38 +27,7 @@ afterAll(async () => {
 
 async function makeInterviewAttemptWithRecording(status: 'PENDING' | 'READY' | 'FAILED' = 'READY') {
   const { student } = await makeStudent(prisma, { creditBalance: 10 })
-  const { instructor } = await makeInstructor(prisma)
-  const interview = await prisma.interview.create({
-    data: {
-      instructorId: instructor.id,
-      title: 'Recording DL Test Interview',
-      slug: `rec-dl-interview-${Date.now()}`,
-    },
-  })
-  const interviewCourse = await prisma.interviewCourse.create({
-    data: { interviewId: interview.id, instructorId: instructor.id, title: 'Test Course' },
-  })
-  const interviewCase = await prisma.interviewCase.create({
-    data: {
-      interviewCourseId: interviewCourse.id,
-      title: 'Test Case',
-      diagnosis: 'Diag',
-      patientName: 'Pat',
-      patientAge: 30,
-      patientGender: 'MALE',
-      description: 'Desc',
-      displayOrder: 1,
-    },
-  })
-  const interviewSimulation = await prisma.interviewSimulation.create({
-    data: {
-      interviewCaseId: interviewCase.id,
-      casePrompt: 'prompt',
-      openingLine: 'hello',
-      timeLimitMinutes: 10,
-      voiceModel: 'VOICE_1',
-    },
-  })
+  const { interviewSimulation } = await makeInterviewSimulation(prisma)
   const correlationToken = `irec_dl_${Date.now()}`
   const attempt = await prisma.interviewSimulationAttempt.create({
     data: {
@@ -83,38 +52,7 @@ async function makeInterviewAttemptWithRecording(status: 'PENDING' | 'READY' | '
 describe('GET /api/interview-simulation-attempts/:id/recording', () => {
   it('returns 404 when attempt has no recording', async () => {
     const { student } = await makeStudent(prisma, { creditBalance: 10 })
-    const { instructor } = await makeInstructor(prisma)
-    const interview = await prisma.interview.create({
-      data: {
-        instructorId: instructor.id,
-        title: 'No Rec Interview',
-        slug: `no-rec-interview-${Date.now()}`,
-      },
-    })
-    const interviewCourse = await prisma.interviewCourse.create({
-      data: { interviewId: interview.id, instructorId: instructor.id, title: 'Course' },
-    })
-    const interviewCase = await prisma.interviewCase.create({
-      data: {
-        interviewCourseId: interviewCourse.id,
-        title: 'Case',
-        diagnosis: 'Diag',
-        patientName: 'Pat',
-        patientAge: 30,
-        patientGender: 'MALE',
-        description: 'Desc',
-        displayOrder: 1,
-      },
-    })
-    const interviewSimulation = await prisma.interviewSimulation.create({
-      data: {
-        interviewCaseId: interviewCase.id,
-        casePrompt: 'prompt',
-        openingLine: 'hello',
-        timeLimitMinutes: 10,
-        voiceModel: 'VOICE_1',
-      },
-    })
+    const { interviewSimulation } = await makeInterviewSimulation(prisma)
     const attempt = await prisma.interviewSimulationAttempt.create({
       data: {
         studentId: student.id,

@@ -45,8 +45,8 @@ export interface PresignedDownload {
   expiresAt: Date
 }
 
-export async function presignRecordingDownload(key: string): Promise<PresignedDownload> {
-  const command = new GetObjectCommand({ Bucket: RECORDINGS_BUCKET, Key: key })
+export async function presignDownloadUrl(bucket: string, key: string): Promise<PresignedDownload> {
+  const command = new GetObjectCommand({ Bucket: bucket, Key: key })
   const url = await getSignedUrl(s3Client, command, { expiresIn: PRESIGN_TTL })
   return { url, expiresAt: new Date(Date.now() + PRESIGN_TTL * 1000) }
 }

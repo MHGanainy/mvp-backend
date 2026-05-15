@@ -20,32 +20,34 @@ vi.mock('@aws-sdk/client-s3', () => {
 })
 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { presignRecordingDownload } from './s3'
+import { presignDownloadUrl } from './s3'
 
-describe('presignRecordingDownload', () => {
+describe('presignDownloadUrl', () => {
   beforeEach(() => {
     vi.mocked(getSignedUrl).mockResolvedValue('https://s3.example.com/presigned?X-Amz-Expires=900')
   })
 
   it('returns a url and expiresAt for a given key', async () => {
-    const result = await presignRecordingDownload('simulation-recordings/case/abc123.ogg')
+    const result = await presignDownloadUrl('test-bucket', 'simulation-recordings/case/abc123.ogg')
     expect(result.url).toBe('https://s3.example.com/presigned?X-Amz-Expires=900')
     expect(result.expiresAt).toBeInstanceOf(Date)
   })
 
-  it('expiresAt is approximately 15 minutes in the future', async () => {
+  it('expiresAt is in the future by the configured TTL', async () => {
+    const expectedTtlMs = parseInt(process.env.RECORDING_PRESIGN_TTL_SECONDS || '900', 10) * 1000
     const before = Date.now()
-    const result = await presignRecordingDownload('simulation-recordings/case/abc123.ogg')
+    const result = await presignDownloadUrl('test-bucket', 'simulation-recordings/case/abc123.ogg')
     const after = Date.now()
     const ttl = result.expiresAt.getTime() - before
-    expect(ttl).toBeGreaterThanOrEqual(900 * 1000 - 100)
-    expect(ttl).toBeLessThanOrEqual(900 * 1000 + (after - before) + 100)
+    expect(ttl).toBeGreaterThanOrEqual(expectedTtlMs - 100)
+    expect(ttl).toBeLessThanOrEqual(expectedTtlMs + (after - before) + 100)
   })
 
   it('calls getSignedUrl with a GetObjectCommand', async () => {
-    await presignRecordingDownload('simulation-recordings/interview/xyz.ogg')
+    await presignDownloadUrl('test-bucket', 'simulation-recordings/interview/xyz.ogg')
     expect(getSignedUrl).toHaveBeenCalledOnce()
     const [, command] = vi.mocked(getSignedUrl).mock.calls[0]
+    expect((command as any).input.Bucket).toBe('test-bucket')
     expect((command as any).input.Key).toBe('simulation-recordings/interview/xyz.ogg')
   })
 })

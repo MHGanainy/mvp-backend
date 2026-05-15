@@ -3,7 +3,7 @@ import { FastifyInstance } from 'fastify'
 import { buildTestApp } from '../../../test/helpers/build-test-app'
 import { prisma } from '../../../test/helpers/db'
 import { makeStudent } from '../../../test/factories/student'
-import { makeInstructor } from '../../../test/factories/instructor'
+import { makeInterviewSimulation } from '../../../test/factories/interview'
 
 vi.mock('../../services/livekit-voice.service', () => ({
   livekitVoiceService: {
@@ -31,46 +31,6 @@ vi.mock('../simulation-attempt/ai-feedback.service', () => ({
 
 let app: FastifyInstance
 
-async function makeInterviewSimulation(prisma: Parameters<typeof makeInstructor>[0]) {
-  const { instructor } = await makeInstructor(prisma)
-  const interview = await prisma.interview.create({
-    data: {
-      instructorId: instructor.id,
-      title: 'Test Interview',
-      slug: `test-interview-${Date.now()}`,
-    },
-  })
-  const interviewCourse = await prisma.interviewCourse.create({
-    data: {
-      interviewId: interview.id,
-      instructorId: instructor.id,
-      title: 'Test Interview Course',
-    },
-  })
-  const interviewCase = await prisma.interviewCase.create({
-    data: {
-      interviewCourseId: interviewCourse.id,
-      title: 'Test Case',
-      diagnosis: 'Test Diagnosis',
-      patientName: 'Test Patient',
-      patientAge: 40,
-      patientGender: 'FEMALE',
-      description: 'Test description',
-      displayOrder: 1,
-    },
-  })
-  const interviewSimulation = await prisma.interviewSimulation.create({
-    data: {
-      interviewCaseId: interviewCase.id,
-      casePrompt: 'You are an interviewer.',
-      openingLine: 'Tell me about yourself.',
-      timeLimitMinutes: 15,
-      voiceModel: 'VOICE_1',
-    },
-  })
-  return { interviewSimulation }
-}
-
 beforeAll(async () => {
   app = await buildTestApp()
 })
@@ -80,8 +40,7 @@ afterAll(async () => {
 
 describe('Recording row creation when starting an interview simulation attempt', () => {
   it('creates a PENDING Recording row when student has recordingEnabled=true', async () => {
-    const { student } = await makeStudent(prisma, { creditBalance: 10 })
-    await prisma.student.update({ where: { id: student.id }, data: { recordingEnabled: true } })
+    const { student } = await makeStudent(prisma, { creditBalance: 10, recordingEnabled: true })
     const { interviewSimulation } = await makeInterviewSimulation(prisma)
 
     const res = await app.inject({
@@ -102,8 +61,7 @@ describe('Recording row creation when starting an interview simulation attempt',
   })
 
   it('does not create a Recording row when student has recordingEnabled=false', async () => {
-    const { student } = await makeStudent(prisma, { creditBalance: 10 })
-    await prisma.student.update({ where: { id: student.id }, data: { recordingEnabled: false } })
+    const { student } = await makeStudent(prisma, { creditBalance: 10, recordingEnabled: false })
     const { interviewSimulation } = await makeInterviewSimulation(prisma)
 
     const res = await app.inject({

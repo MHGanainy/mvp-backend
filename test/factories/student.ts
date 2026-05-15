@@ -10,6 +10,7 @@ export async function makeStudent(
     lastName?: string;
     creditBalance?: number;
     isAdmin?: boolean;
+    recordingEnabled?: boolean;
   },
 ) {
   const user = await makeUser(prisma, {
@@ -24,6 +25,7 @@ export async function makeStudent(
       firstName: overrides?.firstName ?? 'Test',
       lastName: overrides?.lastName ?? 'Student',
       creditBalance: overrides?.creditBalance ?? 0,
+      ...(overrides?.recordingEnabled !== undefined ? { recordingEnabled: overrides.recordingEnabled } : {}),
     },
   });
 
