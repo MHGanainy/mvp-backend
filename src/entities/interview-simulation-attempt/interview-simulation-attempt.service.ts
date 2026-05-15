@@ -5,9 +5,9 @@ import {
   CompleteInterviewSimulationAttemptInput,
   UpdateInterviewSimulationAttemptInput,
 } from "./interview-simulation-attempt.schema";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { createAIFeedbackService, AIProvider } from "../simulation-attempt/ai-feedback.service";
-import { livekitVoiceService } from "../../services/livekit-voice.service";
+import { livekitVoiceService, useVoiceAgentV2 } from "../../services/livekit-voice.service";
 import {
   TranscriptProcessorService,
   VoiceAgentTranscript,
@@ -73,16 +73,41 @@ export class InterviewSimulationAttemptService {
     }
 
     const correlationToken = this.generateCorrelationToken();
+    const studentEmail = student.user.email || String(student.user.id)
+    const recordingEnabled =
+      useVoiceAgentV2({ userId: studentEmail }) && student.recordingEnabled === true
+    const recordingS3Key = recordingEnabled
+      ? `simulation-recordings/interview/${correlationToken}.ogg`
+      : null
 
-    // Create attempt WITHOUT deducting credits
-    // Credits will be deducted per-minute by the billing webhook (except for admin)
-    const attempt = await this.prisma.interviewSimulationAttempt.create({
-      data: {
-        studentId: data.studentId,
-        interviewSimulationId: data.interviewSimulationId,
-        startedAt: new Date(),
-        correlationToken: correlationToken,
-      },
+    const attemptId = randomUUID()
+    await this.prisma.$transaction([
+      this.prisma.interviewSimulationAttempt.create({
+        data: {
+          id: attemptId,
+          studentId: data.studentId,
+          interviewSimulationId: data.interviewSimulationId,
+          startedAt: new Date(),
+          correlationToken: correlationToken,
+        },
+      }),
+      ...(recordingEnabled && recordingS3Key
+        ? [
+            this.prisma.recording.create({
+              data: {
+                id: randomUUID(),
+                attemptType: 'INTERVIEW',
+                attemptId,
+                status: 'PENDING',
+                s3Key: recordingS3Key,
+              },
+            }),
+          ]
+        : []),
+    ])
+
+    const attempt = await this.prisma.interviewSimulationAttempt.findUniqueOrThrow({
+      where: { id: attemptId },
       include: {
         student: {
           select: {
@@ -131,6 +156,9 @@ export class InterviewSimulationAttemptService {
           systemPrompt: attempt.interviewSimulation.casePrompt,
           openingLine: attempt.interviewSimulation.openingLine,
           voiceId: voiceId,
+          recording: recordingEnabled && recordingS3Key
+            ? { enabled: true, s3Key: recordingS3Key }
+            : undefined,
         }
       );
 
