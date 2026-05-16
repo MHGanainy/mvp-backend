@@ -125,7 +125,7 @@ describe('POST /api/webhooks/livekit', () => {
         egressId: 'egress-ready-456',
         roomName: attempt.correlationToken,
         status: 3, // EGRESS_COMPLETE
-        fileResults: [{ filename: 'test.ogg', duration: 120, size: 4096000 }],
+        fileResults: [{ filename: 'test.ogg', duration: 120*1e9, size: 4096000 }],
       },
     })
     expect(res.statusCode).toBe(200)

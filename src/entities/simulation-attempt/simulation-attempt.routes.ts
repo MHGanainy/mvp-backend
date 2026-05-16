@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { SimulationAttemptService } from "./simulation-attempt.service";
 import { aiFeedbackService } from "./ai-feedback.service";
 import { presignDownloadUrl, RECORDINGS_BUCKET } from "../../shared/s3";
@@ -790,10 +791,11 @@ export default async function simulationAttemptRoutes(
     }
   });
 
-  // GET /simulation-attempts/:id/recording - Get presigned download URL for the attempt's recording
+  // GET /simulation-attempts/:id/recording - Get the attempt's recording status, optionally with a presigned download URL
   fastify.get('/simulation-attempts/:id/recording', { preHandler: authenticate }, async (request, reply) => {
     try {
       const { id } = simulationAttemptParamsSchema.parse(request.params)
+      const { include_url } = recordingQuerySchema.parse(request.query)
       const attempt = await fastify.prisma.simulationAttempt.findUnique({
         where: { id },
         select: { studentId: true },
@@ -809,7 +811,15 @@ export default async function simulationAttemptRoutes(
       const recording = await fastify.prisma.recording.findUnique({
         where: { attemptType_attemptId: { attemptType: 'CASE', attemptId: id } },
       })
-      if (!recording || recording.status !== 'READY') {
+      if (!recording) {
+        reply.status(404).send({ error: 'Recording not available' })
+        return
+      }
+      if (!include_url) {
+        reply.send({ status: recording.status })
+        return
+      }
+      if (recording.status !== 'READY') {
         reply.status(404).send({ error: 'Recording not available' })
         return
       }
@@ -820,3 +830,10 @@ export default async function simulationAttemptRoutes(
     }
   })
 }
+
+const recordingQuerySchema = z.object({
+  include_url: z
+    .union([z.boolean(), z.enum(['true', 'false'])])
+    .transform((v) => (typeof v === 'boolean' ? v : v === 'true'))
+    .default(false),
+})
