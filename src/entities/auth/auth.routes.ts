@@ -316,19 +316,52 @@ export default async function authRoutes(fastify: FastifyInstance) {
           return;
         }
 
-        // Return structure matching old version - everything inside user
         reply.send({
           user: {
             id: user.id,
             email: user.email,
             name: user.name,
-            role: role, // ✓ Role INSIDE user
-            isAdmin: isAdmin, // ✓ isAdmin INSIDE user
+            role,
+            isAdmin,
             profile,
+            hasStudentProfile: !!user.student,
+            hasInstructorProfile: !!user.instructor,
           },
         });
       } catch (error) {
         replyInternalError(request, reply, error, "Failed to fetch user information");
+      }
+    }
+  );
+
+  // POST /auth/switch-role - Switch active role for dual-role users
+  fastify.post(
+    "/auth/switch-role",
+    {
+      preHandler: async (request, reply) => {
+        try {
+          await request.jwtVerify();
+        } catch {
+          reply.status(401).send({ error: "Unauthorized" });
+        }
+      },
+    },
+    async (request, reply) => {
+      try {
+        const userId = (request.user as any).userId as number;
+        const { targetRole } = request.body as { targetRole: "student" | "instructor" };
+
+        if (targetRole !== "student" && targetRole !== "instructor") {
+          return reply.status(400).send({ error: "targetRole must be student or instructor" });
+        }
+
+        const result = await authService.switchRole(userId, targetRole);
+        reply.send(result);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("does not have")) {
+          return reply.status(403).send({ error: error.message });
+        }
+        replyInternalError(request, reply, error, "Failed to switch role");
       }
     }
   );

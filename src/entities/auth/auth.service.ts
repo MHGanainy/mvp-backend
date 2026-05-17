@@ -987,6 +987,64 @@ export class AuthService {
     };
   }
 
+  async switchRole(userId: number, targetRole: "student" | "instructor") {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { student: true, instructor: true },
+    });
+
+    if (!user) throw new Error("User not found");
+
+    if (targetRole === "student" && !user.student) {
+      throw new Error("User does not have a student profile");
+    }
+    if (targetRole === "instructor" && !user.instructor) {
+      throw new Error("User does not have an instructor profile");
+    }
+
+    const profile =
+      targetRole === "student"
+        ? {
+            id: user.student!.id,
+            firstName: user.student!.firstName,
+            lastName: user.student!.lastName,
+            creditBalance: user.student!.creditBalance,
+          }
+        : {
+            id: user.instructor!.id,
+            firstName: user.instructor!.firstName,
+            lastName: user.instructor!.lastName,
+            bio: user.instructor!.bio,
+          };
+
+    const payload: JWTPayload = {
+      userId: user.id,
+      role: targetRole,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      studentId: targetRole === "student" ? user.student?.id : undefined,
+      instructorId: targetRole === "instructor" ? user.instructor?.id : undefined,
+    };
+
+    const accessToken = await this.generateAccessToken(payload);
+    const refreshToken = await this.generateRefreshToken(payload);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 3600,
+      role: targetRole,
+      isAdmin: user.isAdmin,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        isAdmin: user.isAdmin,
+        profile,
+      },
+    };
+  }
+
   // Change Password (for authenticated users)
   async changePassword(userId: number, data: ChangePasswordInput) {
     const user = await this.prisma.user.findUnique({
