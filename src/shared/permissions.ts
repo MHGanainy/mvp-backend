@@ -7,6 +7,7 @@ export type Permission =
   | 'case.edit'
   | 'case.publish'
   | 'case.delete'
+  | 'course.edit'
 
 export const ROLE_PERMISSIONS: Record<PermissionRole, ReadonlyArray<Permission>> = {
   case_collaborator: ['case.create', 'case.edit'],
@@ -375,7 +376,7 @@ const ALL_FALSE: ResourcePermissions = { canEdit: false, canPublish: false, canD
 
 function derivePermissions(grantedPerms: ReadonlySet<Permission>): ResourcePermissions {
   return {
-    canEdit: grantedPerms.has('case.edit'),
+    canEdit: grantedPerms.has('course.edit'),
     canPublish: grantedPerms.has('case.publish'),
     canDelete: grantedPerms.has('case.delete'),
   }
