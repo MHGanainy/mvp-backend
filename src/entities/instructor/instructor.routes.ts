@@ -1,11 +1,13 @@
 import { z } from 'zod'
 import { FastifyInstance } from 'fastify'
 import { InstructorService } from './instructor.service'
-import { 
-  createInstructorSchema, 
-  updateInstructorSchema 
+import {
+  createInstructorSchema,
+  updateInstructorSchema
 } from './instructor.schema'
 import { replyInternalError } from '../../shared/route-error'
+import { authenticate, isAdmin } from '../../middleware/auth.middleware'
+import { emailService } from '../../services/email.service'
 
 // Updated params schema for userId (integer)
 const instructorUserParamsSchema = z.object({
@@ -71,6 +73,34 @@ export default async function instructorRoutes(fastify: FastifyInstance) {
       } else {
         reply.status(400).send({ error: 'Invalid request' })
       }
+    }
+  })
+
+  // POST /admin/users/:userId/grant-instructor — admin grants instructor access to an existing user
+  fastify.post('/admin/users/:userId/grant-instructor', { preHandler: authenticate }, async (request, reply) => {
+    if (!isAdmin(request)) {
+      return reply.status(403).send({ error: 'Admin access required' })
+    }
+    try {
+      const { userId } = instructorUserParamsSchema.parse(request.params)
+      const { bio } = (request.body as { bio?: string }) || {}
+      const instructor = await instructorService.grantInstructorAccess(userId, bio)
+
+      // Fire-and-forget notification email
+      emailService.sendInstructorAccessGrantedEmail(
+        instructor.user.email,
+        instructor.user.name || instructor.firstName,
+      ).catch(() => {})
+
+      reply.status(201).send(instructor)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'User not found') {
+        return reply.status(404).send({ error: 'User not found' })
+      }
+      if (error instanceof Error && error.message === 'User already has an instructor profile') {
+        return reply.status(409).send({ error: 'User already has an instructor profile' })
+      }
+      replyInternalError(request, reply, error, 'Failed to grant instructor access')
     }
   })
 

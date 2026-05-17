@@ -466,6 +466,46 @@ export class EmailService {
     await this.transporter.sendMail(mailOptions);
   }
 
+  async sendInstructorAccessGrantedEmail(email: string, name?: string): Promise<void> {
+    const loginUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/instructor-login`;
+    const mailOptions = {
+      from: `"${process.env.APP_NAME || "Simsbuddy"}" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "You've been granted instructor access on Simsbuddy",
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #003180; color: white; padding: 20px; text-align: center; }
+            .content { background-color: #f9f9f9; padding: 30px; border-radius: 5px; }
+            .cta-button { display: inline-block; padding: 12px 30px; background-color: #003180; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header"><h1>Instructor Access Granted</h1></div>
+            <div class="content">
+              <p>Hi ${name || "there"},</p>
+              <p>Great news! An administrator has granted you <strong>instructor access</strong> on Simsbuddy.</p>
+              <p>You can now log in as an instructor to create and manage courses and clinical simulation cases.</p>
+              <p>Use your existing email and password to sign in at the instructor login page:</p>
+              <a href="${loginUrl}" class="cta-button">Sign in as Instructor</a>
+              <p>If you have any questions, please contact us at hello@simsbuddy.com.</p>
+            </div>
+            <div class="footer"><p>This is an automated email. Please do not reply.</p></div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `Hi ${name || "there"},\n\nAn administrator has granted you instructor access on Simsbuddy.\n\nSign in at: ${loginUrl}\n\nUse your existing email and password.`,
+    };
+    await this.transporter.sendMail(mailOptions);
+  }
+
   // Test email configuration
   async verifyConnection(): Promise<boolean> {
     try {

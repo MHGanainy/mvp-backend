@@ -86,6 +86,32 @@ export class InstructorService {
     })
   }
 
+  async grantInstructorAccess(userId: number, bio?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { student: true, instructor: true },
+    })
+
+    if (!user) {
+      throw new Error('User not found')
+    }
+
+    if (user.instructor) {
+      throw new Error('User already has an instructor profile')
+    }
+
+    const nameParts = (user.name || '').split(' ')
+    const firstName = user.student?.firstName || nameParts[0] || 'Instructor'
+    const lastName = user.student?.lastName || nameParts.slice(1).join(' ') || ''
+
+    const instructor = await this.prisma.instructor.create({
+      data: { userId, firstName, lastName, bio: bio || null },
+      include: { user: true },
+    })
+
+    return instructor
+  }
+
   async delete(id: string) {
     // Check if exists first
     const instructor = await this.findById(id)
