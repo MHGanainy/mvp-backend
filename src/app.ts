@@ -53,6 +53,7 @@ import blogCategoryRoutes from './entities/blog-category/blog-category.routes';
 import tagRoutes from './entities/tag/tag.routes';
 import blogUploadRoutes from './entities/blog-upload/blog-upload.routes';
 import voiceSessionRoutes from './entities/voice-session/voice-session.routes';
+import adminFinanceRoutes from './entities/admin-finance/admin-finance.routes';
 
 export interface BuildAppOptions {
   prisma: PrismaClient;
@@ -211,6 +212,7 @@ export async function buildApp(opts: BuildAppOptions) {
   await app.register(blogCategoryRoutes, { prefix: '/api' });
   await app.register(tagRoutes, { prefix: '/api' });
   await app.register(blogUploadRoutes, { prefix: '/api' });
+  await app.register(adminFinanceRoutes, { prefix: '/api' });
 
   return app;
 }
