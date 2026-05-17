@@ -290,9 +290,9 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PUT /courses/:id - Update course
+  // PUT /courses/:id - Update course (admin only via course.edit — no role has this permission)
   fastify.put('/courses/:id', {
-    preHandler: requirePermission('case.edit', (req) => {
+    preHandler: requirePermission('course.edit', (req) => {
       const { id } = courseParamsSchema.parse(req.params)
       return { kind: 'course', id }
     })
@@ -334,9 +334,9 @@ export default async function courseRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /courses/:id/info-points - Update info points
+  // PATCH /courses/:id/info-points - Update info points (admin only via course.edit)
   fastify.patch('/courses/:id/info-points', {
-    preHandler: requirePermission('case.edit', (req) => {
+    preHandler: requirePermission('course.edit', (req) => {
       const { id } = courseParamsSchema.parse(req.params)
       return { kind: 'course', id }
     })
